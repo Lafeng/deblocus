@@ -125,7 +125,7 @@ func NewD5Params(uri string) (*D5Params, error) {
 // Server
 type D5ServConf struct {
 	Listen          string `importable:":9008"`
-	AuthTable       string `importable:"file:/PATH/YOUR_AUTH_FILE_PATH"`
+	AuthTable       string `importable:"file:///PATH/YOUR_AUTH_FILE_PATH"`
 	Algo            string `importable:"AES128CFB"`
 	MaxTunPerClient int    `importable:"8"`
 	AlgoId          int
@@ -395,5 +395,5 @@ func DetectFile(isServ bool) (string, bool) {
 			return f, true
 		}
 	}
-	return p, false
+	return filepath.Join(p, name), false
 }
