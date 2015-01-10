@@ -96,6 +96,7 @@ func (c *Conn) WHashSum() []byte {
 func Pipe(dst, src net.Conn, sid int32) {
 	defer dst.Close()
 	src.SetReadDeadline(ZERO_TIME)
+	dst.SetWriteDeadline(ZERO_TIME)
 	var written int64
 	var err error
 	buf := make([]byte, 16*1024)
@@ -126,10 +127,11 @@ func Pipe(dst, src net.Conn, sid int32) {
 	if log.V(2) {
 		sAddr := ipAddr(src.RemoteAddr())
 		dAddr := dst.RemoteAddr().String()
-		if e, y := err.(*net.OpError); y && strings.HasPrefix(e.Err.Error(), "use of closed") {
+
+		if e, y := err.(*net.OpError); err == nil || (y && strings.HasPrefix(e.Err.Error(), "use of closed")) {
 			log.Infof("SID#%X TF=%s %s ~> %s\n", sid, i64HumanSize(written), sAddr, dAddr)
 		} else {
-			log.Infof("SID#%X TF=%s %s ~> %s %v\n", sid, i64HumanSize(written), sAddr, dAddr, err)
+			log.Infof("SID#%X TF=%s %s ~> %s Error=%v\n", sid, i64HumanSize(written), sAddr, dAddr, err)
 		}
 	}
 	return
