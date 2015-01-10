@@ -2,12 +2,11 @@ package tunnel
 
 import (
 	"crypto/sha1"
-	"strings"
-	//"errors"
 	log "golang/glog"
 	"hash"
 	"io"
 	"net"
+	"strings"
 )
 
 type Conn struct {
@@ -126,12 +125,14 @@ func Pipe(dst, src net.Conn, sid int32) {
 	}
 	if log.V(2) {
 		sAddr := ipAddr(src.RemoteAddr())
-		dAddr := dst.RemoteAddr().String()
-
-		if e, y := err.(*net.OpError); err == nil || (y && strings.HasPrefix(e.Err.Error(), "use of closed")) {
-			log.Infof("SID#%X TF=%s %s ~> %s\n", sid, i64HumanSize(written), sAddr, dAddr)
+		dAddr := ipAddr(dst.RemoteAddr())
+		// use of closed...err may be normal error-obj that named `errClosing` at /src/net.go:284
+		// OR may be net.OpError caused by syscall.
+		// so we have to scan error string msg, where is better way ?
+		if err == nil || strings.Contains(err.Error(), "use of closed") {
+			log.Infof("SID#%X  %s >>>%s>>> %s\n", sid, sAddr, i64HumanSize(written), dAddr)
 		} else {
-			log.Infof("SID#%X TF=%s %s ~> %s Error=%v\n", sid, i64HumanSize(written), sAddr, dAddr, err)
+			log.Infof("SID#%X  %s >>>%s>>> %s Error=%v\n", sid, sAddr, i64HumanSize(written), dAddr, err)
 		}
 	}
 	return

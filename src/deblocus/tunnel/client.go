@@ -92,7 +92,7 @@ func (this *Client) getToken(sid int32) []byte {
 	this.token = this.token[SzTk:]
 	if log.V(2) {
 		tlen := len(this.token) / SzTk
-		log.Infof("SID#%X take token=[% x] tokenPool=%d\n", sid, token, tlen)
+		log.Infof("SID#%X take token=[%x] tokenPool=%d\n", sid, token, tlen)
 	}
 	return token
 }
