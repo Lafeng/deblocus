@@ -69,6 +69,13 @@ func dumpHex(title string, byteArray []byte) {
 	println("---END-dump-" + title)
 }
 
+func ipAddr(addr net.Addr) string {
+	if t, y := addr.(*net.TCPAddr); y {
+		return t.IP.String()
+	}
+	return addr.String()
+}
+
 // client
 type D5ClientConf struct {
 	Listen     string `importable:":9009"`
@@ -170,13 +177,16 @@ func (d *D5ServConf) Export_d5p(user *auth.User) string {
 	keyBytes, e := x509.MarshalPKIXPublicKey(d.RSAKeys.pub)
 	ThrowErr(e)
 	header := map[string]string{
-		WORD_d5p: fmt.Sprintf("d5://%s:%s@%s#%s", user.Name, user.Pass, d.ListenAddr, d.Algo),
+		WORD_d5p: fmt.Sprintf("d5://%s:%s@%s#%s", user.Name, user.Pass, d.Listen, d.Algo),
 	}
 	keyByte := pem.EncodeToMemory(&pem.Block{
 		Type:    USER_CREDENTIAL_TYPE,
 		Headers: header,
 		Bytes:   keyBytes,
 	})
+	if strings.HasPrefix(d.Listen, ":") {
+		keyByte = append(keyByte, "\n# Warning: May need to supplement server address.\n"...)
+	}
 	return string(keyByte)
 }
 

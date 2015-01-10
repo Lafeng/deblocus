@@ -32,12 +32,11 @@ func waitSignal() {
 func main() {
 	var context = &bootContext{}
 	var output string
-	var icc bool
 	flag.StringVar(&context.listen, "l", "", "listen on [HOST]:PORT")
-	flag.StringVar(&context.config, "config", "", "indicate the unconventional path")
+	flag.StringVar(&context.config, "config", "", "indicate config if in nontypical path")
 	flag.StringVar(&output, "o", "", "output file")
 	flag.BoolVar(&context.csc, "csc", false, "Create Server Config")
-	flag.BoolVar(&icc, "icc", false, "Issue Client Credential for user")
+	flag.BoolVar(&context.icc, "icc", false, "Issue Client Credential for user")
 	flag.BoolVar(&context.isServ, "serv", false, "Run as server explicitly or InitialCap")
 	flag.Parse()
 	context.parse()
@@ -48,7 +47,7 @@ func main() {
 		return
 	}
 
-	if icc {
+	if context.icc {
 		if flag.NArg() > 0 {
 			var d5sc = t.Parse_d5sFile(context.config)
 			for _, arg := range flag.Args() {

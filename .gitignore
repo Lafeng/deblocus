@@ -3,4 +3,4 @@ bin
 *.exe
 *.d5c
 *.d5s
-*.txt
+*.conf

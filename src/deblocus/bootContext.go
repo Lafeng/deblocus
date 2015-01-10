@@ -17,18 +17,19 @@ type bootContext struct {
 	config string
 	isServ bool
 	csc    bool
+	icc    bool
 }
 
 func (c *bootContext) parse() {
 	if !c.isServ {
-		c.isServ = t.DetectRunAsServ()
+		c.isServ = c.icc || t.DetectRunAsServ()
 	}
 	if c.config == "" && !c.csc {
 		var e bool
 		c.config, e = t.DetectFile(c.isServ)
 		if !e {
 			fmt.Println("No such file", c.config)
-			fmt.Println("Create/put config in conventional path or indicate it explicitly.")
+			fmt.Println("Create/put config in typical path or indicate it explicitly.")
 			os.Exit(1)
 		}
 	}

@@ -80,6 +80,6 @@ func (a *FileAuthSys) UserInfo(user string) (*User, error) {
 	if u, y := a.db[user]; y {
 		return u, nil
 	} else {
-		return nil, NO_SUCH_USER
+		return nil, NO_SUCH_USER.Apply(user)
 	}
 }
