@@ -130,9 +130,9 @@ func Pipe(dst, src net.Conn, sid int32) {
 		// OR may be net.OpError caused by syscall.
 		// so we have to scan error string msg, where is better way ?
 		if err == nil || strings.Contains(err.Error(), "use of closed") {
-			log.Infof("SID#%X  %s >>>%s>>> %s\n", sid, sAddr, i64HumanSize(written), dAddr)
+			log.Infof("SID#%X  %s >>> %s >>> %s\n", sid, sAddr, i64HumanSize(written), dAddr)
 		} else {
-			log.Infof("SID#%X  %s >>>%s>>> %s Error=%v\n", sid, sAddr, i64HumanSize(written), dAddr, err)
+			log.Infof("SID#%X  %s >>> %s >>> %s Error=%v\n", sid, sAddr, i64HumanSize(written), dAddr, err)
 		}
 	}
 	return

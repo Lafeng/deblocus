@@ -14,6 +14,7 @@ import (
 	mrand "math/rand"
 	"net"
 	"strconv"
+	"time"
 )
 
 const (
@@ -65,6 +66,7 @@ func SafeClose(conn net.Conn) {
 // make lenght=alen array, and header 16byte padding with rand
 func byteArrayWithRand16B(alen int) []byte {
 	array := make([]byte, alen)
+	mrand.Seed(time.Now().UnixNano())
 	binary.LittleEndian.PutUint64(array, uint64(mrand.Int63()))
 	binary.LittleEndian.PutUint64(array[8:], uint64(mrand.Int63()))
 	return array

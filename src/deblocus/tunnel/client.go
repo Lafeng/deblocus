@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	ex "deblocus/exception"
+	"fmt"
 	log "golang/glog"
 	"net"
 	"sync"
@@ -16,6 +17,7 @@ type Client struct {
 	token         []byte
 	cipherFactory *CipherFactory
 	lock          *sync.Mutex
+	aliveTT       int32
 }
 
 func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Client {
@@ -53,8 +55,10 @@ func (this *Client) ClientServe(conn net.Conn) {
 				log.Infof("SID#%X connect to %s\n", sid, target)
 			}
 			bconn := this.createTunnel(sid, s5.target)
+			atomic.AddInt32(&this.aliveTT, 1)
 			go Pipe(conn, bconn, sid)
 			Pipe(bconn, conn, sid)
+			atomic.AddInt32(&this.aliveTT, -1)
 		}
 	}
 }
@@ -76,13 +80,18 @@ func (this *Client) createTunnel(sid int32, target []byte) *Conn {
 	return NewConn(conn.(*net.TCPConn), cipher)
 }
 
+func (t *Client) Stats() string {
+	return fmt.Sprintf("Client:Stats To-%s TT=%d TM=%d", t.d5p.d5ser,
+		atomic.LoadInt32(&t.aliveTT), len(t.token)/SzTk)
+}
+
 func (this *Client) getToken(sid int32) []byte {
 	defer func() {
 		this.lock.Unlock()
 		tlen := len(this.token) / SzTk
 		if tlen < 8 {
 			if log.V(2) {
-				log.Infoln("Request new tokens. tokenPool=%d\n", tlen)
+				log.Infof("Request new tokens. tokenPool=%d\n", tlen)
 			}
 			go postCommand(this.ctlConn, TOKEN_REQUEST, nil)
 		}

@@ -12,10 +12,12 @@ import (
 	"syscall"
 )
 
-var sigChan = make(chan os.Signal, 1)
+var context = &bootContext{}
+var sigChan = make(chan os.Signal)
 
 func waitSignal() {
-	signal.Notify(sigChan)
+	USR2 := syscall.Signal(12) // fuck windows without many signals
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, USR2)
 	for sig := range sigChan {
 		switch sig {
 		case t.Bye:
@@ -23,6 +25,8 @@ func waitSignal() {
 		case syscall.SIGINT, syscall.SIGTERM:
 			log.Infoln("Terminated by signal", sig)
 			return
+		case USR2:
+			context.doStats()
 		default:
 			log.Infoln("Ingore signal", sig)
 		}
@@ -30,7 +34,6 @@ func waitSignal() {
 }
 
 func main() {
-	var context = &bootContext{}
 	var output string
 	flag.StringVar(&context.listen, "l", "", "listen on [HOST]:PORT")
 	flag.StringVar(&context.config, "config", "", "indicate config if in nontypical path")
@@ -75,6 +78,7 @@ func startClient(context *bootContext) {
 	//}()
 	d5c := t.Parse_d5cFile(context.config)
 	mgr := NewClientMgr(d5c)
+	context.statser = mgr
 	lAddr := d5c.Listen
 	if len(context.listen) > 0 {
 		lAddr = context.listen
@@ -109,6 +113,7 @@ func startServer(context *bootContext) {
 	log.Infoln("deblocus server/starting", ln.Addr())
 	dhKeys := t.GenerateDHKeyPairs()
 	server := t.NewServer(conf, dhKeys)
+	context.statser = server
 	for {
 		conn, err := ln.AcceptTCP()
 		if err == nil {

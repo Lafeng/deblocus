@@ -41,14 +41,24 @@ func (s *SessionMgr) take(token []byte) *Session {
 	key := fmt.Sprintf("%x", token)
 	ses := s.container[key]
 	delete(s.container, key)
+	if ses != nil {
+		delete(ses.tokens, key)
+	}
 	return ses
 }
 
-func (s *SessionMgr) get(token []byte) *Session {
-	defer s.lock.RUnlock()
-	s.lock.RLock()
-	key := fmt.Sprintf("%x", token)
-	return s.container[key]
+func (s *SessionMgr) length() int {
+	//defer s.lock.RUnlock()
+	//s.lock.RLock()
+	return len(s.container)
+}
+
+func (s *SessionMgr) clearTokens(session *Session) {
+	defer s.lock.Unlock()
+	s.lock.Lock()
+	for k, _ := range session.tokens {
+		delete(s.container, k)
+	}
 }
 
 func (s *SessionMgr) createTokens(session *Session, many int) []byte {
@@ -57,14 +67,23 @@ func (s *SessionMgr) createTokens(session *Session, many int) []byte {
 	tokens := make([]byte, many*SzTk)
 	i64buf := make([]byte, 8)
 	sha := sha1.New()
+	rand.Seed(time.Now().UnixNano())
+	sha.Write([]byte(session.identity))
 	for i := 0; i < many; i++ {
 		binary.BigEndian.PutUint64(i64buf, uint64(rand.Int63()))
+		sha.Write(i64buf)
+		binary.BigEndian.PutUint64(i64buf, uint64(time.Now().UnixNano()))
 		sha.Write(i64buf)
 		pos := i * SzTk
 		sha.Sum(tokens[pos:pos])
 		token := tokens[pos : pos+SzTk]
 		key := fmt.Sprintf("%x", token)
+		if _, y := s.container[key]; y {
+			i--
+			continue
+		}
 		s.container[key] = session
+		session.tokens[key] = true
 	}
 	log.Errorf("sessionMap created=%d len=%d\n", many, len(s.container))
 	return tokens
@@ -75,18 +94,18 @@ type Server struct {
 	dhKeys     *DHKeyPair
 	sessionMgr *SessionMgr
 	sid        int32
+	aliveTT    int32
+	aliveCT    int32
 }
 
 func NewServer(d5s *D5ServConf, dhKeys *DHKeyPair) *Server {
 	return &Server{
-		d5s, dhKeys, NewSessionMgr(), 0,
+		d5s, dhKeys, NewSessionMgr(), 0, 0, 0,
 	}
 }
 
 func (t *Server) TunnelServe(conn *net.TCPConn) {
-	defer func() {
-		ex.CatchException(recover())
-	}()
+	defer ex.CatchException(recover())
 	nego := &d5SNegotiation{Server: t}
 	conn.SetDeadline(time.Now().Add(10 * time.Second))
 	fconn := NewConnWithHash(conn)
@@ -103,6 +122,7 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 		return
 	}
 	if session != nil {
+		atomic.AddInt32(&t.aliveCT, 1)
 		fconn.NoDelayAlive()
 		var ser_cmdHandler CtlCommandHandler = func(cmd byte, args []byte) {
 			switch cmd {
@@ -113,16 +133,24 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 				log.Warningf("Unrecognized command=%x packet=[% x]\n", cmd, args)
 			}
 		}
+		var ser_exitHandler CtlExitHandler = func(addr string) {
+			log.Warningf("CtlTun->%s disconnected.\n", addr)
+			t.sessionMgr.clearTokens(session)
+			session.tokens = nil
+			SafeClose(session.tun)
+			atomic.AddInt32(&t.aliveCT, -1)
+		}
 		go RControlThread(fconn, ser_cmdHandler, ser_exitHandler)
 	}
 }
 
 func (t *Server) TransServe(fconn *Conn, cipher *Cipher, remnant []byte, sid int32) {
 	defer func() {
-		fconn.Close()
+		SafeClose(fconn)
 		ex.CatchException(recover())
+		atomic.AddInt32(&t.aliveTT, -1)
 	}()
-
+	atomic.AddInt32(&t.aliveTT, 1)
 	s5 := new(S5Target)
 	cipher.decrypt(remnant, remnant)
 	//dumpHex("remnant", remnant)
@@ -133,10 +161,14 @@ func (t *Server) TransServe(fconn *Conn, cipher *Cipher, remnant []byte, sid int
 	} else {
 		fconn.cipher = cipher
 		log.Infof("SID#%X Connect to %s[%s] is established\n", sid, s5.host, s5.dst)
-
 		go Pipe(target, fconn, sid)
 		Pipe(fconn, target, sid)
 	}
+}
+
+func (t *Server) Stats() string {
+	return fmt.Sprintf("Server:Stats CT=%d TT=%d TM=%d",
+		atomic.LoadInt32(&t.aliveCT), atomic.LoadInt32(&t.aliveTT), t.sessionMgr.length())
 }
 
 type Session struct {
@@ -144,7 +176,7 @@ type Session struct {
 	identity      string
 	uid           string
 	cipherFactory *CipherFactory
-	cmdChan       chan uint32
+	tokens        map[string]bool
 }
 
 func postCommand(tun *Conn, cmd byte, args []byte) (int, error) {
@@ -168,7 +200,7 @@ func NewSession(tun *Conn, cf *CipherFactory, identity string) *Session {
 	} else {
 		uid = identity
 	}
-	return &Session{tun, identity, uid, cf, make(chan uint32)}
+	return &Session{tun, identity, uid, cf, make(map[string]bool)}
 }
 
 type CtlCommandHandler func(cmd byte, args []byte)
@@ -201,8 +233,4 @@ func RControlThread(tun *Conn, cmdHd CtlCommandHandler, exitHd CtlExitHandler) {
 	if exitHd != nil {
 		exitHd(remoteAddr)
 	}
-}
-
-var ser_exitHandler CtlExitHandler = func(addr string) {
-	log.Warningf("CtlTun->%s disconnected.\n", addr)
 }

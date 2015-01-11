@@ -9,15 +9,21 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 )
 
+type Statser interface {
+	Stats() string
+}
+
 type bootContext struct {
-	listen string
-	config string
-	isServ bool
-	csc    bool
-	icc    bool
+	listen  string
+	config  string
+	isServ  bool
+	csc     bool
+	icc     bool
+	statser Statser
 }
 
 func (c *bootContext) parse() {
@@ -35,6 +41,12 @@ func (c *bootContext) parse() {
 	}
 	if c.isServ {
 		runtime.GOMAXPROCS(runtime.NumCPU())
+	}
+}
+
+func (c *bootContext) doStats() {
+	if c.statser != nil {
+		println(c.statser.Stats())
 	}
 }
 
@@ -83,6 +95,16 @@ func (m *clientMgr) rebuildClient(seq int) *t.Client {
 	client := t.NewClient(d5p, m.dhKeys, exitHandler)
 	m.clients[seq] = client
 	return client
+}
+
+func (m *clientMgr) Stats() string {
+	arr := make([]string, m.num)
+	for i, c := range m.clients {
+		if c != nil {
+			arr[i] = c.Stats()
+		}
+	}
+	return strings.Join(arr, "\n")
 }
 
 func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
