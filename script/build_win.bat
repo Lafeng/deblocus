@@ -62,9 +62,9 @@ if not exist osext.zip (
     
     set osext_url="https://bitbucket.org/kardianos/osext/get/default.zip"
     if "%wget%" NEQ "" (
-        %wget% -O osext.zip %osext_url%
+        wget -O osext.zip %osext_url%
     ) else (
-        %curl% -o osext.zip %osext_url%
+        curl -o osext.zip %osext_url%
     )
 )
 
@@ -77,7 +77,7 @@ if "%unzipExe%" == "" (
     echo Need unzip in env.PATH.
     goto Exit
 )
-%unzipExe% -jo osext.zip -d %osext_path%
+unzip -jo osext.zip -d %osext_path%
 
 set osext_err=%errorlevel%
 goto Exit
