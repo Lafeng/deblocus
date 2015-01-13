@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+const (
+	RETRY_INTERVAL = 5
+)
+
 type Statser interface {
 	Stats() string
 }
@@ -51,18 +55,18 @@ func (c *bootContext) doStats() {
 }
 
 type clientMgr struct {
-	dhKeys   *t.DHKeyPair
-	d5pArray []*t.D5Params
-	clients  []*t.Client
-	num      int
-	seqCycle []byte
+	dhKeys     *t.DHKeyPair
+	d5pArray   []*t.D5Params
+	clients    []*t.Client
+	num        int
+	indexChain []byte
 }
 
 func (m *clientMgr) selectClient() *t.Client {
 	for {
 		if m.num > 1 {
 			i := rand.Intn(m.num<<4) >> 4
-			for _, v := range m.seqCycle[i : i+m.num-1] {
+			for _, v := range m.indexChain[i : i+m.num-1] {
 				w := m.clients[v]
 				if w != nil {
 					return w
@@ -83,18 +87,27 @@ func (m *clientMgr) selectClientServ(conn net.Conn) {
 	m.selectClient().ClientServe(conn)
 }
 
-func (m *clientMgr) rebuildClient(seq int) *t.Client {
-	defer ex.CatchException(recover())
+func (m *clientMgr) rebuildClient(index, try int) {
+	defer func() {
+		if ex.CatchException(recover()) {
+			go m.rebuildClient(index, try<<1)
+		}
+	}()
 	var exitHandler t.CtlExitHandler = func(addr string) {
-		m.clients[seq] = nil
-		log.Errorf("Client->%s disconnected, will reconnect.", addr)
-		m.rebuildClient(seq)
+		m.clients[index] = nil
+		log.Warningf("Lost connection of CtlTun-%s, will reconnect.\n", addr)
+		m.rebuildClient(index, 1)
 	}
-	time.Sleep(3 * time.Second)
-	d5p := m.d5pArray[seq]
-	client := t.NewClient(d5p, m.dhKeys, exitHandler)
-	m.clients[seq] = client
-	return client
+	if try > 0 {
+		if try > 1 {
+			if try > 0xff {
+				try = 0xff
+			}
+			log.Errorf("Can't connect to backend, will retry after %ds.\n", try*RETRY_INTERVAL)
+		}
+		time.Sleep(time.Duration(try*RETRY_INTERVAL) * time.Second)
+	}
+	m.clients[index] = t.NewClient(m.d5pArray[index], m.dhKeys, exitHandler)
 }
 
 func (m *clientMgr) Stats() string {
@@ -111,11 +124,11 @@ func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
 	d5pArray := d5c.D5PList
 	dhKeys := t.GenerateDHKeyPairs()
 	num := len(d5pArray)
-	var cycle []byte
+	var chain []byte
 	if num > 1 {
-		cycle = make([]byte, 2*num)
-		for i, _ := range cycle {
-			cycle[i] = byte(i % num)
+		chain = make([]byte, 2*num)
+		for i, _ := range chain {
+			chain[i] = byte(i % num)
 		}
 	}
 	mgr := &clientMgr{
@@ -123,11 +136,11 @@ func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
 		d5pArray,
 		make([]*t.Client, num),
 		num,
-		cycle,
+		chain,
 	}
 
 	for i := 0; i < num; i++ {
-		mgr.clients[i] = mgr.rebuildClient(i)
+		mgr.rebuildClient(i, 0)
 	}
 	return mgr
 }

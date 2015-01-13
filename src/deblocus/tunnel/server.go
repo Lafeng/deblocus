@@ -231,6 +231,6 @@ func RControlThread(tun *Conn, cmdHd CtlCommandHandler, exitHd CtlExitHandler) {
 		}
 	}
 	if exitHd != nil {
-		exitHd(remoteAddr)
+		go exitHd(remoteAddr)
 	}
 }

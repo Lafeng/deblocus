@@ -2,6 +2,7 @@ package exception
 
 import (
 	"fmt"
+	log "golang/glog"
 )
 
 type Exception struct {
@@ -39,10 +40,11 @@ func New(code int, msg string) *Exception {
 
 func CatchException(e interface{}) bool {
 	if ex, y := e.(*Exception); y && ex.warning {
-		fmt.Println(ex.msg)
+		log.Errorln(ex.msg)
 		return true
 	} else if e != nil {
-		fmt.Println(e)
+		log.Errorln(e)
+		return true
 	}
 	return false
 }

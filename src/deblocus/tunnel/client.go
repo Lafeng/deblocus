@@ -18,6 +18,8 @@ type Client struct {
 	cipherFactory *CipherFactory
 	lock          *sync.Mutex
 	aliveTT       int32
+	waitTk        *sync.Cond
+	aborted       bool
 }
 
 func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Client {
@@ -34,16 +36,25 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 		token:   nego.token,
 		lock:    new(sync.Mutex),
 	}
+	me.waitTk = sync.NewCond(me.lock)
 	me.cipherFactory = nego.cipherFactory
 	go RControlThread(ctlConn, me.commandHandler, exitHandler)
 	return me
 }
 
 func (this *Client) ClientServe(conn net.Conn) {
-	defer ex.CatchException(recover())
+	var bconn *Conn
+	var done bool
+	defer func() {
+		if !done {
+			SafeClose(conn)
+			SafeClose(bconn)
+		}
+		ex.CatchException(recover())
+	}()
 
 	if log.V(2) {
-		log.Infoln("socks5 from", conn.RemoteAddr().String())
+		log.Infoln("Request/socks5 from", conn.RemoteAddr().String())
 	}
 	s5 := S5Step1{conn: conn}
 	s5.Handshake()
@@ -54,11 +65,12 @@ func (this *Client) ClientServe(conn net.Conn) {
 			if log.V(1) {
 				log.Infof("SID#%X connect to %s\n", sid, target)
 			}
-			bconn := this.createTunnel(sid, s5.target)
+			bconn = this.createTunnel(sid, s5.target)
 			atomic.AddInt32(&this.aliveTT, 1)
 			go Pipe(conn, bconn, sid)
 			Pipe(bconn, conn, sid)
 			atomic.AddInt32(&this.aliveTT, -1)
+			done = true
 		}
 	}
 }
@@ -89,7 +101,7 @@ func (this *Client) getToken(sid int32) []byte {
 	defer func() {
 		this.lock.Unlock()
 		tlen := len(this.token) / SzTk
-		if tlen < 8 {
+		if tlen < 8 && !this.aborted {
 			if log.V(2) {
 				log.Infof("Request new tokens. tokenPool=%d\n", tlen)
 			}
@@ -97,6 +109,15 @@ func (this *Client) getToken(sid int32) []byte {
 		}
 	}()
 	this.lock.Lock()
+	for len(this.token) < SzTk {
+		if log.V(2) {
+			log.Infof("SID#%X waiting for token. May be the requests comes too fast, or the responding slowly.\n", sid)
+		}
+		this.waitTk.Wait()
+		if this.aborted {
+			panic("Abandon the request beacause of the tunSession was aborted.")
+		}
+	}
 	token := this.token[:SzTk]
 	this.token = this.token[SzTk:]
 	if log.V(2) {
@@ -110,6 +131,7 @@ func (this *Client) putTokens(tokens []byte) {
 	defer this.lock.Unlock()
 	this.lock.Lock()
 	this.token = append(this.token, tokens...)
+	this.waitTk.Broadcast()
 	log.Infof("Recv tokens=%d tokens_pool=%d\n", len(tokens)/SzTk, len(this.token)/SzTk)
 }
 
