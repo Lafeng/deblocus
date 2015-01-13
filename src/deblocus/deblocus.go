@@ -35,15 +35,23 @@ func waitSignal() {
 
 func main() {
 	var output string
+	var showVersion bool
+	flag.Usage = showUsage
 	flag.StringVar(&context.listen, "l", "", "listen on [HOST]:PORT")
-	flag.StringVar(&context.config, "config", "", "indicate config if in nontypical path")
+	flag.StringVar(&context.config, "config", "", "Server;;indicate config if in nontypical path")
 	flag.StringVar(&output, "o", "", "output file")
-	flag.BoolVar(&context.csc, "csc", false, "Create Server Config")
-	flag.BoolVar(&context.icc, "icc", false, "Issue Client Credential for user")
-	flag.BoolVar(&context.isServ, "serv", false, "Run as server explicitly or InitialCap")
+	flag.BoolVar(&context.csc, "csc", false, "Server;;Create Server Config")
+	flag.BoolVar(&context.icc, "icc", false, "Server;;Issue Client Credential for user")
+	flag.BoolVar(&context.isServ, "serv", false, "Server;;Run as server explicitly or InitCap")
+	flag.BoolVar(&showVersion, "ver", false, "show version")
 	flag.Parse()
 	context.parse()
 	log.Set_toStderr(true)
+
+	if showVersion {
+		println(versionString())
+		return
+	}
 
 	if context.csc {
 		t.Generate_d5sFile(output, nil)
