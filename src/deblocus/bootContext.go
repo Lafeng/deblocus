@@ -68,17 +68,17 @@ func (m *clientMgr) selectClient() *t.Client {
 			i := rand.Intn(m.num<<4) >> 4
 			for _, v := range m.indexChain[i : i+m.num-1] {
 				w := m.clients[v]
-				if w != nil {
+				if w != nil && !w.Aborted {
 					return w
 				}
 			}
 		} else {
 			w := m.clients[0]
-			if w != nil {
+			if w != nil && !w.Aborted {
 				return w
 			}
 		}
-		log.Warningln("No available client for new connection, will try again after 5s")
+		log.Errorf("No available client for new connection, will try again after 5s")
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -95,7 +95,6 @@ func (m *clientMgr) rebuildClient(index, try int) {
 	}()
 	var exitHandler t.CtlExitHandler = func(addr string) {
 		m.clients[index] = nil
-		log.Warningf("Lost connection of CtlTun-%s, will reconnect.\n", addr)
 		m.rebuildClient(index, 1)
 	}
 	if try > 0 {
@@ -103,7 +102,7 @@ func (m *clientMgr) rebuildClient(index, try int) {
 			if try > 0xff {
 				try = 0xff
 			}
-			log.Errorf("Can't connect to backend, will retry after %ds.\n", try*RETRY_INTERVAL)
+			log.Warningf("Can't connect to backend, will retry after %ds.\n", try*RETRY_INTERVAL)
 		}
 		time.Sleep(time.Duration(try*RETRY_INTERVAL) * time.Second)
 	}

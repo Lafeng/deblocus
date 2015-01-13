@@ -19,7 +19,7 @@ type Client struct {
 	lock          *sync.Mutex
 	aliveTT       int32
 	waitTk        *sync.Cond
-	aborted       bool
+	Aborted       bool
 }
 
 func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Client {
@@ -38,7 +38,12 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 	}
 	me.waitTk = sync.NewCond(me.lock)
 	me.cipherFactory = nego.cipherFactory
-	go RControlThread(ctlConn, me.commandHandler, exitHandler)
+	var exitHandlerCallback CtlExitHandler = func(addr string) {
+		me.Aborted = true
+		log.Warningf("Lost connection of CtlTun-%s, will reconnect.\n", addr)
+		exitHandler(addr)
+	}
+	go RControlThread(ctlConn, me.commandHandler, exitHandlerCallback)
 	return me
 }
 
@@ -101,7 +106,7 @@ func (this *Client) getToken(sid int32) []byte {
 	defer func() {
 		this.lock.Unlock()
 		tlen := len(this.token) / SzTk
-		if tlen < 8 && !this.aborted {
+		if tlen < 8 && !this.Aborted {
 			if log.V(2) {
 				log.Infof("Request new tokens. tokenPool=%d\n", tlen)
 			}
@@ -114,7 +119,7 @@ func (this *Client) getToken(sid int32) []byte {
 			log.Infof("SID#%X waiting for token. May be the requests comes too fast, or the responding slowly.\n", sid)
 		}
 		this.waitTk.Wait()
-		if this.aborted {
+		if this.Aborted {
 			panic("Abandon the request beacause of the tunSession was aborted.")
 		}
 	}
