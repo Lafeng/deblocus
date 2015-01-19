@@ -28,7 +28,8 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 	nego.dhKeys = dhKeys
 	nego.algoId = d5p.algoId
 	ctlConn := nego.negotiate()
-	log.Infof("Connected d5://%s.\n", d5p.d5ser)
+	log.Infof("Backend %s[d5://%s] is ready.\n", d5p.Provider, d5p.d5sAddrStr)
+	ctlConn.identifier = d5p.Provider
 	ctlConn.NoDelayAlive()
 	me := &Client{
 		d5p:     d5p,
@@ -40,7 +41,7 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 	me.cipherFactory = nego.cipherFactory
 	var exitHandlerCallback CtlExitHandler = func(addr string) {
 		me.Aborted = true
-		log.Warningf("Lost connection of CtlTun-%s, will reconnect.\n", addr)
+		log.Warningf("Lost connection of backend %s[d5://%s], then will reconnect.\n", d5p.Provider, addr)
 		exitHandler(addr)
 	}
 	go RControlThread(ctlConn, me.commandHandler, exitHandlerCallback)
@@ -57,7 +58,6 @@ func (this *Client) ClientServe(conn net.Conn) {
 		}
 		ex.CatchException(recover())
 	}()
-
 	if log.V(2) {
 		log.Infoln("Request/socks5 from", conn.RemoteAddr().String())
 	}
@@ -67,10 +67,9 @@ func (this *Client) ClientServe(conn net.Conn) {
 		target := s5.parseSocks5Request()
 		if !s5.respondSocks5() {
 			sid := atomic.AddInt32(&client_sid, 1)
-			if log.V(1) {
-				log.Infof("SID#%X connect to %s\n", sid, target)
-			}
+			log.Infof("SID#%X connect to %s via %s\n", sid, target, this.d5p.Provider)
 			bconn = this.createTunnel(sid, s5.target)
+			bconn.identifier = this.d5p.Provider
 			atomic.AddInt32(&this.aliveTT, 1)
 			go Pipe(conn, bconn, sid)
 			Pipe(bconn, conn, sid)
@@ -81,7 +80,7 @@ func (this *Client) ClientServe(conn net.Conn) {
 }
 
 func (this *Client) createTunnel(sid int32, target []byte) *Conn {
-	conn, err := net.Dial("tcp", this.d5p.d5ser)
+	conn, err := net.DialTCP("tcp", nil, this.d5p.d5sAddr)
 	ThrowErr(err)
 	buf := make([]byte, DMLEN)
 	token := this.getToken(sid)
@@ -94,11 +93,11 @@ func (this *Client) createTunnel(sid int32, target []byte) *Conn {
 	cipher.encrypt(buf[TT_TOKEN_OFFSET:], buf[TT_TOKEN_OFFSET:])
 	_, err = conn.Write(buf)
 	ThrowErr(err)
-	return NewConn(conn.(*net.TCPConn), cipher)
+	return NewConn(conn, cipher)
 }
 
 func (t *Client) Stats() string {
-	return fmt.Sprintf("Client:Stats To-%s TT=%d TM=%d", t.d5p.d5ser,
+	return fmt.Sprintf("Stats/Client To-%s TT=%d TM=%d", t.d5p.d5sAddrStr,
 		atomic.LoadInt32(&t.aliveTT), len(t.token)/SzTk)
 }
 
@@ -125,9 +124,9 @@ func (this *Client) getToken(sid int32) []byte {
 	}
 	token := this.token[:SzTk]
 	this.token = this.token[SzTk:]
-	if log.V(2) {
+	if log.V(3) {
 		tlen := len(this.token) / SzTk
-		log.Infof("SID#%X take token=[%x] tokenPool=%d\n", sid, token, tlen)
+		log.Infof("SID#%X take token=%x tokenPool=%d\n", sid, token, tlen)
 	}
 	return token
 }

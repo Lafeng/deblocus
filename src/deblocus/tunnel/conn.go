@@ -11,21 +11,25 @@ import (
 
 type Conn struct {
 	net.Conn
-	cipher *Cipher
-	rHash  hash.Hash
-	wHash  hash.Hash
+	cipher     *Cipher
+	rHash      hash.Hash
+	wHash      hash.Hash
+	identifier string
 }
 
 func NewConnWithHash(conn *net.TCPConn) *Conn {
-	return &Conn{conn, nil, sha1.New(), sha1.New()}
+	return &Conn{
+		Conn:  conn,
+		rHash: sha1.New(),
+		wHash: sha1.New(),
+	}
 }
 
 func NewConn(conn *net.TCPConn, cipher *Cipher) *Conn {
-	return &Conn{conn, cipher, nil, nil}
-}
-
-func (c *Conn) SetCipher(cipher *Cipher) {
-	c.cipher = cipher
+	return &Conn{
+		Conn:   conn,
+		cipher: cipher,
+	}
 }
 
 func (c *Conn) Read(b []byte) (int, error) {
@@ -92,6 +96,13 @@ func (c *Conn) WHashSum() []byte {
 	return hash
 }
 
+func getConnIdentifier(con net.Conn) string {
+	if c, y := con.(*Conn); y && c.identifier != NULL {
+		return c.identifier
+	}
+	return ipAddr(con.RemoteAddr())
+}
+
 func Pipe(dst, src net.Conn, sid int32) {
 	defer dst.Close()
 	src.SetReadDeadline(ZERO_TIME)
@@ -124,15 +135,15 @@ func Pipe(dst, src net.Conn, sid int32) {
 		}
 	}
 	if log.V(2) {
-		sAddr := ipAddr(src.RemoteAddr())
-		dAddr := ipAddr(dst.RemoteAddr())
+		sAddr := getConnIdentifier(src)
+		dAddr := getConnIdentifier(dst)
 		// use of closed...err may be normal error-obj that named `errClosing` at /src/net.go:284
 		// OR may be net.OpError caused by syscall.
 		// so we have to scan error string msg, where is better way ?
-		if err == nil || strings.Contains(err.Error(), "use of closed") {
-			log.Infof("SID#%X  %s >>> %s >>> %s\n", sid, sAddr, i64HumanSize(written), dAddr)
+		if err == nil || strings.Contains(err.Error(), "closed") {
+			log.Infof("SID#%X  %s --- %s --> %s\n", sid, sAddr, i64HumanSize(written), dAddr)
 		} else {
-			log.Infof("SID#%X  %s >>> %s >>> %s Error=%v\n", sid, sAddr, i64HumanSize(written), dAddr, err)
+			log.Infof("SID#%X  %s --- %s --> %s Error=%v\n", sid, sAddr, i64HumanSize(written), dAddr, err)
 		}
 	}
 	return

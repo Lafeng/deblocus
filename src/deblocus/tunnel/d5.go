@@ -246,14 +246,14 @@ type d5CNegotiation struct {
 }
 
 func (nego *d5CNegotiation) negotiate() (sconn *Conn) {
-	conn, err := net.Dial("tcp", nego.d5ser)
+	conn, err := net.Dial("tcp", nego.d5sAddrStr)
 	ThrowIf(err != nil, D5SER_UNREACHABLE)
 	sconn = NewConnWithHash(conn.(*net.TCPConn))
 	err = nego.requestAuthAndDHExchange(sconn)
 	ThrowErr(err)
 	err = nego.finishDHExThenSetupCipher(sconn)
 	ThrowErr(err)
-	sconn.SetCipher(nego.cipherFactory.NewCipher())
+	sconn.cipher = nego.cipherFactory.NewCipher()
 	err = nego.validateAndGetTokens(sconn)
 	ThrowErr(err)
 	return

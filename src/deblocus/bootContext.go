@@ -1,7 +1,7 @@
 package main
 
 import (
-	ex "deblocus/exception"
+	//ex "deblocus/exception"
 	t "deblocus/tunnel"
 	"fmt"
 	log "golang/glog"
@@ -89,7 +89,7 @@ func (m *clientMgr) selectClientServ(conn net.Conn) {
 
 func (m *clientMgr) rebuildClient(index, try int) {
 	defer func() {
-		if ex.CatchException(recover()) {
+		if recover() != nil {
 			go m.rebuildClient(index, try<<1)
 		}
 	}()
@@ -97,16 +97,15 @@ func (m *clientMgr) rebuildClient(index, try int) {
 		m.clients[index] = nil
 		m.rebuildClient(index, 1)
 	}
-	if try > 0 {
-		if try > 1 {
-			if try > 0xff {
-				try = 0xff
-			}
-			log.Warningf("Can't connect to backend, will retry after %ds.\n", try*RETRY_INTERVAL)
+	var d5p = m.d5pArray[index]
+	if try > 1 {
+		if try > 60 {
+			try = 60
 		}
+		log.Warningf("Can't connect to backend %s, will retry after %ds.\n", d5p.Provider, try*RETRY_INTERVAL)
 		time.Sleep(time.Duration(try*RETRY_INTERVAL) * time.Second)
 	}
-	m.clients[index] = t.NewClient(m.d5pArray[index], m.dhKeys, exitHandler)
+	m.clients[index] = t.NewClient(d5p, m.dhKeys, exitHandler)
 }
 
 func (m *clientMgr) Stats() string {
@@ -139,7 +138,7 @@ func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
 	}
 
 	for i := 0; i < num; i++ {
-		mgr.rebuildClient(i, 0)
+		mgr.rebuildClient(i, 1)
 	}
 	return mgr
 }

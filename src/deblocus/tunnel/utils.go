@@ -30,6 +30,7 @@ const (
 	SER_KEY_TYPE         = "deblocus/SERVER-PRIVATEKEY"
 	USER_CREDENTIAL_TYPE = "deblocus/CLIENT-CREDENTIAL"
 	WORD_d5p             = "D5P"
+	WORD_provider        = "Provider"
 	SIZE_UNIT            = "BKMG"
 )
 
@@ -43,7 +44,7 @@ var (
 	UNRECOGNIZED_SYMBOLS    = exception.NewW("Unrecognized symbols")
 	UNRECOGNIZED_DIRECTIVES = exception.NewW("Unrecognized directives")
 	LOCAL_BIND_ERROR        = exception.NewW("Local bind error")
-	CONF_MISSING            = exception.NewW("Missing config")
+	CONF_MISS               = exception.NewW("Missed config")
 	CONF_ERROR              = exception.NewW("Error config")
 )
 
@@ -85,7 +86,7 @@ type D5ClientConf struct {
 
 func (c *D5ClientConf) validate() error {
 	if len(c.D5PList) < 1 {
-		return CONF_MISSING.Apply("Not found d5p fragment")
+		return CONF_MISS.Apply("Not found d5p fragment")
 	}
 	if c.Listen == "" {
 		return LOCAL_BIND_ERROR
@@ -100,11 +101,13 @@ func (c *D5ClientConf) validate() error {
 
 // d5p
 type D5Params struct {
-	d5ser  string
-	sPub   *rsa.PublicKey
-	algoId int
-	user   string
-	pass   string
+	d5sAddrStr string
+	d5sAddr    *net.TCPAddr
+	Provider   string
+	sPub       *rsa.PublicKey
+	algoId     int
+	user       string
+	pass       string
 }
 
 // without sPub field
@@ -118,32 +121,37 @@ func NewD5Params(uri string) (*D5Params, error) {
 	if !y {
 		return nil, UNSUPPORTED_CIPHER.Apply(ma[4])
 	}
-	if log.V(1) {
+	d5sAddr, e := net.ResolveTCPAddr("tcp", ma[3])
+	if e != nil {
+		return nil, D5SER_UNREACHABLE.Apply(e)
+	}
+	if log.V(2) {
 		log.Infof("D5Params: %q\n", ma[1:])
 	}
 	return &D5Params{
-		d5ser:  ma[3],
-		algoId: algoId,
-		user:   ma[1],
-		pass:   ma[2],
+		d5sAddrStr: ma[3],
+		d5sAddr:    d5sAddr,
+		algoId:     algoId,
+		user:       ma[1],
+		pass:       ma[2],
 	}, nil
 }
 
 // Server
 type D5ServConf struct {
-	Listen          string `importable:":9008"`
-	AuthTable       string `importable:"file:///PATH/YOUR_AUTH_FILE_PATH"`
-	Algo            string `importable:"AES128CFB"`
-	MaxTunPerClient int    `importable:"8"`
-	AlgoId          int
-	AuthSys         auth.AuthSys
-	RSAKeys         *RSAKeyPair
-	ListenAddr      *net.TCPAddr
+	Listen     string `importable:":9008"`
+	AuthTable  string `importable:"file:///PATH/YOUR_AUTH_FILE_PATH"`
+	Algo       string `importable:"AES128CFB"`
+	ServerName string `importable:"SERVER_INDENTIFIER"`
+	AlgoId     int
+	AuthSys    auth.AuthSys
+	RSAKeys    *RSAKeyPair
+	ListenAddr *net.TCPAddr
 }
 
 func (d *D5ServConf) validate() error {
 	if len(d.Listen) < 1 {
-		return CONF_MISSING.Apply("Listen")
+		return CONF_MISS.Apply("Listen")
 	}
 	a, e := net.ResolveTCPAddr("tcp", d.Listen)
 	if e != nil {
@@ -151,23 +159,23 @@ func (d *D5ServConf) validate() error {
 	}
 	d.ListenAddr = a
 	if len(d.AuthTable) < 1 {
-		return CONF_MISSING.Apply("AuthTable")
+		return CONF_MISS.Apply("AuthTable")
 	}
 	d.AuthSys, e = auth.GetAuthSysImpl(d.AuthTable)
 	ThrowErr(e)
 	if len(d.Algo) < 1 {
-		return CONF_MISSING.Apply("Algo")
+		return CONF_MISS.Apply("Algo")
 	}
 	algoId, y := cipherLiteral[d.Algo]
 	if !y {
 		return UNSUPPORTED_CIPHER.Apply(d.Algo)
 	}
 	d.AlgoId = algoId
-	if d.MaxTunPerClient < 1 || d.MaxTunPerClient > 254 {
-		return CONF_ERROR.Apply("MaxTunPerClient")
+	if d.ServerName == NULL {
+		return CONF_ERROR.Apply("ServerName")
 	}
 	if d.RSAKeys == nil {
-		return CONF_MISSING.Apply("ServerPrivateKey")
+		return CONF_MISS.Apply("ServerPrivateKey")
 	}
 	return nil
 }
@@ -177,7 +185,8 @@ func (d *D5ServConf) Export_d5p(user *auth.User) string {
 	keyBytes, e := x509.MarshalPKIXPublicKey(d.RSAKeys.pub)
 	ThrowErr(e)
 	header := map[string]string{
-		WORD_d5p: fmt.Sprintf("d5://%s:%s@%s#%s", user.Name, user.Pass, d.Listen, d.Algo),
+		WORD_provider: d.ServerName,
+		WORD_d5p:      fmt.Sprintf("d5://%s:%s@%s#%s", user.Name, user.Pass, d.Listen, d.Algo),
 	}
 	keyByte := pem.EncodeToMemory(&pem.Block{
 		Type:    USER_CREDENTIAL_TYPE,
@@ -185,7 +194,7 @@ func (d *D5ServConf) Export_d5p(user *auth.User) string {
 		Bytes:   keyBytes,
 	})
 	if strings.HasPrefix(d.Listen, ":") {
-		keyByte = append(keyByte, "\n# Warning: May need to supplement server address.\n"...)
+		keyByte = append(keyByte, "\n# !!! Warning: You may need to complete server address manually.\n"...)
 	}
 	return string(keyByte)
 }
@@ -241,6 +250,11 @@ func parse_d5pFragment(fc []byte) *D5Params {
 	d5p, err := NewD5Params(block.Headers[WORD_d5p])
 	ThrowErr(err)
 	d5p.sPub = pub.(*rsa.PublicKey)
+	if provider, y := block.Headers[WORD_provider]; y {
+		d5p.Provider = provider
+	} else {
+		d5p.Provider = d5p.d5sAddrStr
+	}
 	return d5p
 }
 
@@ -347,6 +361,7 @@ func parseD5ConfFile(path string, desc ImportableFieldDesc, kParse keyParser) {
 			if kE {
 				kParse(buf.Bytes())
 				kB, kE = false, false
+				buf.Reset()
 			}
 			continue
 		}

@@ -105,7 +105,7 @@ func NewServer(d5s *D5ServConf, dhKeys *DHKeyPair) *Server {
 }
 
 func (t *Server) TunnelServe(conn *net.TCPConn) {
-	defer ex.CatchException(recover())
+	defer func() { ex.CatchException(recover()) }()
 	nego := &d5SNegotiation{Server: t}
 	conn.SetDeadline(time.Now().Add(10 * time.Second))
 	fconn := NewConnWithHash(conn)
@@ -167,7 +167,7 @@ func (t *Server) TransServe(fconn *Conn, cipher *Cipher, remnant []byte, sid int
 }
 
 func (t *Server) Stats() string {
-	return fmt.Sprintf("Server:Stats CT=%d TT=%d TM=%d",
+	return fmt.Sprintf("Stats/Server CT=%d TT=%d TM=%d",
 		atomic.LoadInt32(&t.aliveCT), atomic.LoadInt32(&t.aliveTT), t.sessionMgr.length())
 }
 

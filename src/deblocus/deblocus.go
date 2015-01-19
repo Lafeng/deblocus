@@ -80,10 +80,10 @@ func main() {
 }
 
 func startClient(context *bootContext) {
-	//defer func() {
-	//	ex.CatchException(recover())
-	//	sigChan <- t.Bye
-	//}()
+	defer func() {
+		ex.CatchException(recover())
+		sigChan <- t.Bye
+	}()
 	d5c := t.Parse_d5cFile(context.config)
 	mgr := NewClientMgr(d5c)
 	context.statser = mgr
