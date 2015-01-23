@@ -22,12 +22,13 @@ type Statser interface {
 }
 
 type bootContext struct {
-	listen  string
-	config  string
-	isServ  bool
-	csc     bool
-	icc     bool
-	statser Statser
+	listen    string
+	config    string
+	isServ    bool
+	csc       bool
+	icc       bool
+	statser   Statser
+	verbosity string
 }
 
 func (c *bootContext) parse() {

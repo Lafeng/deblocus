@@ -80,6 +80,7 @@ func ipAddr(addr net.Addr) string {
 // client
 type D5ClientConf struct {
 	Listen     string `importable:":9009"`
+	Verbose    int    `importable:"2"`
 	ListenAddr *net.TCPAddr
 	D5PList    []*D5Params
 }
@@ -143,6 +144,7 @@ type D5ServConf struct {
 	AuthTable  string `importable:"file:///PATH/YOUR_AUTH_FILE_PATH"`
 	Algo       string `importable:"AES128CFB"`
 	ServerName string `importable:"SERVER_INDENTIFIER"`
+	Verbose    int    `importable:"2"`
 	AlgoId     int
 	AuthSys    auth.AuthSys
 	RSAKeys    *RSAKeyPair

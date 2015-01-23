@@ -74,7 +74,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
-	"flag"
+	//"flag"
 	"fmt"
 	"io"
 	stdLog "log"
@@ -396,7 +396,6 @@ type flushSyncWriter interface {
 }
 
 func init() {
-	flag.Var(&logging.verbosity, "v", "log level for V logs")
 	/*
 		flag.BoolVar(&logging.toStderr, "logtostderr", false, "log to standard error instead of files")
 		flag.BoolVar(&logging.alsoToStderr, "alsologtostderr", false, "log to standard error as well as files")
@@ -535,7 +534,7 @@ where the fields are defined as follows:
 	msg              The user-supplied message
 */
 func (l *loggingT) header(s severity, depth int) (*buffer, string, int) {
-	if logging.verbosity <= 0 {
+	if l.verbosity <= 0 {
 		buf := l.getBuffer()
 		now := timeNow()
 		_, month, day := now.Date()
@@ -700,7 +699,7 @@ func (l *loggingT) output(s severity, buf *buffer, file string, line int, alsoTo
 	}
 	data := buf.Bytes()
 	if l.toStderr {
-		os.Stderr.Write(data)
+		os.Stdout.Write(data)
 	} else {
 		if alsoToStderr || l.alsoToStderr || s >= l.stderrThreshold.get() {
 			os.Stderr.Write(data)
@@ -1200,5 +1199,10 @@ func Exitf(format string, args ...interface{}) {
 }
 
 func Set_toStderr(v bool) {
+	// really output to stdout
 	logging.toStderr = v
+}
+
+func Set_Verbose(verbosity int) {
+	atomic.StoreInt32((*int32)(&logging.verbosity), int32(verbosity))
 }
