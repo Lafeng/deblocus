@@ -46,7 +46,6 @@ func main() {
 	flag.BoolVar(&showVersion, "ver", false, "show version")
 	flag.StringVar(&context.verbosity, "v", "", "verbose log level")
 	flag.Parse()
-
 	context.parse()
 	log.Set_toStderr(true)
 
@@ -87,7 +86,7 @@ func startClient(context *bootContext) {
 		sigChan <- t.Bye
 	}()
 	d5c := t.Parse_d5cFile(context.config)
-	setLogVerbose(context, d5c.Verbose)
+	context.setLogVerbose(d5c.Verbose)
 	mgr := NewClientMgr(d5c)
 	context.statser = mgr
 	lAddr := d5c.Listen
@@ -112,7 +111,7 @@ func startServer(context *bootContext) {
 		sigChan <- t.Bye
 	}()
 	var conf = t.Parse_d5sFile(context.config)
-	setLogVerbose(context, conf.Verbose)
+	context.setLogVerbose(conf.Verbose)
 	var lAddr = conf.ListenAddr
 	if len(context.listen) > 0 {
 		var err error
@@ -131,22 +130,5 @@ func startServer(context *bootContext) {
 		if err == nil {
 			go server.TunnelServe(conn)
 		}
-	}
-}
-
-func setLogVerbose(context *bootContext, level int) {
-	var vFlag = context.verbosity
-	var v int = -1
-	if len(vFlag) > 0 {
-		if len(vFlag) == 1 && vFlag[0] >= 48 && vFlag[0] <= 57 {
-			v = int(vFlag[0]) - 48
-		} else {
-			fmt.Println("Warning: invalid option -v=" + vFlag)
-		}
-	}
-	if v >= 0 {
-		log.Set_Verbose(v)
-	} else {
-		log.Set_Verbose(level)
 	}
 }

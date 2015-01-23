@@ -55,6 +55,23 @@ func (c *bootContext) doStats() {
 	}
 }
 
+func (c *bootContext) setLogVerbose(level int) {
+	var vFlag = c.verbosity
+	var v int = -1
+	if len(vFlag) > 0 {
+		if len(vFlag) == 1 && vFlag[0] >= 48 && vFlag[0] <= 57 {
+			v = int(vFlag[0]) - 48
+		} else {
+			fmt.Println("Warning: invalid option -v=" + vFlag)
+		}
+	}
+	if v >= 0 {
+		log.Set_Verbose(v)
+	} else {
+		log.Set_Verbose(level)
+	}
+}
+
 type clientMgr struct {
 	dhKeys     *t.DHKeyPair
 	d5pArray   []*t.D5Params
