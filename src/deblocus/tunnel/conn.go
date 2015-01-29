@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	//"time"
 )
 
 type Conn struct {
@@ -72,7 +73,7 @@ func (c *Conn) CloseWrite() {
 func (c *Conn) NoDelayAlive() {
 	c.Conn.SetDeadline(ZERO_TIME)
 	if t, y := c.Conn.(*net.TCPConn); y {
-		t.SetKeepAlive(true)
+		//t.SetKeepAlivePeriod(5 * time.Second)
 		t.SetNoDelay(true)
 	}
 }

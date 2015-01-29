@@ -13,13 +13,13 @@ var client_sid int32
 
 type Client struct {
 	d5p           *D5Params
-	ctlConn       *Conn
+	ctl           *CtlThread
 	token         []byte
 	cipherFactory *CipherFactory
-	lock          *sync.Mutex
+	lock          sync.Locker
 	aliveTT       int32
 	waitTk        *sync.Cond
-	Aborted       bool
+	State         int32 // -1:aborted 0:working 1:token requesting
 }
 
 func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Client {
@@ -32,19 +32,19 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 	ctlConn.identifier = d5p.Provider
 	ctlConn.NoDelayAlive()
 	me := &Client{
-		d5p:     d5p,
-		ctlConn: ctlConn,
-		token:   nego.token,
-		lock:    new(sync.Mutex),
+		d5p:   d5p,
+		token: nego.token,
+		lock:  new(sync.Mutex),
 	}
 	me.waitTk = sync.NewCond(me.lock)
 	me.cipherFactory = nego.cipherFactory
 	var exitHandlerCallback CtlExitHandler = func(addr string) {
-		me.Aborted = true
+		atomic.StoreInt32(&me.State, -1)
 		log.Warningf("Lost connection of backend %s[d5://%s], then will reconnect.\n", d5p.Provider, addr)
 		exitHandler(addr)
 	}
-	go RControlThread(ctlConn, me.commandHandler, exitHandlerCallback)
+	me.ctl = NewCtlThread(ctlConn, true)
+	go me.ctl.start(me.commandHandler, exitHandlerCallback)
 	return me
 }
 
@@ -97,7 +97,7 @@ func (this *Client) createTunnel(sid int32, target []byte) *Conn {
 }
 
 func (t *Client) Stats() string {
-	return fmt.Sprintf("Stats/Client To-%s TT=%d TM=%d", t.d5p.d5sAddrStr,
+	return fmt.Sprintf("Stats/Client To-%s TT=%d TK=%d", t.d5p.d5sAddrStr,
 		atomic.LoadInt32(&t.aliveTT), len(t.token)/SzTk)
 }
 
@@ -105,11 +105,12 @@ func (this *Client) getToken(sid int32) []byte {
 	defer func() {
 		this.lock.Unlock()
 		tlen := len(this.token) / SzTk
-		if tlen < 8 && !this.Aborted {
+		if tlen <= 8 && atomic.LoadInt32(&this.State) == 0 {
+			atomic.AddInt32(&this.State, 1)
 			if log.V(2) {
 				log.Infof("Request new tokens. tokenPool=%d\n", tlen)
 			}
-			go postCommand(this.ctlConn, TOKEN_REQUEST, nil)
+			this.ctl.postCommand(TOKEN_REQUEST, nil)
 		}
 	}()
 	this.lock.Lock()
@@ -118,7 +119,7 @@ func (this *Client) getToken(sid int32) []byte {
 			log.Infof("SID#%X waiting for token. May be the requests comes too fast, or the responding slowly.\n", sid)
 		}
 		this.waitTk.Wait()
-		if this.Aborted {
+		if atomic.LoadInt32(&this.State) < 0 {
 			panic("Abandon the request beacause of the tunSession was aborted.")
 		}
 	}
@@ -135,6 +136,7 @@ func (this *Client) putTokens(tokens []byte) {
 	defer this.lock.Unlock()
 	this.lock.Lock()
 	this.token = append(this.token, tokens...)
+	atomic.StoreInt32(&this.State, 0)
 	this.waitTk.Broadcast()
 	log.Infof("Recv tokens=%d tokens_pool=%d\n", len(tokens)/SzTk, len(this.token)/SzTk)
 }

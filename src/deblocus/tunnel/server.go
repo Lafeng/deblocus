@@ -17,8 +17,11 @@ import (
 const (
 	GENERATE_TOKEN_NUM = 64
 	SzTk               = sha1.Size
+	CTL_PING           = byte(1)
+	CTL_PONG           = byte(2)
 	TOKEN_REQUEST      = byte(5)
 	TOKEN_REPLY        = byte(6)
+	CTL_PING_INTERVAL  = time.Second * 60 // time.Minute
 )
 
 type SessionCtType map[string]*Session
@@ -53,12 +56,15 @@ func (s *SessionMgr) length() int {
 	return len(s.container)
 }
 
-func (s *SessionMgr) clearTokens(session *Session) {
+func (s *SessionMgr) clearTokens(session *Session) int {
 	defer s.lock.Unlock()
 	s.lock.Lock()
+	var i = 0
 	for k, _ := range session.tokens {
 		delete(s.container, k)
+		i++
 	}
+	return i
 }
 
 func (s *SessionMgr) createTokens(session *Session, many int) []byte {
@@ -124,23 +130,27 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 	if session != nil {
 		atomic.AddInt32(&t.aliveCT, 1)
 		fconn.NoDelayAlive()
+		var ctl = NewCtlThread(session.tun, false)
 		var ser_cmdHandler CtlCommandHandler = func(cmd byte, args []byte) {
 			switch cmd {
 			case TOKEN_REQUEST:
 				tokens := t.sessionMgr.createTokens(session, GENERATE_TOKEN_NUM)
-				postCommand(session.tun, TOKEN_REPLY, tokens)
+				ctl.postCommand(TOKEN_REPLY, tokens)
 			default:
 				log.Warningf("Unrecognized command=%x packet=[% x]\n", cmd, args)
 			}
 		}
 		var ser_exitHandler CtlExitHandler = func(addr string) {
-			log.Warningf("CtlTun->%s disconnected.\n", addr)
-			t.sessionMgr.clearTokens(session)
+			log.Warningf("CtlTun was disconnected %s\n", addr)
+			var i = t.sessionMgr.clearTokens(session)
+			if log.V(2) {
+				log.Infof("Clear tokens %d/%s\n", i, addr)
+			}
 			session.tokens = nil
 			SafeClose(session.tun)
 			atomic.AddInt32(&t.aliveCT, -1)
 		}
-		go RControlThread(fconn, ser_cmdHandler, ser_exitHandler)
+		ctl.start(ser_cmdHandler, ser_exitHandler)
 	}
 }
 
@@ -157,17 +167,17 @@ func (t *Server) TransServe(fconn *Conn, cipher *Cipher, remnant []byte, sid int
 	remnant = remnant[SzTk:]
 	target, err := s5.parseSocks5Target(remnant)
 	if err != nil {
-		log.Errorf("SID#%X Failed to connect to %s[%s] [%s]\n", sid, s5.host, s5.dst, err)
+		log.Errorf("SID#%X Failed to connect to %s[%s] : [%s]\n", sid, s5.host, s5.dst, err)
 	} else {
 		fconn.cipher = cipher
-		log.Infof("SID#%X Connect to %s[%s] is established\n", sid, s5.host, s5.dst)
+		log.Infof("SID#%X %s[%s] is established\n", sid, s5.host, s5.dst)
 		go Pipe(target, fconn, sid)
 		Pipe(fconn, target, sid)
 	}
 }
 
 func (t *Server) Stats() string {
-	return fmt.Sprintf("Stats/Server CT=%d TT=%d TM=%d",
+	return fmt.Sprintf("Stats/Server CT=%d TT=%d TK=%d",
 		atomic.LoadInt32(&t.aliveCT), atomic.LoadInt32(&t.aliveTT), t.sessionMgr.length())
 }
 
@@ -177,19 +187,6 @@ type Session struct {
 	uid           string
 	cipherFactory *CipherFactory
 	tokens        map[string]bool
-}
-
-func postCommand(tun *Conn, cmd byte, args []byte) (int, error) {
-	buf := make([]byte, 4)
-	buf[0] = cmd
-	binary.BigEndian.PutUint16(buf[2:], uint16(len(args)))
-	if args != nil {
-		buf = append(buf, args...)
-	}
-	if log.V(2) {
-		log.Infof("post command packet=[% x]\n", buf)
-	}
-	return tun.Write(buf)
 }
 
 func NewSession(tun *Conn, cf *CipherFactory, identity string) *Session {
@@ -206,31 +203,118 @@ func NewSession(tun *Conn, cf *CipherFactory, identity string) *Session {
 type CtlCommandHandler func(cmd byte, args []byte)
 type CtlExitHandler func(addr string)
 
-func RControlThread(tun *Conn, cmdHd CtlCommandHandler, exitHd CtlExitHandler) {
-	defer ex.CatchException(recover())
-	remoteAddr := tun.RemoteAddr().String()
+type CtlThread struct {
+	tun      *Conn
+	lived    *time.Timer
+	lock     sync.Locker
+	interval time.Duration
+}
+
+func NewCtlThread(tun *Conn, isClient bool) *CtlThread {
+	d := CTL_PING_INTERVAL
+	if isClient {
+		d *= 2
+	}
+	t := &CtlThread{
+		tun:      tun,
+		lock:     new(sync.Mutex),
+		interval: d,
+	}
+	t.lived = time.AfterFunc(d, t.areYouAlive)
+	return t
+}
+
+// all of the CtlCommandHandler and CtlExitHandler will be called in a new routine
+func (t *CtlThread) start(cmdHd CtlCommandHandler, exitHd CtlExitHandler) {
+	defer func(remoteAddr string) {
+		ex.CatchException(recover())
+		if t.lived != nil {
+			// must clear timer
+			t.lived.Stop()
+		}
+		if exitHd != nil {
+			go exitHd(remoteAddr)
+		}
+	}(t.tun.RemoteAddr().String())
 	for {
 		buf := make([]byte, 4)
-		n, err := tun.Read(buf)
+		n, err := t.tun.Read(buf)
 		if err != nil {
-			log.Warningln("RControlThread exit caused by", err)
+			log.Warningln("Exiting CtlThread caused by", err)
 			break
 		}
 		if n == 4 {
+			cmd := buf[0]
 			argslen := binary.BigEndian.Uint16(buf[2:])
 			if argslen > 0 {
 				argsbuf := make([]byte, argslen)
-				n, err = tun.Read(argsbuf)
-				go cmdHd(buf[0], argsbuf)
+				n, err = t.tun.Read(argsbuf)
+				go cmdHd(cmd, argsbuf)
 			} else {
-				go cmdHd(buf[0], nil)
+				switch cmd {
+				case CTL_PING: // reply
+					go t.imAlive()
+				case CTL_PONG: // aware of living
+					t.tun.SetReadDeadline(ZERO_TIME)
+					t.active(2) // so slow down the tempo
+				default:
+					go cmdHd(cmd, nil)
+				}
 			}
 		} else {
 			log.Errorln("Abnormal command", buf, err)
 			continue
 		}
 	}
-	if exitHd != nil {
-		go exitHd(remoteAddr)
+}
+
+func (t *CtlThread) postCommand(cmd byte, args []byte) (n int, err error) {
+	t.lock.Lock()
+	defer func() {
+		t.tun.SetWriteDeadline(ZERO_TIME)
+		t.lock.Unlock()
+	}()
+	buf := make([]byte, 4)
+	buf[0] = cmd
+	binary.BigEndian.PutUint16(buf[2:], uint16(len(args)))
+	if args != nil {
+		buf = append(buf, args...)
+	}
+	if log.V(3) {
+		log.Infof("post command packet=[% x]\n", buf)
+	}
+	t.tun.SetWriteDeadline(time.Now().Add(CTL_PING_INTERVAL / 2))
+	n, err = t.tun.Write(buf)
+	return
+}
+
+func (t *CtlThread) active(times time.Duration) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	t.lived.Reset(CTL_PING_INTERVAL * times)
+}
+
+func (t *CtlThread) areYouAlive() {
+	if log.V(3) {
+		log.Infoln("Ping remote", t.tun.RemoteAddr())
+	}
+	t.tun.SetReadDeadline(time.Now().Add(CTL_PING_INTERVAL / 2))
+	_, err := t.postCommand(CTL_PING, nil)
+	// Either waiting pong timeout or send ping failed
+	if err != nil {
+		SafeClose(t.tun)
+		log.Warningln("Ping remote failed and then closed", t.tun.RemoteAddr(), err)
+	} else {
+		// impossible
+		t.active(1)
+	}
+}
+
+func (t *CtlThread) imAlive() {
+	t.active(1) // up tempo for become a sender
+	_, err := t.postCommand(CTL_PONG, nil)
+	if err != nil {
+		SafeClose(t.tun)
+		log.Warningln("Reply ping failed and then closed", t.tun.RemoteAddr(), err)
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sync/atomic"
 	//ex "deblocus/exception"
 	t "deblocus/tunnel"
 	"fmt"
@@ -86,13 +87,13 @@ func (m *clientMgr) selectClient() *t.Client {
 			i := rand.Intn(m.num<<4) >> 4
 			for _, v := range m.indexChain[i : i+m.num-1] {
 				w := m.clients[v]
-				if w != nil && !w.Aborted {
+				if w != nil && atomic.LoadInt32(&w.State) >= 0 {
 					return w
 				}
 			}
 		} else {
 			w := m.clients[0]
-			if w != nil && !w.Aborted {
+			if w != nil && atomic.LoadInt32(&w.State) >= 0 {
 				return w
 			}
 		}
@@ -102,7 +103,7 @@ func (m *clientMgr) selectClient() *t.Client {
 }
 
 func (m *clientMgr) selectClientServ(conn net.Conn) {
-	m.selectClient().ClientServe(conn)
+	m.selectClient().ClientServe(conn) // TODO cancel loop when disconn
 }
 
 func (m *clientMgr) rebuildClient(index, try int) {
