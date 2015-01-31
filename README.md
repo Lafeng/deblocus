@@ -1,4 +1,4 @@
-# deblocus
+## deblocus 
 
 ### Introduction
 
@@ -18,16 +18,16 @@ This is the exactly reason I developed it. Password only identify the user's ide
 
 deblocus evolved from the [qtunnel](https://github.com/getqujing/qtunnel), and depends on [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx) and [glog](https://github.com/golang/glog), thanks to those projects.
 
-# deblocus 介绍
+## deblocus 介绍
 
 常见的对称加密应用中，容易忽视密钥的保存和分发才是对称加密的弱点，固定密钥一旦泄露甚至连历史流量被会解密。
 
-deblocus就是为了提高安全和隐私性，这是一个轻量级的密钥自协商的socks5加密隧道，通信过程借鉴了https握手，但步骤更少和特征更少也更局部化和快速。
+deblocus就是为了**提高安全和隐私性**，这是一个轻量级的密钥自协商的socks5加密隧道，通信过程借鉴了https握手，但步骤更少和特征更少也更局部化和快速。
 
-### 编译和配置
+### 编译/配置/运行
 
-项目[Wiki](https://github.com/spance/deblocus/wiki)中有详细解释
+####参见项目[Wiki](https://github.com/spance/deblocus/wiki)
 
 ### 伸手即用
 
-项目[Release](https://github.com/spance/deblocus/releases)中不定期发布已编译的可执行文件
+####项目[Release](https://github.com/spance/deblocus/releases)中不定期发布已编译的可执行文件
