@@ -30,7 +30,7 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 	ctlConn := nego.negotiate()
 	log.Infof("Backend %s[d5://%s] is ready.\n", d5p.Provider, d5p.d5sAddrStr)
 	ctlConn.identifier = d5p.Provider
-	ctlConn.NoDelayAlive()
+	ctlConn.SetSockOpt(1, 1, 1)
 	me := &Client{
 		d5p:   d5p,
 		token: nego.token,
@@ -73,10 +73,11 @@ func (this *Client) ClientServe(conn net.Conn) {
 			sid := atomic.AddInt32(&client_sid, 1)
 			log.Infof("SID#%X connect to %s via %s\n", sid, target, this.d5p.Provider)
 			bconn = this.createTunnel(sid, s5.target)
+			bconn.SetSockOpt(-1, 0, 0)
 			bconn.identifier = this.d5p.Provider
 			atomic.AddInt32(&this.aliveTT, 1)
-			go Pipe(conn, bconn, sid)
-			Pipe(bconn, conn, sid)
+			go Pipe(conn, bconn, sid, this.ctl)
+			Pipe(bconn, conn, sid, this.ctl)
 			done = true
 		}
 	}
@@ -130,7 +131,7 @@ func (this *Client) getToken(sid int32) []byte {
 	this.token = this.token[SzTk:]
 	if log.V(3) {
 		tlen := len(this.token) / SzTk
-		log.Infof("SID#%X take token=%x tokenPool=%d\n", sid, token, tlen)
+		log.Infof("SID#%X take token=%x pool=%d\n", sid, token, tlen)
 	}
 	return token
 }
@@ -141,7 +142,7 @@ func (this *Client) putTokens(tokens []byte) {
 	this.token = append(this.token, tokens...)
 	atomic.StoreInt32(&this.State, 0)
 	this.waitTk.Broadcast()
-	log.Infof("Recv tokens=%d tokens_pool=%d\n", len(tokens)/SzTk, len(this.token)/SzTk)
+	log.Infof("Recv tokens=%d pool=%d\n", len(tokens)/SzTk, len(this.token)/SzTk)
 }
 
 func (this *Client) commandHandler(cmd byte, args []byte) {

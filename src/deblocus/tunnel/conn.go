@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"time"
 	//"time"
 )
 
@@ -70,11 +71,18 @@ func (c *Conn) CloseWrite() {
 	}
 }
 
-func (c *Conn) NoDelayAlive() {
-	c.Conn.SetDeadline(ZERO_TIME)
+func (c *Conn) SetSockOpt(disableDeadline, keepAlive, noDelay int8) {
+	if disableDeadline > 0 {
+		c.Conn.SetDeadline(ZERO_TIME)
+	}
 	if t, y := c.Conn.(*net.TCPConn); y {
-		//t.SetKeepAlive(true)
-		t.SetNoDelay(true)
+		// SetKeepAlivePeriod(d time.Duration) error
+		if keepAlive >= 0 {
+			t.SetKeepAlive(keepAlive > 0)
+		}
+		if noDelay >= 0 {
+			t.SetNoDelay(noDelay > 0)
+		}
 	}
 }
 
@@ -104,17 +112,23 @@ func getConnIdentifier(con net.Conn) string {
 	return ipAddr(con.RemoteAddr())
 }
 
-func Pipe(dst, src net.Conn, sid int32) {
+func Pipe(dst, src net.Conn, sid int32, ctl *CtlThread) {
 	defer dst.Close()
 	src.SetReadDeadline(ZERO_TIME)
 	dst.SetWriteDeadline(ZERO_TIME)
-	var written int64
-	var err error
-	buf := make([]byte, 16*1024)
+	var (
+		written  int64
+		err      error
+		buf      = make([]byte, 16*1024)
+		nr, nw   int
+		er, ew   error
+		now      int64
+		lastTime = time.Now().Unix()
+	)
 	for {
-		nr, er := src.Read(buf)
+		nr, er = src.Read(buf)
 		if nr > 0 {
-			nw, ew := dst.Write(buf[0:nr])
+			nw, ew = dst.Write(buf[0:nr])
 			if nw > 0 {
 				written += int64(nw)
 			}
@@ -126,6 +140,11 @@ func Pipe(dst, src net.Conn, sid int32) {
 				err = io.ErrShortWrite
 				break
 			}
+		}
+		// prevent calling too often, especially during high speed transmitting.
+		if now = time.Now().Unix(); (now-lastTime) > 2 && (er == nil || er == io.EOF) {
+			lastTime = now
+			ctl.active(now)
 		}
 		if er == io.EOF {
 			break

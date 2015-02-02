@@ -119,7 +119,8 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 	if err == TRANS_SESSION {
 		sid := atomic.AddInt32(&t.sid, 1)
 		log.Infof("Serving SID#%X client=%s@%s\n", sid, session.uid, conn.RemoteAddr())
-		t.TransServe(fconn, session.cipherFactory.NewCipher(), nego.remnant, sid)
+		fconn.SetSockOpt(-1, 0, 0)
+		t.TransServe(fconn, session, nego.remnant, sid)
 		return
 	}
 	if err != nil {
@@ -129,8 +130,9 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 	}
 	if session != nil {
 		atomic.AddInt32(&t.aliveCT, 1)
-		fconn.NoDelayAlive()
+		fconn.SetSockOpt(1, 1, 1)
 		var ctl = NewCtlThread(session.tun, false)
+		session.ctlThread = ctl
 		var ser_cmdHandler CtlCommandHandler = func(cmd byte, args []byte) {
 			switch cmd {
 			case TOKEN_REQUEST:
@@ -154,7 +156,7 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 	}
 }
 
-func (t *Server) TransServe(fconn *Conn, cipher *Cipher, remnant []byte, sid int32) {
+func (t *Server) TransServe(fconn *Conn, session *Session, remnant []byte, sid int32) {
 	defer func() {
 		SafeClose(fconn)
 		ex.CatchException(recover())
@@ -162,6 +164,7 @@ func (t *Server) TransServe(fconn *Conn, cipher *Cipher, remnant []byte, sid int
 	}()
 	atomic.AddInt32(&t.aliveTT, 1)
 	s5 := new(S5Target)
+	var cipher = session.cipherFactory.NewCipher()
 	cipher.decrypt(remnant, remnant)
 	//dumpHex("remnant", remnant)
 	remnant = remnant[SzTk:]
@@ -171,8 +174,8 @@ func (t *Server) TransServe(fconn *Conn, cipher *Cipher, remnant []byte, sid int
 	} else {
 		fconn.cipher = cipher
 		log.Infof("SID#%X %s[%s] is established\n", sid, s5.host, s5.dst)
-		go Pipe(target, fconn, sid)
-		Pipe(fconn, target, sid)
+		go Pipe(target, fconn, sid, session.ctlThread)
+		Pipe(fconn, target, sid, session.ctlThread)
 	}
 }
 
@@ -187,6 +190,7 @@ type Session struct {
 	uid           string
 	cipherFactory *CipherFactory
 	tokens        map[string]bool
+	ctlThread     *CtlThread
 }
 
 func NewSession(tun *Conn, cf *CipherFactory, identity string) *Session {
@@ -197,28 +201,29 @@ func NewSession(tun *Conn, cf *CipherFactory, identity string) *Session {
 	} else {
 		uid = identity
 	}
-	return &Session{tun, identity, uid, cf, make(map[string]bool)}
+	return &Session{tun, identity, uid, cf, make(map[string]bool), nil}
 }
 
 type CtlCommandHandler func(cmd byte, args []byte)
 type CtlExitHandler func(addr string)
 
 type CtlThread struct {
-	tun        *Conn
-	remoteAddr string
-	lived      *time.Timer
-	lock       sync.Locker
-	interval   time.Duration
+	tun           *Conn
+	remoteAddr    string
+	lived         *time.Timer
+	lock          sync.Locker
+	interval      time.Duration
+	lastResetTime int64
 }
 
-func NewCtlThread(tun *Conn, isClient bool) *CtlThread {
+func NewCtlThread(conn *Conn, isClient bool) *CtlThread {
 	d := CTL_PING_INTERVAL
 	if isClient {
 		d *= 2
 	}
 	t := &CtlThread{
-		tun:        tun,
-		remoteAddr: tun.RemoteAddr().String(),
+		tun:        conn,
+		remoteAddr: conn.RemoteAddr().String(),
 		lock:       new(sync.Mutex),
 		interval:   d,
 	}
@@ -289,10 +294,24 @@ func (t *CtlThread) postCommand(cmd byte, args []byte) (n int, err error) {
 	return
 }
 
-func (t *CtlThread) active(times time.Duration) {
+func (t *CtlThread) active(times int64) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	t.lived.Reset(CTL_PING_INTERVAL * times)
+	if times > 0 { // active link in transferring
+		var d = (times - t.lastResetTime) << 1
+		// allow reset at least half interval
+		if d > int64(t.interval/time.Second) {
+			if log.V(4) {
+				log.Infoln("suppress the next ping task")
+			}
+			t.lastResetTime = times
+			t.lived.Reset(t.interval)
+		}
+	} else if times < 0 { // scheduled ping
+		t.interval = CTL_PING_INTERVAL * time.Duration(-times)
+		t.lastResetTime = time.Now().Unix()
+		t.lived.Reset(t.interval)
+	}
 }
 
 func (t *CtlThread) areYouAlive() {
@@ -306,8 +325,8 @@ func (t *CtlThread) areYouAlive() {
 		log.Warningln("Ping remote failed and then closed", t.tun.RemoteAddr(), err)
 	} else {
 		t.tun.SetReadDeadline(time.Now().Add(CTL_PING_INTERVAL / 2))
-		// impossible call by timer,
-		t.active(1)
+		// impossible call by timer, will reset by acknowledged or read timeout.
+		t.active(-1)
 	}
 }
 
@@ -316,14 +335,14 @@ func (t *CtlThread) acknowledged() {
 		log.Infoln("Ping/acknowledged", t.remoteAddr)
 	}
 	t.tun.SetReadDeadline(ZERO_TIME)
-	t.active(2) // so slow down the tempo
+	t.active(-2) // so slow down the tempo
 }
 
 func (t *CtlThread) imAlive() {
 	if log.V(3) {
 		log.Infoln("Ping/responded", t.remoteAddr)
 	}
-	t.active(1) // up tempo for become a sender
+	t.active(-1) // up tempo for become a sender
 	_, err := t.postCommand(CTL_PONG, nil)
 	if err != nil {
 		SafeClose(t.tun)
