@@ -82,28 +82,32 @@ type clientMgr struct {
 }
 
 func (m *clientMgr) selectClient() *t.Client {
-	for {
-		if m.num > 1 {
-			i := rand.Intn(m.num<<4) >> 4
-			for _, v := range m.indexChain[i : i+m.num-1] {
-				w := m.clients[v]
-				if w != nil && atomic.LoadInt32(&w.State) >= 0 {
-					return w
-				}
-			}
-		} else {
-			w := m.clients[0]
-			if w != nil && atomic.LoadInt32(&w.State) >= 0 {
+	if m.num > 1 {
+		i := rand.Intn(m.num<<4) >> 4
+		for _, v := range m.indexChain[i : i+m.num-1] {
+			if w := m.clients[v]; w != nil && atomic.LoadInt32(&w.State) >= 0 {
 				return w
 			}
 		}
-		log.Errorf("No available client for new connection, will try again after 5s")
-		time.Sleep(5 * time.Second)
+	} else {
+		if w := m.clients[0]; w != nil && atomic.LoadInt32(&w.State) >= 0 {
+			return w
+		}
 	}
+	log.Errorf("No available connection of backend for servicing new request")
+	// sleep to prevent a lot of new connections come into.
+	time.Sleep(5 * time.Second)
+	// no better way reliably detect remote was closed
+	// so just take null then close self
+	return nil
 }
 
 func (m *clientMgr) selectClientServ(conn net.Conn) {
-	m.selectClient().ClientServe(conn) // TODO cancel loop when disconn
+	if client := m.selectClient(); client != nil {
+		client.ClientServe(conn)
+	} else {
+		t.SafeClose(conn)
+	}
 }
 
 func (m *clientMgr) rebuildClient(index, try int) {

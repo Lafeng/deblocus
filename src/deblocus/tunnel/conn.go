@@ -73,7 +73,7 @@ func (c *Conn) CloseWrite() {
 func (c *Conn) NoDelayAlive() {
 	c.Conn.SetDeadline(ZERO_TIME)
 	if t, y := c.Conn.(*net.TCPConn); y {
-		//t.SetKeepAlivePeriod(5 * time.Second)
+		//t.SetKeepAlive(true)
 		t.SetNoDelay(true)
 	}
 }

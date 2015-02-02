@@ -141,10 +141,10 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 			}
 		}
 		var ser_exitHandler CtlExitHandler = func(addr string) {
-			log.Warningf("CtlTun was disconnected %s\n", addr)
+			log.Warningf("CtlSession was disconnected %s\n", addr)
 			var i = t.sessionMgr.clearTokens(session)
 			if log.V(2) {
-				log.Infof("Clear tokens %d/%s\n", i, addr)
+				log.Infof("Clear tokens %d of %s\n", i, addr)
 			}
 			session.tokens = nil
 			SafeClose(session.tun)
@@ -204,10 +204,11 @@ type CtlCommandHandler func(cmd byte, args []byte)
 type CtlExitHandler func(addr string)
 
 type CtlThread struct {
-	tun      *Conn
-	lived    *time.Timer
-	lock     sync.Locker
-	interval time.Duration
+	tun        *Conn
+	remoteAddr string
+	lived      *time.Timer
+	lock       sync.Locker
+	interval   time.Duration
 }
 
 func NewCtlThread(tun *Conn, isClient bool) *CtlThread {
@@ -216,9 +217,10 @@ func NewCtlThread(tun *Conn, isClient bool) *CtlThread {
 		d *= 2
 	}
 	t := &CtlThread{
-		tun:      tun,
-		lock:     new(sync.Mutex),
-		interval: d,
+		tun:        tun,
+		remoteAddr: tun.RemoteAddr().String(),
+		lock:       new(sync.Mutex),
+		interval:   d,
 	}
 	t.lived = time.AfterFunc(d, t.areYouAlive)
 	return t
@@ -226,16 +228,16 @@ func NewCtlThread(tun *Conn, isClient bool) *CtlThread {
 
 // all of the CtlCommandHandler and CtlExitHandler will be called in a new routine
 func (t *CtlThread) start(cmdHd CtlCommandHandler, exitHd CtlExitHandler) {
-	defer func(remoteAddr string) {
+	defer func() {
 		ex.CatchException(recover())
 		if t.lived != nil {
 			// must clear timer
 			t.lived.Stop()
 		}
 		if exitHd != nil {
-			go exitHd(remoteAddr)
+			go exitHd(t.remoteAddr)
 		}
-	}(t.tun.RemoteAddr().String())
+	}()
 	for {
 		buf := make([]byte, 4)
 		n, err := t.tun.Read(buf)
@@ -255,8 +257,7 @@ func (t *CtlThread) start(cmdHd CtlCommandHandler, exitHd CtlExitHandler) {
 				case CTL_PING: // reply
 					go t.imAlive()
 				case CTL_PONG: // aware of living
-					t.tun.SetReadDeadline(ZERO_TIME)
-					t.active(2) // so slow down the tempo
+					go t.acknowledged()
 				default:
 					go cmdHd(cmd, nil)
 				}
@@ -280,8 +281,8 @@ func (t *CtlThread) postCommand(cmd byte, args []byte) (n int, err error) {
 	if args != nil {
 		buf = append(buf, args...)
 	}
-	if log.V(3) {
-		log.Infof("post command packet=[% x]\n", buf)
+	if log.V(4) {
+		log.Infof("send command packet=[% x]\n", buf)
 	}
 	t.tun.SetWriteDeadline(time.Now().Add(CTL_PING_INTERVAL / 2))
 	n, err = t.tun.Write(buf)
@@ -296,21 +297,32 @@ func (t *CtlThread) active(times time.Duration) {
 
 func (t *CtlThread) areYouAlive() {
 	if log.V(3) {
-		log.Infoln("Ping remote", t.tun.RemoteAddr())
+		log.Infoln("Ping/launched remote", t.remoteAddr)
 	}
-	t.tun.SetReadDeadline(time.Now().Add(CTL_PING_INTERVAL / 2))
 	_, err := t.postCommand(CTL_PING, nil)
 	// Either waiting pong timeout or send ping failed
 	if err != nil {
 		SafeClose(t.tun)
 		log.Warningln("Ping remote failed and then closed", t.tun.RemoteAddr(), err)
 	} else {
-		// impossible
+		t.tun.SetReadDeadline(time.Now().Add(CTL_PING_INTERVAL / 2))
+		// impossible call by timer,
 		t.active(1)
 	}
 }
 
+func (t *CtlThread) acknowledged() {
+	if log.V(3) {
+		log.Infoln("Ping/acknowledged", t.remoteAddr)
+	}
+	t.tun.SetReadDeadline(ZERO_TIME)
+	t.active(2) // so slow down the tempo
+}
+
 func (t *CtlThread) imAlive() {
+	if log.V(3) {
+		log.Infoln("Ping/responded", t.remoteAddr)
+	}
 	t.active(1) // up tempo for become a sender
 	_, err := t.postCommand(CTL_PONG, nil)
 	if err != nil {

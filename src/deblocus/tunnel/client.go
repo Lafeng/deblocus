@@ -39,6 +39,9 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 	me.waitTk = sync.NewCond(me.lock)
 	me.cipherFactory = nego.cipherFactory
 	var exitHandlerCallback CtlExitHandler = func(addr string) {
+		// flag: negative State
+		// 1, for some blocking tunSession to abort.
+		// 2, for skipping when selecting client
 		atomic.StoreInt32(&me.State, -1)
 		log.Warningf("Lost connection of backend %s[d5://%s], then will reconnect.\n", d5p.Provider, addr)
 		exitHandler(addr)
@@ -52,11 +55,12 @@ func (this *Client) ClientServe(conn net.Conn) {
 	var bconn *Conn
 	var done bool
 	defer func() {
+		ex.CatchException(recover())
+		atomic.AddInt32(&this.aliveTT, -1)
 		if !done {
 			SafeClose(conn)
 			SafeClose(bconn)
 		}
-		ex.CatchException(recover())
 	}()
 	if log.V(2) {
 		log.Infoln("Request/socks5 from", conn.RemoteAddr().String())
@@ -73,7 +77,6 @@ func (this *Client) ClientServe(conn net.Conn) {
 			atomic.AddInt32(&this.aliveTT, 1)
 			go Pipe(conn, bconn, sid)
 			Pipe(bconn, conn, sid)
-			atomic.AddInt32(&this.aliveTT, -1)
 			done = true
 		}
 	}
@@ -108,7 +111,7 @@ func (this *Client) getToken(sid int32) []byte {
 		if tlen <= 8 && atomic.LoadInt32(&this.State) == 0 {
 			atomic.AddInt32(&this.State, 1)
 			if log.V(2) {
-				log.Infof("Request new tokens. tokenPool=%d\n", tlen)
+				log.Infof("Request new tokens, pool=%d\n", tlen)
 			}
 			this.ctl.postCommand(TOKEN_REQUEST, nil)
 		}
@@ -116,11 +119,11 @@ func (this *Client) getToken(sid int32) []byte {
 	this.lock.Lock()
 	for len(this.token) < SzTk {
 		if log.V(2) {
-			log.Infof("SID#%X waiting for token. May be the requests comes too fast, or the responding slowly.\n", sid)
+			log.Infof("SID#%X waiting for token. May be the requests came too fast, or that responded slowly.\n", sid)
 		}
 		this.waitTk.Wait()
 		if atomic.LoadInt32(&this.State) < 0 {
-			panic("Abandon the request beacause of the tunSession was aborted.")
+			panic("Abandon the request beacause the tunSession was lost.")
 		}
 	}
 	token := this.token[:SzTk]
