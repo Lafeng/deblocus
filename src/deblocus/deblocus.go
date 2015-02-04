@@ -21,7 +21,7 @@ func waitSignal() {
 	for sig := range sigChan {
 		switch sig {
 		case t.Bye:
-			log.Errorln("Exiting.")
+			log.Exitln("Exiting.")
 			return
 		case syscall.SIGINT, syscall.SIGTERM:
 			log.Exitln("Terminated by signal", sig)
@@ -52,7 +52,7 @@ func main() {
 	log.Set_output(true, logDir)
 
 	if showVersion {
-		fmt.Println(versionString(), "\n")
+		fmt.Println(versionString())
 		return
 	}
 
@@ -89,7 +89,7 @@ func startClient(context *bootContext) {
 	}()
 	var conf = t.Parse_d5cFile(context.config)
 	context.setLogVerbose(conf.Verbose)
-	log.Infoln(versionString())
+	log.Info(versionString())
 	log.Infoln("Client is starting at", conf.ListenAddr)
 
 	mgr := NewClientMgr(conf)
@@ -117,7 +117,7 @@ func startServer(context *bootContext) {
 	}()
 	var conf = t.Parse_d5sFile(context.config)
 	context.setLogVerbose(conf.Verbose)
-	log.Infoln(versionString())
+	log.Info(versionString())
 	log.Infoln("Server is starting at", conf.ListenAddr)
 
 	ln, err := net.ListenTCP("tcp", conf.ListenAddr)

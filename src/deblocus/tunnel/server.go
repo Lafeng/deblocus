@@ -302,7 +302,7 @@ func (t *CtlThread) postCommand(cmd byte, args []byte) (n int, err error) {
 	if log.V(5) {
 		log.Infof("send command packet=[% x]\n", buf)
 	}
-	t.tun.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
+	t.tun.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT * 2))
 	n, err = t.tun.Write(buf)
 	return
 }
@@ -335,9 +335,9 @@ func (t *CtlThread) areYouAlive() {
 	// Either waiting pong timeout or send ping failed
 	if err != nil {
 		SafeClose(t.tun)
-		log.Warningln("Ping remote failed and then closed", t.tun.RemoteAddr(), err)
+		log.Warningln("Ping remote failed and then closed", t.remoteAddr, err)
 	} else {
-		t.tun.SetReadDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
+		t.tun.SetReadDeadline(time.Now().Add(GENERAL_SO_TIMEOUT * 2))
 		// impossible call by timer, will reset by acknowledged or read timeout.
 		t.active(-1)
 	}
@@ -353,12 +353,12 @@ func (t *CtlThread) acknowledged() {
 
 func (t *CtlThread) imAlive() {
 	if log.V(3) {
-		log.Infoln("Ping/responded from", t.remoteAddr)
+		log.Infoln("Ping/responded to", t.remoteAddr)
 	}
 	t.active(-1) // up tempo for become a sender
 	_, err := t.postCommand(CTL_PONG, nil)
 	if err != nil {
 		SafeClose(t.tun)
-		log.Warningln("Reply ping failed and then closed", t.tun.RemoteAddr(), err)
+		log.Warningln("Reply ping failed and then closed", t.remoteAddr, err)
 	}
 }

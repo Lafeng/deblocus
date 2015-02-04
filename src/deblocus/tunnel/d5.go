@@ -25,7 +25,7 @@ const (
 	NULL               = ""
 	DMLEN              = 384
 	TT_TOKEN_OFFSET    = SzTk + 2
-	GENERAL_SO_TIMEOUT = 20 * time.Second
+	GENERAL_SO_TIMEOUT = 10 * time.Second
 	TUN_PARAMS_LEN     = 32
 	TP_INTERVAL_OFS    = 4
 )
