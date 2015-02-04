@@ -111,22 +111,25 @@ func (m *clientMgr) selectClientServ(conn net.Conn) {
 }
 
 func (m *clientMgr) rebuildClient(index, try int) {
+	var d5p = m.d5pArray[index]
 	defer func() {
-		if recover() != nil {
+		err := recover()
+		if err != nil {
+			log.Errorln("Failed to connect to backend", d5p.RemoteIdFull(), err)
 			go m.rebuildClient(index, try<<1)
 		}
 	}()
-	var exitHandler t.CtlExitHandler = func(addr string) {
+	var exitHandler t.CtlExitHandler = func() {
 		m.clients[index] = nil
 		m.rebuildClient(index, 1)
 	}
-	var d5p = m.d5pArray[index]
 	if try > 1 {
 		if try > 60 {
 			try = 60
 		}
-		log.Warningf("Can't connect to backend %s, will retry after %ds.\n", d5p.Provider, try*RETRY_INTERVAL)
-		time.Sleep(time.Duration(try*RETRY_INTERVAL) * time.Second)
+		var times = time.Duration(try*RETRY_INTERVAL) * time.Second
+		log.Warningf("Will retry after %s.\n", times)
+		time.Sleep(times)
 	}
 	m.clients[index] = t.NewClient(d5p, m.dhKeys, exitHandler)
 }

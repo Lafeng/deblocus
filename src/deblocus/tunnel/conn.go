@@ -105,7 +105,7 @@ func (c *Conn) WHashSum() []byte {
 	return hash
 }
 
-func getConnIdentifier(con net.Conn) string {
+func GetConnIdentifier(con net.Conn) string {
 	if c, y := con.(*Conn); y && c.identifier != NULL {
 		return c.identifier
 	}
@@ -155,8 +155,8 @@ func Pipe(dst, src net.Conn, sid int32, ctl *CtlThread) {
 		}
 	}
 	if log.V(2) {
-		sAddr := getConnIdentifier(src)
-		dAddr := getConnIdentifier(dst)
+		sAddr := GetConnIdentifier(src)
+		dAddr := GetConnIdentifier(dst)
 		// use of closed...err may be normal error-obj that named `errClosing` at /src/net.go:284
 		// OR may be net.OpError caused by syscall.
 		// so we have to scan error string msg, where is better way ?

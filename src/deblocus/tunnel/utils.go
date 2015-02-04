@@ -65,9 +65,9 @@ func i64HumanSize(size int64) string {
 }
 
 func dumpHex(title string, byteArray []byte) {
-	println("---BEGIN-dump-" + title)
-	print(hex.Dump(byteArray))
-	println("---END-dump-" + title)
+	fmt.Println("---DUMP-BEGIN-->", title)
+	fmt.Print(hex.Dump(byteArray))
+	fmt.Println("---DUMP-END-->", title)
 }
 
 func ipAddr(addr net.Addr) string {
@@ -104,11 +104,27 @@ func (c *D5ClientConf) validate() error {
 type D5Params struct {
 	d5sAddrStr string
 	d5sAddr    *net.TCPAddr
-	Provider   string
+	provider   string
 	sPub       *rsa.PublicKey
 	algoId     int
 	user       string
 	pass       string
+}
+
+func (d *D5Params) RemoteIdFull() string {
+	if d.provider != NULL {
+		return fmt.Sprintf("%s(d5://%s)", d.provider, d.d5sAddrStr)
+	} else {
+		return d.d5sAddrStr
+	}
+}
+
+func (d *D5Params) RemoteId() string {
+	if d.provider != NULL {
+		return d.provider
+	} else {
+		return d.d5sAddrStr
+	}
 }
 
 // without sPub field
@@ -253,9 +269,7 @@ func parse_d5pFragment(fc []byte) *D5Params {
 	ThrowErr(err)
 	d5p.sPub = pub.(*rsa.PublicKey)
 	if provider, y := block.Headers[WORD_provider]; y {
-		d5p.Provider = provider
-	} else {
-		d5p.Provider = d5p.d5sAddrStr
+		d5p.provider = provider
 	}
 	return d5p
 }

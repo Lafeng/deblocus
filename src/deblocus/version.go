@@ -6,18 +6,29 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
 const (
 	app_name    = "deblocus"
 	project_url = "https://github.com/spance/delocus"
-	ver_major   = "0.5"
-	ver_minor   = "0331" + "-alpha"
+	ver_major   = uint8(0)
+	ver_minor   = uint8(6)
+	ver_build   = uint16(350)
 )
 
+func init() {
+	var ver uint32
+	ver |= uint32(ver_major) << 24
+	ver |= uint32(ver_minor) << 16
+	ver |= uint32(ver_build)
+	os.Setenv("VERSION", strconv.Itoa(int(ver)))
+}
+
 func versionString() string {
-	return fmt.Sprintf("%s version: %s.%s\n", app_name, ver_major, ver_minor)
+	var build_flag = "-alpha"
+	return fmt.Sprintf("%s version: %d.%d.%04d%s\n", app_name, ver_major, ver_minor, ver_build, build_flag)
 }
 
 type CArg struct {

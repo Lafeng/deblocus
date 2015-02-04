@@ -21,7 +21,7 @@ const (
 	CTL_PONG           = byte(2)
 	TOKEN_REQUEST      = byte(5)
 	TOKEN_REPLY        = byte(6)
-	CTL_PING_INTERVAL  = time.Second * 60 // time.Minute
+	CTL_PING_INTERVAL  = uint16(60) // time.Second
 )
 
 type SessionCtType map[string]*Session
@@ -59,11 +59,11 @@ func (s *SessionMgr) length() int {
 func (s *SessionMgr) clearTokens(session *Session) int {
 	defer s.lock.Unlock()
 	s.lock.Lock()
-	var i = 0
+	var i = len(session.tokens)
 	for k, _ := range session.tokens {
 		delete(s.container, k)
-		i++
 	}
+	session.tokens = nil
 	return i
 }
 
@@ -91,7 +91,9 @@ func (s *SessionMgr) createTokens(session *Session, many int) []byte {
 		s.container[key] = session
 		session.tokens[key] = true
 	}
-	log.Errorf("sessionMap created=%d len=%d\n", many, len(s.container))
+	if log.V(3) {
+		log.Errorf("sessionMap created=%d len=%d\n", many, len(s.container))
+	}
 	return tokens
 }
 
@@ -111,10 +113,11 @@ func NewServer(d5s *D5ServConf, dhKeys *DHKeyPair) *Server {
 }
 
 func (t *Server) TunnelServe(conn *net.TCPConn) {
-	defer func() { ex.CatchException(recover()) }()
-	nego := &d5SNegotiation{Server: t}
-	conn.SetDeadline(time.Now().Add(10 * time.Second))
+	defer func() {
+		ex.CatchException(recover())
+	}()
 	fconn := NewConnWithHash(conn)
+	nego := &d5SNegotiation{Server: t}
 	session, err := nego.negotiate(fconn)
 	if err == TRANS_SESSION {
 		sid := atomic.AddInt32(&t.sid, 1)
@@ -126,12 +129,17 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 	if err != nil {
 		log.Warningln("Close abnormal connection from ", conn.RemoteAddr(), err)
 		SafeClose(conn)
+		if session != nil {
+			t.sessionMgr.clearTokens(session)
+		}
 		return
 	}
-	if session != nil {
+	if session != nil { // CtlThread
 		atomic.AddInt32(&t.aliveCT, 1)
 		fconn.SetSockOpt(1, 1, 1)
-		var ctl = NewCtlThread(session.tun, false)
+		var clientId = GetConnIdentifier(fconn)
+		log.Infof("Client %s established.\n", clientId)
+		var ctl = NewCtlThread(session.tun, 0)
 		session.ctlThread = ctl
 		var ser_cmdHandler CtlCommandHandler = func(cmd byte, args []byte) {
 			switch cmd {
@@ -142,15 +150,14 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 				log.Warningf("Unrecognized command=%x packet=[% x]\n", cmd, args)
 			}
 		}
-		var ser_exitHandler CtlExitHandler = func(addr string) {
-			log.Warningf("CtlSession was disconnected %s\n", addr)
+		var ser_exitHandler CtlExitHandler = func() {
+			log.Warningf("Client %s disconnected.\n", clientId)
 			var i = t.sessionMgr.clearTokens(session)
-			if log.V(2) {
-				log.Infof("Clear tokens %d of %s\n", i, addr)
-			}
-			session.tokens = nil
 			SafeClose(session.tun)
 			atomic.AddInt32(&t.aliveCT, -1)
+			if log.V(2) {
+				log.Infof("Clear tokens %d of %s\n", i, clientId)
+			}
 		}
 		ctl.start(ser_cmdHandler, ser_exitHandler)
 	}
@@ -205,7 +212,7 @@ func NewSession(tun *Conn, cf *CipherFactory, identity string) *Session {
 }
 
 type CtlCommandHandler func(cmd byte, args []byte)
-type CtlExitHandler func(addr string)
+type CtlExitHandler func()
 
 type CtlThread struct {
 	tun           *Conn
@@ -213,21 +220,27 @@ type CtlThread struct {
 	lived         *time.Timer
 	lock          sync.Locker
 	interval      time.Duration
+	baseInterval  time.Duration
 	lastResetTime int64
 }
 
-func NewCtlThread(conn *Conn, isClient bool) *CtlThread {
-	d := CTL_PING_INTERVAL
-	if isClient {
-		d *= 2
+func NewCtlThread(conn *Conn, interval int) *CtlThread {
+	var bi, i time.Duration
+	if interval >= 30 && interval <= 300 {
+		bi = time.Duration(interval) * time.Second
+		i = 2 * bi
+	} else {
+		i = time.Duration(CTL_PING_INTERVAL) * time.Second
+		bi = i
 	}
 	t := &CtlThread{
-		tun:        conn,
-		remoteAddr: conn.RemoteAddr().String(),
-		lock:       new(sync.Mutex),
-		interval:   d,
+		tun:          conn,
+		remoteAddr:   conn.RemoteAddr().String(),
+		lock:         new(sync.Mutex),
+		interval:     i,
+		baseInterval: bi,
 	}
-	t.lived = time.AfterFunc(d, t.areYouAlive)
+	t.lived = time.AfterFunc(i, t.areYouAlive)
 	return t
 }
 
@@ -240,7 +253,7 @@ func (t *CtlThread) start(cmdHd CtlCommandHandler, exitHd CtlExitHandler) {
 			t.lived.Stop()
 		}
 		if exitHd != nil {
-			go exitHd(t.remoteAddr)
+			go exitHd()
 		}
 	}()
 	for {
@@ -277,8 +290,8 @@ func (t *CtlThread) start(cmdHd CtlCommandHandler, exitHd CtlExitHandler) {
 func (t *CtlThread) postCommand(cmd byte, args []byte) (n int, err error) {
 	t.lock.Lock()
 	defer func() {
-		t.tun.SetWriteDeadline(ZERO_TIME)
 		t.lock.Unlock()
+		t.tun.SetWriteDeadline(ZERO_TIME)
 	}()
 	buf := make([]byte, 4)
 	buf[0] = cmd
@@ -286,10 +299,10 @@ func (t *CtlThread) postCommand(cmd byte, args []byte) (n int, err error) {
 	if args != nil {
 		buf = append(buf, args...)
 	}
-	if log.V(4) {
+	if log.V(5) {
 		log.Infof("send command packet=[% x]\n", buf)
 	}
-	t.tun.SetWriteDeadline(time.Now().Add(CTL_PING_INTERVAL / 2))
+	t.tun.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
 	n, err = t.tun.Write(buf)
 	return
 }
@@ -308,7 +321,7 @@ func (t *CtlThread) active(times int64) {
 			t.lived.Reset(t.interval)
 		}
 	} else if times < 0 { // scheduled ping
-		t.interval = CTL_PING_INTERVAL * time.Duration(-times)
+		t.interval = t.baseInterval * time.Duration(-times)
 		t.lastResetTime = time.Now().Unix()
 		t.lived.Reset(t.interval)
 	}
@@ -316,7 +329,7 @@ func (t *CtlThread) active(times int64) {
 
 func (t *CtlThread) areYouAlive() {
 	if log.V(3) {
-		log.Infoln("Ping/launched remote", t.remoteAddr)
+		log.Infoln("Ping/launched to", t.remoteAddr)
 	}
 	_, err := t.postCommand(CTL_PING, nil)
 	// Either waiting pong timeout or send ping failed
@@ -324,7 +337,7 @@ func (t *CtlThread) areYouAlive() {
 		SafeClose(t.tun)
 		log.Warningln("Ping remote failed and then closed", t.tun.RemoteAddr(), err)
 	} else {
-		t.tun.SetReadDeadline(time.Now().Add(CTL_PING_INTERVAL / 2))
+		t.tun.SetReadDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
 		// impossible call by timer, will reset by acknowledged or read timeout.
 		t.active(-1)
 	}
@@ -332,7 +345,7 @@ func (t *CtlThread) areYouAlive() {
 
 func (t *CtlThread) acknowledged() {
 	if log.V(3) {
-		log.Infoln("Ping/acknowledged", t.remoteAddr)
+		log.Infoln("Ping/acknowledged by", t.remoteAddr)
 	}
 	t.tun.SetReadDeadline(ZERO_TIME)
 	t.active(-2) // so slow down the tempo
@@ -340,7 +353,7 @@ func (t *CtlThread) acknowledged() {
 
 func (t *CtlThread) imAlive() {
 	if log.V(3) {
-		log.Infoln("Ping/responded", t.remoteAddr)
+		log.Infoln("Ping/responded from", t.remoteAddr)
 	}
 	t.active(-1) // up tempo for become a sender
 	_, err := t.postCommand(CTL_PONG, nil)

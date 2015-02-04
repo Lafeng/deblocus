@@ -28,9 +28,8 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 	nego.dhKeys = dhKeys
 	nego.algoId = d5p.algoId
 	ctlConn := nego.negotiate()
-	log.Infof("Backend %s[d5://%s] is ready.\n", d5p.Provider, d5p.d5sAddrStr)
-	ctlConn.identifier = d5p.Provider
 	ctlConn.SetSockOpt(1, 1, 1)
+	log.Infof("Backend %s is ready.\n", ctlConn.identifier)
 	me := &Client{
 		d5p:   d5p,
 		token: nego.token,
@@ -38,15 +37,15 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 	}
 	me.waitTk = sync.NewCond(me.lock)
 	me.cipherFactory = nego.cipherFactory
-	var exitHandlerCallback CtlExitHandler = func(addr string) {
+	var exitHandlerCallback CtlExitHandler = func() {
 		// flag: negative State
 		// 1, for some blocking tunSession to abort.
 		// 2, for skipping when selecting client
 		atomic.StoreInt32(&me.State, -1)
-		log.Warningf("Lost connection of backend %s[d5://%s], then will reconnect.\n", d5p.Provider, addr)
-		exitHandler(addr)
+		log.Warningf("Lost connection of backend %s, then will reconnect.\n", d5p.RemoteId())
+		exitHandler()
 	}
-	me.ctl = NewCtlThread(ctlConn, true)
+	me.ctl = NewCtlThread(ctlConn, int(nego.interval))
 	go me.ctl.start(me.commandHandler, exitHandlerCallback)
 	return me
 }
@@ -71,10 +70,10 @@ func (this *Client) ClientServe(conn net.Conn) {
 		target := s5.parseSocks5Request()
 		if !s5.respondSocks5() {
 			sid := atomic.AddInt32(&client_sid, 1)
-			log.Infof("SID#%X connect to %s via %s\n", sid, target, this.d5p.Provider)
 			bconn = this.createTunnel(sid, s5.target)
 			bconn.SetSockOpt(-1, 0, 0)
-			bconn.identifier = this.d5p.Provider
+			bconn.identifier = this.d5p.RemoteId()
+			log.Infof("SID#%X connect to %s via %s\n", sid, target, bconn.identifier)
 			atomic.AddInt32(&this.aliveTT, 1)
 			go Pipe(conn, bconn, sid, this.ctl)
 			Pipe(bconn, conn, sid, this.ctl)
