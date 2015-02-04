@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 )
 
@@ -18,17 +17,20 @@ const (
 	ver_build   = uint16(350)
 )
 
+var build_flag string // -ldflags "-X main.build_flag -alpha"
+
+var version uint32
+
 func init() {
 	var ver uint32
 	ver |= uint32(ver_major) << 24
 	ver |= uint32(ver_minor) << 16
 	ver |= uint32(ver_build)
-	os.Setenv("VERSION", strconv.Itoa(int(ver)))
+	version = ver
 }
 
 func versionString() string {
-	var build_flag = "-alpha"
-	return fmt.Sprintf("%s version: %d.%d.%04d%s\n", app_name, ver_major, ver_minor, ver_build, build_flag)
+	return fmt.Sprintf("%s version: %d.%d.%04d%s", app_name, ver_major, ver_minor, ver_build, build_flag)
 }
 
 type CArg struct {
@@ -39,7 +41,7 @@ type CArg struct {
 func showUsage() {
 	fmt.Printf("Usage: %s [-OPTION=VALUE]...\n", filepath.Base(os.Args[0]))
 	fmt.Printf("%s project: <%s>\n", app_name, project_url)
-	fmt.Println(versionString())
+	fmt.Println(versionString(), "\n")
 
 	var group = map[string][]*CArg{}
 	var common = "Common"

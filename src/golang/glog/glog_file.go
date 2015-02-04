@@ -20,13 +20,13 @@ package glog
 
 import (
 	"errors"
-	"flag"
+	//	"flag"
 	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
-	"sync"
+	//	"sync"
 	"time"
 )
 
@@ -38,14 +38,14 @@ var logDirs []string
 
 // If non-empty, overrides the choice of directory in which to write logs.
 // See createLogDirs for the full list of possible destinations.
-var logDir = flag.String("log_dir", "", "If non-empty, write log files in this directory")
+//var logDir = flag.String("log_dir", "", "If non-empty, write log files in this directory")
 
-func createLogDirs() {
-	if *logDir != "" {
-		logDirs = append(logDirs, *logDir)
-	}
-	logDirs = append(logDirs, os.TempDir())
-}
+//func createLogDirs() {
+//	if *logDir != "" {
+//		logDirs = append(logDirs, *logDir)
+//	}
+//	logDirs = append(logDirs, os.TempDir())
+//}
 
 var (
 	pid      = os.Getpid()
@@ -96,14 +96,14 @@ func logName(tag string, t time.Time) (name, link string) {
 	return name, program + "." + tag
 }
 
-var onceLogDirs sync.Once
+//var onceLogDirs sync.Once
 
 // create creates a new log file and returns the file and its filename, which
 // contains tag ("INFO", "FATAL", etc.) and t.  If the file is created
 // successfully, create also attempts to update the symlink for that tag, ignoring
 // errors.
 func create(tag string, t time.Time) (f *os.File, filename string, err error) {
-	onceLogDirs.Do(createLogDirs)
+	//	onceLogDirs.Do(createLogDirs)
 	if len(logDirs) == 0 {
 		return nil, "", errors.New("log: no log dirs")
 	}

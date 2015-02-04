@@ -12,7 +12,6 @@ import (
 	log "golang/glog"
 	"io"
 	"net"
-	"os"
 	"strconv"
 	"time"
 )
@@ -32,6 +31,7 @@ const (
 )
 
 var (
+	VERSION uint32
 	// socks5 exceptions
 	INVALID_SOCKS5_HEADER  = exception.New(0xff, "Invalid socks5 header")
 	INVALID_SOCKS5_REQUEST = exception.New(0x07, "Invalid socks5 request")
@@ -246,10 +246,9 @@ func setSoTimeout(conn net.Conn) {
 	ThrowErr(e)
 }
 
-func ato4b(val string) []byte {
-	i, _ := strconv.Atoi(val)
+func ito4b(val uint32) []byte {
 	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, uint32(i))
+	binary.BigEndian.PutUint32(buf, val)
 	return buf
 }
 
@@ -331,12 +330,17 @@ func (nego *d5CNegotiation) finishDHExThenSetupCipher(conn *Conn) (err error) {
 func (nego *d5CNegotiation) validateAndGetTokens(sconn *Conn) (err error) {
 	buf, err := ReadFullByLen(2, sconn)
 	ThrowErr(err)
-	bVer := os.Getenv("VERSION")
-	tVer := binary.BigEndian.Uint32([]byte(bVer))
+	tVer := VERSION
 	oVer := binary.BigEndian.Uint32(buf)
 	if oVer > tVer {
-		oVerStr := fmt.Sprintf("%d.%d.%04d", (oVer>>24)&0xF, (oVer>>16)&0xF, oVer&0xFF)
-		return INCOMPATIBLE_VERSION.Apply(oVerStr)
+		oVerStr := fmt.Sprintf("%d.%d.%04d", (oVer>>24)&0xFF, (oVer>>16)&0xFF, oVer&0xFFFF)
+		tVer = tVer >> 16
+		oVer = oVer >> 16
+		if tVer == oVer {
+			log.Warningf("* Please upgrade to new version, remote is v%s\n", oVerStr)
+		} else {
+			return INCOMPATIBLE_VERSION.Apply(oVerStr)
+		}
 	}
 	nego.interval = binary.BigEndian.Uint16(buf[TP_INTERVAL_OFS:])
 	nego.token = buf[TUN_PARAMS_LEN:]
@@ -442,8 +446,7 @@ func (nego *d5SNegotiation) respondTestWithToken(sconn *Conn, session *Session) 
 	// tun params
 	tpBuf := randArray(headLen, headLen)
 	binary.BigEndian.PutUint16(tpBuf, uint16(TUN_PARAMS_LEN+GENERATE_TOKEN_NUM*SzTk))
-	version_str := os.Getenv("VERSION")
-	copy(tpBuf[2:], ato4b(version_str))
+	copy(tpBuf[2:], ito4b(VERSION))
 	binary.BigEndian.PutUint16(tpBuf[2+TP_INTERVAL_OFS:], CTL_PING_INTERVAL)
 	if log.V(5) {
 		dumpHex("Send tunParams", tpBuf)

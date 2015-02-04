@@ -48,6 +48,7 @@ func (c *bootContext) parse() {
 	if c.isServ {
 		runtime.GOMAXPROCS(runtime.NumCPU())
 	}
+	t.VERSION = version
 }
 
 func (c *bootContext) doStats() {

@@ -702,7 +702,7 @@ func (l *loggingT) output(s severity, buf *buffer, file string, line int, alsoTo
 		os.Stdout.Write(data)
 	} else {
 		if alsoToStderr || l.alsoToStderr || s >= l.stderrThreshold.get() {
-			os.Stderr.Write(data)
+			os.Stdout.Write(data)
 		}
 		if l.file[s] == nil {
 			if err := l.createFiles(s); err != nil {
@@ -1198,9 +1198,14 @@ func Exitf(format string, args ...interface{}) {
 	logging.printf(fatalLog, format, args...)
 }
 
-func Set_toStderr(v bool) {
-	// really output to stdout
-	logging.toStderr = v
+func Set_output(toStd bool, logDir string) {
+	// modified func output()#693, really output to stdout
+	if logDir != "" {
+		logDirs = append(logDirs, logDir)
+		logging.alsoToStderr = toStd
+	} else {
+		logging.toStderr = toStd
+	}
 }
 
 func Set_Verbose(verbosity int) {

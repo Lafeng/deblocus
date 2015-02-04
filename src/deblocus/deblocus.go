@@ -16,14 +16,15 @@ var context = &bootContext{}
 var sigChan = make(chan os.Signal)
 
 func waitSignal() {
-	USR2 := syscall.Signal(12) // fuck windows without many signals
+	USR2 := syscall.Signal(12) // fake signal-USR2 for windows
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, USR2)
 	for sig := range sigChan {
 		switch sig {
 		case t.Bye:
+			log.Errorln("Exiting.")
 			return
 		case syscall.SIGINT, syscall.SIGTERM:
-			log.Infoln("Terminated by signal", sig)
+			log.Exitln("Terminated by signal", sig)
 			return
 		case USR2:
 			context.doStats()
@@ -34,7 +35,7 @@ func waitSignal() {
 }
 
 func main() {
-	var output string
+	var output, logDir string
 	var showVersion bool
 	flag.Usage = showUsage
 	flag.StringVar(&context.listen, "l", "", "listen on [HOST]:PORT")
@@ -45,12 +46,13 @@ func main() {
 	flag.BoolVar(&context.isServ, "serv", false, "Server;;Run as server explicitly or InitCap")
 	flag.BoolVar(&showVersion, "ver", false, "show version")
 	flag.StringVar(&context.verbosity, "v", "", "verbose log level")
+	flag.StringVar(&logDir, "logdir", "", "If non-empty, write log files in this directory")
 	flag.Parse()
 	context.parse()
-	log.Set_toStderr(true)
+	log.Set_output(true, logDir)
 
 	if showVersion {
-		println(versionString())
+		fmt.Println(versionString(), "\n")
 		return
 	}
 
@@ -85,22 +87,25 @@ func startClient(context *bootContext) {
 		ex.CatchException(recover())
 		sigChan <- t.Bye
 	}()
-	d5c := t.Parse_d5cFile(context.config)
-	context.setLogVerbose(d5c.Verbose)
-	mgr := NewClientMgr(d5c)
-	context.statser = mgr
-	lAddr := d5c.Listen
-	if len(context.listen) > 0 {
-		lAddr = context.listen
+	var conf = t.Parse_d5cFile(context.config)
+	context.setLogVerbose(conf.Verbose)
+	log.Infoln(versionString())
+	log.Infoln("Client is starting at", conf.ListenAddr)
+
+	mgr := NewClientMgr(conf)
+	context.statser = mgr // for do stats
+
+	ln, err := net.ListenTCP("tcp", conf.ListenAddr)
+	if err != nil {
+		log.Fatalln(err)
 	}
-	ln, err := net.Listen("tcp", lAddr)
-	t.ThrowErr(err)
 	defer ln.Close()
-	log.Infoln("deblocus client/starting", ln.Addr())
 	for {
 		conn, err := ln.Accept()
 		if err == nil {
 			go mgr.selectClientServ(conn)
+		} else {
+			t.SafeClose(conn)
 		}
 	}
 }
@@ -112,16 +117,15 @@ func startServer(context *bootContext) {
 	}()
 	var conf = t.Parse_d5sFile(context.config)
 	context.setLogVerbose(conf.Verbose)
-	var lAddr = conf.ListenAddr
-	if len(context.listen) > 0 {
-		var err error
-		lAddr, err = net.ResolveTCPAddr("tcp", context.listen)
-		t.ThrowErr(err)
+	log.Infoln(versionString())
+	log.Infoln("Server is starting at", conf.ListenAddr)
+
+	ln, err := net.ListenTCP("tcp", conf.ListenAddr)
+	if err != nil {
+		log.Fatalln(err)
 	}
-	ln, err := net.ListenTCP("tcp", lAddr)
-	t.ThrowErr(err)
 	defer ln.Close()
-	log.Infoln("deblocus server/starting", ln.Addr())
+
 	dhKeys := t.GenerateDHKeyPairs()
 	server := t.NewServer(conf, dhKeys)
 	context.statser = server
@@ -129,6 +133,8 @@ func startServer(context *bootContext) {
 		conn, err := ln.AcceptTCP()
 		if err == nil {
 			go server.TunnelServe(conn)
+		} else {
+			t.SafeClose(conn)
 		}
 	}
 }
