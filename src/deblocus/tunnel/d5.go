@@ -273,7 +273,7 @@ func (nego *d5CNegotiation) negotiate() (sconn *Conn) {
 	ThrowErr(err)
 	err = nego.finishDHExThenSetupCipher(sconn)
 	ThrowErr(err)
-	sconn.cipher = nego.cipherFactory.NewCipher()
+	sconn.cipher = nego.cipherFactory.NewCipher(nil)
 	sconn.identifier = nego.RemoteId()
 	err = nego.validateAndGetTokens(sconn)
 	ThrowErr(err)
@@ -370,7 +370,7 @@ type d5SNegotiation struct {
 	*Server
 	clientAddr     string
 	clientIdentity string
-	remnant        []byte
+	tokenBuf       []byte
 }
 
 func (nego *d5SNegotiation) negotiate(conn *Conn) (session *Session, err error) {
@@ -395,7 +395,7 @@ func (nego *d5SNegotiation) negotiate(conn *Conn) (session *Session, err error) 
 			skey, err = nego.verifyThenDHExchange(conn, buf[256:])
 			ThrowErr(err)
 			cf = NewCipherFactory(nego.AlgoId, skey)
-			conn.cipher = cf.NewCipher()
+			conn.cipher = cf.NewCipher(nil)
 			session = NewSession(conn, cf, nego.clientIdentity)
 			err = nego.respondTestWithToken(conn, session)
 			return
@@ -408,7 +408,7 @@ func (nego *d5SNegotiation) negotiate(conn *Conn) (session *Session, err error) 
 func (nego *d5SNegotiation) transSession(conn *Conn, buf []byte) (session *Session, err error) {
 	token := buf[:SzTk]
 	if ss := nego.sessionMgr.take(token); ss != nil {
-		nego.remnant = buf[SzTk+2:]
+		nego.tokenBuf = buf
 		return ss, TRANS_SESSION
 	}
 	log.Warningln("Client used incorrect token")

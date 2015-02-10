@@ -123,7 +123,7 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 		sid := atomic.AddInt32(&t.sid, 1)
 		log.Infof("Serving SID#%X client=%s@%s\n", sid, session.uid, conn.RemoteAddr())
 		fconn.SetSockOpt(-1, 0, 0)
-		t.TransServe(fconn, session, nego.remnant, sid)
+		t.TransServe(fconn, session, nego.tokenBuf, sid)
 		return
 	}
 	if err != nil {
@@ -163,7 +163,7 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 	}
 }
 
-func (t *Server) TransServe(fconn *Conn, session *Session, remnant []byte, sid int32) {
+func (t *Server) TransServe(fconn *Conn, session *Session, buf []byte, sid int32) {
 	defer func() {
 		SafeClose(fconn)
 		ex.CatchException(recover())
@@ -171,11 +171,12 @@ func (t *Server) TransServe(fconn *Conn, session *Session, remnant []byte, sid i
 	}()
 	atomic.AddInt32(&t.aliveTT, 1)
 	s5 := new(S5Target)
-	var cipher = session.cipherFactory.NewCipher()
-	cipher.decrypt(remnant, remnant)
-	//dumpHex("remnant", remnant)
-	remnant = remnant[SzTk:]
-	target, err := s5.parseSocks5Target(remnant)
+	token := buf[:SzTk]
+	buf = buf[TT_TOKEN_OFFSET:]
+	var cipher = session.cipherFactory.NewCipher(token)
+	cipher.decrypt(buf, buf)
+	buf = buf[SzTk:] // encrypted token
+	target, err := s5.parseSocks5Target(buf)
 	if err != nil {
 		log.Errorf("SID#%X Failed to connect to %s[%s] : [%s]\n", sid, s5.host, s5.dst, err)
 	} else {

@@ -42,16 +42,21 @@ func secretToKey(secret []byte, size int) []byte {
 	return buf
 }
 
-func newRC4(key []byte) *Cipher {
+func newRC4(key, iv []byte) *Cipher {
 	ec, _ := rc4.NewCipher(key)
 	dc := *ec
 	return &Cipher{ec, &dc}
 }
 
-func newAES_CFB(key []byte) *Cipher {
+func newAES_CFB(key, iv []byte) *Cipher {
 	block, _ := aes.NewCipher(key)
-	ec := cipher.NewCFBEncrypter(block, key[:block.BlockSize()])
-	dc := cipher.NewCFBDecrypter(block, key[:block.BlockSize()])
+	if iv == nil {
+		iv = key[:aes.BlockSize]
+	} else {
+		iv = iv[:aes.BlockSize]
+	}
+	ec := cipher.NewCFBEncrypter(block, iv)
+	dc := cipher.NewCFBDecrypter(block, iv)
 	return &Cipher{ec, dc}
 }
 
@@ -69,21 +74,21 @@ func (c *Cipher) decrypt(dst, src []byte) {
 }
 
 type CipherFactory struct {
-	key      []byte
-	cryptoFn func([]byte) *Cipher
+	key           []byte
+	cryptoBuilder func(k, iv []byte) *Cipher
 }
 
-func (c *CipherFactory) NewCipher() *Cipher {
-	return c.cryptoFn(c.key)
+func (c *CipherFactory) NewCipher(iv []byte) *Cipher {
+	return c.cryptoBuilder(c.key, iv)
 }
 
 func NewCipherFactory(id int, secret []byte) *CipherFactory {
 	def := cipherDefines[id]
-	cc := def[0].(func([]byte) *Cipher)
+	cc := def[0].(func(k, iv []byte) *Cipher)
 	size := def[1].(int)
 	key := secretToKey(secret, size)
 	return &CipherFactory{
-		key,  cc,
+		key, cc,
 	}
 }
 

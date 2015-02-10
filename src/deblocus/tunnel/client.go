@@ -90,9 +90,11 @@ func (this *Client) createTunnel(sid int32, target []byte) *Conn {
 	copy(buf, token)
 	copy(buf[TT_TOKEN_OFFSET:], token) // TT_TOKEN_OFFSET
 	copy(buf[TT_TOKEN_OFFSET+SzTk:], target)
+	// |-----------------DMLEN----------------|
+	// | token~20 | enc:token~20 | s5target~? |
 	buf[SzTk] = token[SzTk-1]
 	buf[SzTk+1] = D5
-	cipher := this.cipherFactory.NewCipher()
+	cipher := this.cipherFactory.NewCipher(token)
 	cipher.encrypt(buf[TT_TOKEN_OFFSET:], buf[TT_TOKEN_OFFSET:])
 	_, err = conn.Write(buf)
 	ThrowErr(err)
