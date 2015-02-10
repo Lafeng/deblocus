@@ -17,6 +17,7 @@ import (
 const (
 	GENERATE_TOKEN_NUM = 64
 	SzTk               = sha1.Size
+	CMD_HEADER_LEN     = 16
 	CTL_PING           = byte(1)
 	CTL_PONG           = byte(2)
 	TOKEN_REQUEST      = byte(5)
@@ -258,13 +259,13 @@ func (t *CtlThread) start(cmdHd CtlCommandHandler, exitHd CtlExitHandler) {
 		}
 	}()
 	for {
-		buf := make([]byte, 4)
+		buf := make([]byte, CMD_HEADER_LEN)
 		n, err := t.tun.Read(buf)
 		if err != nil {
 			log.Warningln("Exiting CtlThread caused by", err)
 			break
 		}
-		if n == 4 {
+		if n == CMD_HEADER_LEN {
 			cmd := buf[0]
 			argslen := binary.BigEndian.Uint16(buf[2:])
 			if argslen > 0 {
@@ -294,7 +295,7 @@ func (t *CtlThread) postCommand(cmd byte, args []byte) (n int, err error) {
 		t.lock.Unlock()
 		t.tun.SetWriteDeadline(ZERO_TIME)
 	}()
-	buf := make([]byte, 4)
+	buf := randArray(CMD_HEADER_LEN, CMD_HEADER_LEN)
 	buf[0] = cmd
 	binary.BigEndian.PutUint16(buf[2:], uint16(len(args)))
 	if args != nil {
