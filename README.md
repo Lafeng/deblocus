@@ -9,7 +9,9 @@
   \:\  /:/  / \:\ \:\__\  \:\ \::/  / \:\  \:\  /:/  / \:\  \      \:\  /:/  / \:\ \:\__\  
    \:\/:/  /   \:\ \/__/   \:\/:/  /   \:\  \:\/:/  /   \:\  \      \:\/:/  /   \:\/:/  /  
     \::/__/     \:\__\      \::/__/     \:\__\::/  /     \:\__\      \::/  /     \::/  /   
-     ~~          \/__/       ~~          \/__/\/__/       \/__/       \/__/       \/__/    He who gives up freedom for safety deserves neither.___Benjamin Franklin
+     ~~          \/__/       ~~          \/__/\/__/       \/__/       \/__/       \/__/    
+     
+     He who gives up freedom for safety deserves neither.___Benjamin Franklin
 ```
 
 ### Introduction
