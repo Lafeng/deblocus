@@ -1,4 +1,4 @@
-# Deblocus [![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)
+# Deblocus [![Build Status](https://travis-ci.org/spance/deblocus.svg?branch=master)](https://travis-ci.org/spance/deblocus)[![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)
 
 ```
       ___         ___         ___         ___  ___         ___         ___         ___     
@@ -33,6 +33,9 @@ This is the exactly reason I developed it. Password only identify the user's ide
 ### Acknowledgements
 
 deblocus evolved from the [qtunnel](https://github.com/getqujing/qtunnel), and depends on [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx) and [glog](https://github.com/golang/glog), thanks to those projects.
+
+>All code is licensed under the
+[MIT](https://github.com/spance/deblocus/blob/master/LICENSE)
 
 # deblocus 介绍
 
