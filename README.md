@@ -1,4 +1,4 @@
-# Deblocus [![Build Status](https://travis-ci.org/spance/deblocus.svg?branch=master)](https://travis-ci.org/spance/deblocus)[![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)[![Issues](https://img.shields.io/github/issues/spance/deblocus.svg)](https://github.com/spance/deblocus/issues)
+# deblocus  [![Build Status](https://travis-ci.org/spance/deblocus.svg?branch=master)](https://travis-ci.org/spance/deblocus)[![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)[![Issues](https://img.shields.io/github/issues/spance/deblocus.svg)](https://github.com/spance/deblocus/issues)
 
 ```
       ___         ___         ___         ___  ___         ___         ___         ___     
@@ -16,38 +16,42 @@
      He who gives up freedom for safety deserves neither.___Benjamin Franklin
 ```
 
-### Introduction
+Introduction
+------------
+deblocus (In development) is a new secure socks5 and http proxy solution using auto negotiation of secret key.
 
-deblocus is a secure socks5 and http proxy solution using auto negotiation of secret key.
 
-This is the alpha version(currently in development)
-
-### Why develop and use ?
-
+Features
+--------
+The following are the deblocus' goals:
 - client side support multiple backend servers (random select) for distributing parallel payloads.
 - c/s communication encrypted by dynamic secure key (not using password)
 - server side support multiple users
 
-This is the exactly reason I developed it. Password only identify the user's identity, and it not be used to encrypt the traffic of session, each user's communications are encrypted by secure key from auto-negotiation, it will not happen that due to the fixed key leak (fixed key encryption mode) causes network eavesdroppers could decrypt history or realtime traffic, similarly, it will not happen all the traffic is decrypted because of one user's key leak.
+Password only identify the user's identity, and it not be used to encrypt the traffic of session, each user's communications are encrypted by secure key from auto-negotiation, it will not happen that due to the fixed key leak (fixed key encryption mode) causes network eavesdroppers could decrypt history or realtime traffic, similarly, it will not happen all the traffic is decrypted because of one user's key leak.
 
-### Acknowledgements
+Usage
+-----
+Building deblocus from source is easy, and there's a
+[guide](https://github.com/spance/deblocus/wiki/) that describes it for both Unix/Windows.
+or [Get the Latest Release binaries here](https://github.com/spance/deblocus/releases)
 
+Acknowledgements
+----------------
 deblocus evolved from the [qtunnel](https://github.com/getqujing/qtunnel), and depends on [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx) and [glog](https://github.com/golang/glog), thanks to those projects.
 
->All code is licensed under the
-[MIT](https://github.com/spance/deblocus/blob/master/LICENSE)
 
-# deblocus 介绍
-
+deblocus介绍
+------------
 常见的对称加密应用中，容易忽视密钥的保存和分发才是对称加密的弱点，固定密钥一旦泄露甚至连历史流量被会解密。
-
 deblocus就是为了**提高安全和隐私性**，这是一个轻量级的密钥自协商的socks5加密隧道，通信过程借鉴了https握手，但步骤更少和特征更少也更局部化和快速。
 
-### 编译/配置/运行
+使用介绍
+--------
+参见项目[Wiki](https://github.com/spance/deblocus/wiki)
 
-####参见项目[Wiki](https://github.com/spance/deblocus/wiki)
 
-### 伸手即用
-
-####项目[Release](https://github.com/spance/deblocus/releases)中不定期发布已编译的可执行文件
+致谢
+--
+感谢 [qtunnel](https://github.com/getqujing/qtunnel), [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx), [glog](https://github.com/golang/glog)等项目.
 
