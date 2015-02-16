@@ -50,8 +50,14 @@ deblocus就是为了**提高安全和隐私性**，这是一个轻量级的密�
 --------
 参见项目[Wiki](https://github.com/spance/deblocus/wiki)
 
+更新日志
+--
+[ChangeLog](https://github.com/spance/deblocus/blob/master/CHANGELOG.md)
+
 
 致谢
 --
 感谢 [qtunnel](https://github.com/getqujing/qtunnel), [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx), [glog](https://github.com/golang/glog)等项目.
+
+
 
