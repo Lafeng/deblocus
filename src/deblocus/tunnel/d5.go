@@ -333,11 +333,11 @@ func (nego *d5CNegotiation) validateAndGetTokens(sconn *Conn) (err error) {
 	tVer := VERSION
 	oVer := binary.BigEndian.Uint32(buf)
 	if oVer > tVer {
-		oVerStr := fmt.Sprintf("%d.%d.%04d", (oVer>>24)&0xFF, (oVer>>16)&0xFF, oVer&0xFFFF)
-		tVer = tVer >> 16
-		oVer = oVer >> 16
+		oVerStr := fmt.Sprintf("%d.%d.%04d", oVer>>24, (oVer>>16)&0xFF, oVer&0xFFFF)
+		tVer >>= 16
+		oVer >>= 16
 		if tVer == oVer {
-			log.Warningf("* Please upgrade to new version, remote is v%s\n", oVerStr)
+			log.Warningf("Note !!! Please upgrade to new version, remote is v%s\n", oVerStr)
 		} else {
 			return INCOMPATIBLE_VERSION.Apply(oVerStr)
 		}

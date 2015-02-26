@@ -258,8 +258,8 @@ func (t *CtlThread) start(cmdHd CtlCommandHandler, exitHd CtlExitHandler) {
 			go exitHd()
 		}
 	}()
+	buf := make([]byte, CMD_HEADER_LEN)
 	for {
-		buf := make([]byte, CMD_HEADER_LEN)
 		n, err := t.tun.Read(buf)
 		if err != nil {
 			log.Warningln("Exiting CtlThread caused by", err)
