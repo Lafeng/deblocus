@@ -1,5 +1,4 @@
 language: go
 
 go:
- - auto
- 
+ - tip
