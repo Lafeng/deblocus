@@ -1,9 +1,6 @@
 language: go
 
 go:
- - 1.4.1
- - release
+ - auto
  
-install:  go get -v github.com/spance/deblocus
-
- 
+script: bash script/build.sh
