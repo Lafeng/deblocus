@@ -1,4 +1,4 @@
-# deblocus  [![Build Status](https://travis-ci.org/spance/deblocus.svg?branch=master)](https://travis-ci.org/spance/deblocus)[![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)[![Issues](https://img.shields.io/github/issues/spance/deblocus.svg)](https://github.com/spance/deblocus/issues)
+# deblocus  [![Build Status](https://travis-ci.org/spance/deblocus.svg?branch=master)](https://travis-ci.org/spance/deblocus)  [![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)  [![Issues](https://img.shields.io/github/issues/spance/deblocus.svg)](https://github.com/spance/deblocus/issues)
 
 ```
       ___         ___         ___         ___  ___         ___         ___         ___     
@@ -43,8 +43,11 @@ deblocus evolved from the [qtunnel](https://github.com/getqujing/qtunnel), and d
 
 deblocus介绍
 ------------
+利用客户端和远端之间建立可靠的加密通道，在客户端提供socks5/http代理服务，可以满足在不可靠链路上的通信、防火墙局部阻挡等类似情况下的高度保密和隐私性的通信需要。
+
 常见的对称加密应用中，容易忽视密钥的保存和分发才是对称加密的弱点，固定密钥一旦泄露甚至连历史流量被会解密。
-deblocus就是为了**提高安全和隐私性**，这是一个轻量级的密钥自协商的socks5加密隧道，通信过程借鉴了https握手，但步骤更少和特征更少也更局部化和快速。
+
+deblocus目的之一是为了保障通信的高度安全和隐私性，并且其通信过程步骤更少、特征更少、也更局部化和快速。
 
 使用介绍
 --------
