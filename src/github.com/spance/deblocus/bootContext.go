@@ -2,10 +2,10 @@ package main
 
 import (
 	"sync/atomic"
-	//ex "deblocus/exception"
-	t "deblocus/tunnel"
+	//ex "github.com/spance/deblocus/exception"
 	"fmt"
-	log "golang/glog"
+	log "github.com/golang/glog"
+	t "github.com/spance/deblocus/tunnel"
 	"math/rand"
 	"net"
 	"os"

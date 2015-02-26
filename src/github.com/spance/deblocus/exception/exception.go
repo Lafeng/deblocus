@@ -2,7 +2,7 @@ package exception
 
 import (
 	"fmt"
-	log "golang/glog"
+	log "github.com/golang/glog"
 )
 
 type Exception struct {

@@ -1,9 +1,9 @@
 package tunnel
 
 import (
-	ex "deblocus/exception"
 	"fmt"
-	log "golang/glog"
+	log "github.com/golang/glog"
+	ex "github.com/spance/deblocus/exception"
 	"net"
 	"sync"
 	"sync/atomic"

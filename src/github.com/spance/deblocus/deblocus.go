@@ -1,11 +1,11 @@
 package main
 
 import (
-	ex "deblocus/exception"
-	t "deblocus/tunnel"
 	"flag"
 	"fmt"
-	log "golang/glog"
+	log "github.com/golang/glog"
+	ex "github.com/spance/deblocus/exception"
+	t "github.com/spance/deblocus/tunnel"
 	"net"
 	"os"
 	"os/signal"

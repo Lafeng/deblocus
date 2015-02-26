@@ -8,9 +8,9 @@ import (
 	"crypto/rc4"
 	"crypto/rsa"
 	"crypto/sha1"
-	"deblocus/exception"
 	"encoding/binary"
 	"github.com/monnand/dhkx"
+	"github.com/spance/deblocus/exception"
 )
 
 var (

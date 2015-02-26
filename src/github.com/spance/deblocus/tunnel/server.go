@@ -2,10 +2,10 @@ package tunnel
 
 import (
 	"crypto/sha1"
-	ex "deblocus/exception"
 	"encoding/binary"
 	"fmt"
-	log "golang/glog"
+	log "github.com/golang/glog"
+	ex "github.com/spance/deblocus/exception"
 	"math/rand"
 	"net"
 	"strings"
