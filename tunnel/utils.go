@@ -1,7 +1,6 @@
 package tunnel
 
 import (
-	"bitbucket.org/kardianos/osext"
 	"bufio"
 	"bytes"
 	"crypto/rsa"
@@ -9,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"github.com/kardianos/osext"
 	"github.com/spance/deblocus/auth"
 	"github.com/spance/deblocus/exception"
 	log "github.com/spance/deblocus/golang/glog"
