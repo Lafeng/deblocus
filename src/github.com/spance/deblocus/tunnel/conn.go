@@ -2,7 +2,7 @@ package tunnel
 
 import (
 	"crypto/sha1"
-	log "github.com/golang/glog"
+	log "github.com/spance/golang/glog"
 	"hash"
 	"io"
 	"net"

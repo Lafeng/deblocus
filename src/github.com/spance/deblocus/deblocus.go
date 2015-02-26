@@ -3,9 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	log "github.com/golang/glog"
 	ex "github.com/spance/deblocus/exception"
 	t "github.com/spance/deblocus/tunnel"
+	log "github.com/spance/golang/glog"
 	"net"
 	"os"
 	"os/signal"
