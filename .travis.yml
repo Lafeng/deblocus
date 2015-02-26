@@ -1,6 +1,2 @@
-language: go
-
-go:
- - auto
  
 script: bash script/build.sh
