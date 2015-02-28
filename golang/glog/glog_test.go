@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	stdLog "log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -143,6 +144,8 @@ func TestInfoDepth(t *testing.T) {
 }
 
 func init() {
+	Set_Verbose(1)
+	logDirs = append(logDirs, os.TempDir())
 	CopyStandardLogTo("INFO")
 }
 
@@ -373,6 +376,7 @@ func TestRollover(t *testing.T) {
 
 func TestLogBacktraceAt(t *testing.T) {
 	setFlags()
+	Set_Verbose(1)
 	defer logging.swap(logging.newBuffers())
 	// The peculiar style of this code simplifies line counting and maintenance of the
 	// tracing block below.
