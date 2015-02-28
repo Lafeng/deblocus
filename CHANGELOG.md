@@ -2,10 +2,12 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [spance/deblocus](https://github.com/spance/deblocus).
 
-## [0.6.0593-alpha](https://github.com/spance/deblocus/compare/0.6.0412-alpha...0.6.0593-alpha)
-### Added
--
--
+## [0.6.0593-alpha](https://github.com/spance/deblocus/compare/0.6.0412-alpha...0.6.0593-alpha) -2015-2-28
+### Fixed
+- Fix glog test
+- Fix process of ver arg. add identifier in ping log.
+### Removed
+- Remove arg-listen. fix output file processing when use arg-output.
 
 ## [0.6.0412-alpha](https://github.com/spance/deblocus/compare/0.6.0352-alpha...0.6.0412-alpha) - 2015-2-10
 ### Added
