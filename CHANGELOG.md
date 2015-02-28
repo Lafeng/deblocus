@@ -6,6 +6,7 @@ This project adheres to [spance/deblocus](https://github.com/spance/deblocus).
 ### Fixed
 - Fix glog test
 - Fix process of ver arg. add identifier in ping log.
+
 ### Removed
 - Remove arg-listen. fix output file processing when use arg-output.
 
