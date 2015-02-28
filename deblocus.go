@@ -48,13 +48,14 @@ func main() {
 	flag.StringVar(&context.verbosity, "v", "", "verbose log level")
 	flag.StringVar(&logDir, "logdir", "", "If non-empty, write log files in this directory")
 	flag.Parse()
-	context.parse()
-	log.Set_output(true, logDir)
 
 	if showVersion {
 		fmt.Println(versionString())
 		return
 	}
+
+	context.parse()
+	log.Set_output(true, logDir)
 
 	if context.csc {
 		t.Generate_d5sFile(output, nil)

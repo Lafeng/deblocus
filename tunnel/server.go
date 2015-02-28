@@ -237,7 +237,7 @@ func NewCtlThread(conn *Conn, interval int) *CtlThread {
 	}
 	t := &CtlThread{
 		tun:          conn,
-		remoteAddr:   conn.RemoteAddr().String(),
+		remoteAddr:   GetConnIdentifier(conn),
 		lock:         new(sync.Mutex),
 		interval:     i,
 		baseInterval: bi,
