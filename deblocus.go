@@ -38,7 +38,6 @@ func main() {
 	var output, logDir string
 	var showVersion bool
 	flag.Usage = showUsage
-	flag.StringVar(&context.listen, "l", "", "listen on [HOST]:PORT")
 	flag.StringVar(&context.config, "config", "", "Server;;indicate config if in nontypical path")
 	flag.StringVar(&output, "o", "", "output file")
 	flag.BoolVar(&context.csc, "csc", false, "Server;;Create Server Config")
@@ -66,7 +65,7 @@ func main() {
 		if flag.NArg() > 0 {
 			var d5sc = t.Parse_d5sFile(context.config)
 			for _, arg := range flag.Args() {
-				t.CreateClientCredential(d5sc, arg)
+				t.CreateClientCredential(output, d5sc, arg)
 			}
 			return
 		} else {

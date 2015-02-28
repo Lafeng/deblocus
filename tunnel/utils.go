@@ -217,27 +217,32 @@ func (d *D5ServConf) Export_d5p(user *auth.User) string {
 	return string(keyByte)
 }
 
-func Generate_d5sFile(file string, d5sConf *D5ServConf) (*RSAKeyPair, error) {
+func Generate_d5sFile(file string, d5sConf *D5ServConf) (e error) {
 	var f *os.File
-	if IsNotExist(file) {
+	if file == NULL {
 		f = os.Stdout
 	} else {
-		f, e := os.Create(file)
+		f, e = os.OpenFile(file, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0600)
 		ThrowErr(e)
-		defer f.Close()
+		e = f.Truncate(0)
+		ThrowErr(e)
+		defer func() {
+			f.Sync()
+			f.Close()
+		}()
 	}
 	if d5sConf == nil {
 		d5sConf = new(D5ServConf)
 		d5sConf.RSAKeys = GenerateRSAKeyPair()
 	}
 	desc := getImportableDesc(d5sConf)
-	f.WriteString("#\n# deblocus server configuration\n#\n")
+	f.WriteString("#\n# deblocus server configuration\n#\n\n")
 	for k, d := range desc {
 		defaultVal := d.sType.Tag.Get("importable")
 		f.WriteString(fmt.Sprintf("%-16s   %s\n", k, defaultVal))
 	}
-	f.WriteString("#\n# Please take good care of this secret file during the server life cycle.\n")
-	f.WriteString("# DON'T modify the following lines, unless you known what happens.\n#\n")
+	f.WriteString("\n### Please take good care of this secret file during the server life cycle.\n")
+	f.WriteString("### DON'T modify the following lines, unless you known what happens.\n\n")
 	k := d5sConf.RSAKeys
 	keyBytes := x509.MarshalPKCS1PrivateKey(k.priv)
 	keyText := pem.EncodeToMemory(&pem.Block{
@@ -245,16 +250,30 @@ func Generate_d5sFile(file string, d5sConf *D5ServConf) (*RSAKeyPair, error) {
 		Bytes: keyBytes,
 	})
 	f.Write(keyText)
-	return k, nil
+	return
 }
 
 // public for external
-func CreateClientCredential(d5s *D5ServConf, user string) {
+func CreateClientCredential(file string, d5s *D5ServConf, user string) (e error) {
+	var f *os.File
+	if file == NULL {
+		f = os.Stdout
+	} else {
+		f, e = os.OpenFile(file, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
+		ThrowErr(e)
+		e = f.Truncate(0)
+		ThrowErr(e)
+		defer func() {
+			f.Sync()
+			f.Close()
+		}()
+	}
 	u, e := d5s.AuthSys.UserInfo(user)
 	if e != nil {
 		ThrowErr(e)
 	}
-	fmt.Println(d5s.Export_d5p(u))
+	f.WriteString(d5s.Export_d5p(u))
+	return
 }
 
 // d5p-PEM-encoding

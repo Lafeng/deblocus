@@ -23,7 +23,6 @@ type Statser interface {
 }
 
 type bootContext struct {
-	listen    string
 	config    string
 	isServ    bool
 	csc       bool
