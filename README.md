@@ -62,7 +62,6 @@ deblocus目的之一是为了保障通信的高度安全和隐私性，并且其
 --
 感谢 [qtunnel](https://github.com/getqujing/qtunnel), [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx), [glog](https://github.com/golang/glog)等项目.
 
-<a href="http://www.revolvermaps.com/?target=enlarge&amp;i=9p1scw6eq4k&amp;color=fff600&amp;m=0"><img src="https://rj.revolvermaps.com/h/m/a/0/fff600/256/0/9p1scw6eq4k.png" width="512" height="256" alt="Map" style="border:0;"></a>
 
 
 
