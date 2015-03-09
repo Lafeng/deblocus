@@ -41,15 +41,15 @@ Acknowledgements
 deblocus evolved from the [qtunnel](https://github.com/getqujing/qtunnel), and depends on [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx) and [glog](https://github.com/golang/glog), thanks to those projects.
 
 
-deblocus介绍
+deblocus 介绍
 ------------
-利用客户端和远端之间建立可靠的加密通道，在客户端提供socks5/http代理服务，可以满足在不可靠链路上的通信、企业内网、防火墙局部阻挡等类似情况下满足高度保密和隐私性的通信需要。
+利用客户端和远端之间建立可靠的加密通道，在客户端提供 socks5/http 代理服务，可以满足在不可靠链路上的通信、企业内网、防火墙局部阻挡等类似情况下满足高度保密和隐私性的通信需要。
 
-deblocus目的之一是为了保障通信的高度安全和隐私性，并且其通信过程步骤更少、特征更少、也更局部化和快速。
+deblocus 目的首先是为了保障通信的高度安全和隐私性，并且使其通信过程步骤更少、特征更少、也更局部化和快速。
 
 使用介绍
 --------
-参见项目[Wiki](https://github.com/spance/deblocus/wiki)
+参见项目 [Wiki](https://github.com/spance/deblocus/wiki)
 
 更新日志
 --
