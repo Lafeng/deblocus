@@ -48,6 +48,8 @@ Icon License:
 -
 [CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
 
+![](https://github.com/tvvocold/deblocus/blob/master/logo.png)
+
 deblocus 介绍
 -
 利用客户端和远端之间建立可靠的加密通道，在客户端提供 socks5/http 代理服务，可以满足在不可靠链路上的通信、企业内网、防火墙局部阻挡等类似情况下满足高度保密和隐私性的通信需要。
