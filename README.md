@@ -46,7 +46,7 @@ Code License:
 
 Icon License:
 -
-[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
 
 [![](https://github.com/tvvocold/deblocus/blob/master/logo.png)](https://github.com/tvvocold)
 
