@@ -48,7 +48,7 @@ Icon License:
 -
 [CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
 
-![](https://github.com/tvvocold/deblocus/blob/master/logo.png)
+[![](https://github.com/tvvocold/deblocus/blob/master/logo.png)](https://github.com/tvvocold)
 
 deblocus 介绍
 -
