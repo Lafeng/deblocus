@@ -1,4 +1,4 @@
-# deblocus  [![Build Status](https://travis-ci.org/spance/deblocus.svg?branch=master)](https://travis-ci.org/spance/deblocus)  [![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)  [![Issues](https://img.shields.io/github/issues/spance/deblocus.svg)](https://github.com/spance/deblocus/issues)[![Issues](https://img.shields.io/badge/Join-Github.Party-blue.svg)](https://github.party/item?id=46)
+# deblocus  [![Build Status](https://travis-ci.org/spance/deblocus.svg?branch=master)](https://travis-ci.org/spance/deblocus)  [![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)  [![Issues](https://img.shields.io/github/issues/spance/deblocus.svg)](https://github.com/spance/deblocus/issues)[![GP](https://img.shields.io/badge/Join-Github.Party-blue.svg)](https://github.party/item?id=46)
 
 
 ```
