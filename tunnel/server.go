@@ -151,7 +151,7 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 	if session != nil { // CtlThread
 		atomic.AddInt32(&t.aliveCT, 1)
 		fconn.SetSockOpt(1, 1, 1)
-		var clientId = GetConnIdentifier(fconn)
+		var clientId = IdentifierOf(fconn)
 		log.Infof("Client %s established.\n", clientId)
 		var ctl = NewCtlThread(session.tun, 0)
 		session.ctlThread = ctl
@@ -253,7 +253,7 @@ func NewCtlThread(conn *Conn, interval int) *CtlThread {
 	}
 	t := &CtlThread{
 		tun:          conn,
-		remoteAddr:   GetConnIdentifier(conn),
+		remoteAddr:   IdentifierOf(conn),
 		lock:         new(sync.Mutex),
 		interval:     i,
 		baseInterval: bi,

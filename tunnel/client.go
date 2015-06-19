@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type Client struct {
@@ -55,6 +56,9 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 func (this *Client) startConnPool() {
 	this.mux = NewClientMultiplexer()
 	var tdc onTunDisconnectedCallback = func(old *Conn) {
+		if old != nil {
+			time.Sleep(time.Second)
+		}
 		if atomic.LoadInt32(&this.State) >= 0 {
 			bconn := this.createTunnel()
 			go this.mux.Listen(bconn, this.ctl)
@@ -83,6 +87,7 @@ func (this *Client) ClientServe(conn net.Conn) {
 		if log.V(1) {
 			log.Infof("Socks5 -> %s from %s\n", target_str, conn.RemoteAddr())
 		}
+
 		if !s5.respondSocks5() {
 			atomic.AddInt32(&this.aliveTT, 1)
 			this.mux.HandleRequest(conn, s5.target, target_str)

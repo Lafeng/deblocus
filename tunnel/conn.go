@@ -119,7 +119,7 @@ func (c *Conn) Update() {
 	c.priority.last = n
 }
 
-func GetConnIdentifier(con net.Conn) string {
+func IdentifierOf(con net.Conn) string {
 	if c, y := con.(*Conn); y && c.identifier != NULL {
 		return c.identifier
 	}

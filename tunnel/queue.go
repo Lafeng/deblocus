@@ -54,7 +54,7 @@ func sendFrame(frm *frame) bool {
 	dst := frm.conn.conn
 	if frm.action == FRAME_ACTION_CLOSE {
 		if log.V(5) {
-			fmt.Printf("perform close by frame_action, link->%s\n", frm.conn.target)
+			fmt.Printf("perform close by frame_action, link->%s %s\n", frm.conn.getTarget(), frm)
 		}
 	} else {
 		if log.V(6) {
@@ -64,7 +64,7 @@ func sendFrame(frm *frame) bool {
 		if nw == int(frm.length) && ew == nil {
 			return false
 		}
-		log.Warningf("Write edgeConn error. link->%s %s\n", frm.conn.target, ew)
+		log.Warningf("Write edgeConn error. link->%s %s %s\n", frm.conn.getTarget(), frm, ew)
 	}
 	SafeClose(dst)
 	return true

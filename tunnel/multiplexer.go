@@ -39,6 +39,14 @@ type edgeConn struct {
 	status byte
 }
 
+func (e *edgeConn) getTarget() string {
+	if e.target != NULL {
+		return e.target
+	} else {
+		return e.conn.RemoteAddr().String()
+	}
+}
+
 type frame struct {
 	action uint8
 	sid    uint16
@@ -170,6 +178,7 @@ func (p *multiplexer) HandleRequest(client net.Conn, target []byte, target_str s
 }
 
 func (p *multiplexer) onTunDisconnected(tun *Conn) {
+	log.Warningf("Tun->%s was disconnected\n", IdentifierOf(tun))
 	p.pool.Remove(tun)
 	if p.onTDC != nil {
 		go p.onTDC(tun)
