@@ -332,7 +332,7 @@ func (t *CtlThread) active(times int64) {
 		var d = (times - t.lastResetTime) << 1
 		// allow reset at least half interval
 		if d > int64(t.interval/time.Second) {
-			if log.V(4) {
+			if log.V(5) {
 				log.Infoln("suppress the next ping task")
 			}
 			t.lastResetTime = times

@@ -54,13 +54,15 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 
 func (this *Client) startConnPool() {
 	this.mux = NewClientMultiplexer()
-	var onTDC onTunDisconnectedCallback = func(old *Conn) {
-		bconn := this.createTunnel()
-		go this.mux.Listen(bconn, this.ctl)
+	var tdc onTunDisconnectedCallback = func(old *Conn) {
+		if atomic.LoadInt32(&this.State) >= 0 {
+			bconn := this.createTunnel()
+			go this.mux.Listen(bconn, this.ctl)
+		}
 	}
-	this.mux.onTDC = onTDC
+	this.mux.onTDC = tdc
 	for i := 0; i < 1; i++ {
-		onTDC(nil)
+		tdc(nil)
 	}
 }
 
@@ -111,6 +113,7 @@ func (t *Client) Stats() string {
 }
 
 func (this *Client) getToken() []byte {
+	this.lock.Lock()
 	defer func() {
 		this.lock.Unlock()
 		tlen := len(this.token) / SzTk
@@ -122,7 +125,6 @@ func (this *Client) getToken() []byte {
 			this.ctl.postCommand(TOKEN_REQUEST, nil)
 		}
 	}()
-	this.lock.Lock()
 	for len(this.token) < SzTk {
 		if log.V(2) {
 			log.Infoln("waiting for token. May be the requests came too fast, or that responded slowly.")

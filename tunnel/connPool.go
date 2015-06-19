@@ -54,6 +54,7 @@ func (h *ConnPool) Remove(c *Conn) bool {
 		h.pool = h.pool[:n]
 	case x > 0 && x < n-1:
 		copy(h.pool[x:], h.pool[x+1:])
+		h.pool = h.pool[:n-1]
 	}
 	return true
 }
@@ -65,6 +66,9 @@ func (h *ConnPool) Len() int {
 func (h *ConnPool) Select() *Conn {
 	h.lock.Lock()
 	defer h.lock.Unlock()
+	if h.pool.Len() < 1 {
+		return nil
+	}
 	sort.Sort(h.pool)
 	return h.pool[0]
 }
