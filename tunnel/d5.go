@@ -176,7 +176,7 @@ func (s *S5Step1) parseSocks5Request() string {
 		return NULL
 	}
 	var dst_port = binary.BigEndian.Uint16(buf[skip : skip+2])
-	return host + ":" + strconv.FormatInt(int64(dst_port), 10)
+	return host + ":" + strconv.Itoa(int(dst_port))
 }
 
 func (s *S5Step1) respondSocks5() bool {
@@ -202,8 +202,8 @@ func (s *S5Step1) respondSocks5() bool {
 }
 
 type S5Target struct {
-	dst  *net.TCPAddr
-	host string
+	dst     *net.TCPAddr
+	dst_str string
 }
 
 func (s *S5Target) parseSocks5Target(buf []byte) (net.Conn, error) {
@@ -225,13 +225,14 @@ func (s *S5Target) parseSocks5Target(buf []byte) (net.Conn, error) {
 	default:
 		return nil, INVALID_SOCKS5_REQUEST
 	}
-	var dst_port = binary.BigEndian.Uint16(buf[:2])
+	var dst_port = int(binary.BigEndian.Uint16(buf[:2]))
 	if domain == "" {
-		s.dst.Port = int(dst_port)
+		s.dst.Port = dst_port
+		s.dst_str = s.dst.String()
 		return net.DialTCP("tcp", nil, s.dst)
 	} else {
-		s.host = domain + ":" + strconv.FormatInt(int64(dst_port), 10)
-		return net.Dial("tcp", s.host)
+		s.dst_str = domain + ":" + strconv.Itoa(dst_port)
+		return net.DialTimeout("tcp", s.dst_str, time.Second*3)
 	}
 }
 
@@ -346,7 +347,7 @@ func (nego *d5CNegotiation) validateAndGetTokens(sconn *Conn) (err error) {
 	nego.token = buf[TUN_PARAMS_LEN:]
 	if log.V(2) {
 		n := len(buf) - TUN_PARAMS_LEN
-		log.Infof("Got tokens=%d\n", n/SzTk)
+		log.Infof("Got tokens, length=%d\n", n/SzTk)
 	}
 	rHash := sconn.RHashSum()
 	wHash := sconn.WHashSum()
@@ -382,24 +383,23 @@ func (nego *d5SNegotiation) negotiate(conn *Conn) (session *Session, err error) 
 	)
 	nr, err = conn.Read(buf)
 	ThrowErr(err)
-	if nr == DMLEN {
-		if buf[SzTk-1] == buf[SzTk] && buf[SzTk+1] == D5 {
-			conn.FreeHash()
-			return nego.transSession(conn, buf)
-		}
-		if buf[0xd5] == D5 && buf[0xff] == 0 {
-			var (
-				skey []byte
-				cf   *CipherFactory
-			)
-			skey, err = nego.verifyThenDHExchange(conn, buf[256:])
-			ThrowErr(err)
-			cf = NewCipherFactory(nego.AlgoId, skey)
-			conn.cipher = cf.NewCipher(nil)
-			session = NewSession(conn, cf, nego.clientIdentity)
-			err = nego.respondTestWithToken(conn, session)
-			return
-		}
+
+	if nr == SzTk+1 && uint(int8(buf[SzTk-1])+int8(buf[SzTk]))&0xff == D5 {
+		conn.FreeHash()
+		return nego.transSession(conn, buf)
+	}
+	if nr == DMLEN && buf[0xd5] == D5 && buf[0xff] == 0 {
+		var (
+			skey []byte
+			cf   *CipherFactory
+		)
+		skey, err = nego.verifyThenDHExchange(conn, buf[256:])
+		ThrowErr(err)
+		cf = NewCipherFactory(nego.AlgoId, skey)
+		conn.cipher = cf.NewCipher(nil)
+		session = NewSession(conn, cf, nego.clientIdentity)
+		err = nego.respondTestWithToken(conn, session)
+		return
 	}
 	log.Warningf("Unrecognized Request from=%s len=%d\n", conn.RemoteAddr(), nr)
 	return nil, NEGOTIATION_FAILED

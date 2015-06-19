@@ -15,16 +15,23 @@ import (
 )
 
 const (
-	GENERATE_TOKEN_NUM = 64
+	GENERATE_TOKEN_NUM = 16
 	SzTk               = sha1.Size
 	CMD_HEADER_LEN     = 16
 	CTL_PING           = byte(1)
 	CTL_PONG           = byte(2)
 	TOKEN_REQUEST      = byte(5)
 	TOKEN_REPLY        = byte(6)
-	CTL_PING_INTERVAL  = uint16(60) // time.Second
+	CTL_PING_INTERVAL  = uint16(180) // time.Second
 )
 
+//
+//
+//
+//  SessionMgr
+//
+//
+//
 type SessionCtType map[string]*Session
 
 func NewSessionMgr() *SessionMgr {
@@ -98,19 +105,28 @@ func (s *SessionMgr) createTokens(session *Session, many int) []byte {
 	return tokens
 }
 
+//
+//
+//
+//  Server
+//
+//
+//
 type Server struct {
 	*D5ServConf
 	dhKeys     *DHKeyPair
 	sessionMgr *SessionMgr
+	mux        *multiplexer
 	sid        int32
 	aliveTT    int32
 	aliveCT    int32
 }
 
 func NewServer(d5s *D5ServConf, dhKeys *DHKeyPair) *Server {
-	return &Server{
-		d5s, dhKeys, NewSessionMgr(), 0, 0, 0,
+	s := &Server{
+		d5s, dhKeys, NewSessionMgr(), NewServerMultiplexer(), 0, 0, 0,
 	}
+	return s
 }
 
 func (t *Server) TunnelServe(conn *net.TCPConn) {
@@ -121,10 +137,7 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 	nego := &d5SNegotiation{Server: t}
 	session, err := nego.negotiate(fconn)
 	if err == TRANS_SESSION {
-		sid := atomic.AddInt32(&t.sid, 1)
-		log.Infof("Serving SID#%X client=%s@%s\n", sid, session.uid, conn.RemoteAddr())
-		fconn.SetSockOpt(-1, 0, 0)
-		t.TransServe(fconn, session, nego.tokenBuf, sid)
+		t.TransServe(fconn, session, nego.tokenBuf)
 		return
 	}
 	if err != nil {
@@ -164,28 +177,17 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 	}
 }
 
-func (t *Server) TransServe(fconn *Conn, session *Session, buf []byte, sid int32) {
+func (t *Server) TransServe(fconn *Conn, session *Session, buf []byte) {
 	defer func() {
 		SafeClose(fconn)
 		ex.CatchException(recover())
 		atomic.AddInt32(&t.aliveTT, -1)
 	}()
 	atomic.AddInt32(&t.aliveTT, 1)
-	s5 := new(S5Target)
 	token := buf[:SzTk]
-	buf = buf[TT_TOKEN_OFFSET:]
-	var cipher = session.cipherFactory.NewCipher(token)
-	cipher.decrypt(buf, buf)
-	buf = buf[SzTk:] // encrypted token
-	target, err := s5.parseSocks5Target(buf)
-	if err != nil {
-		log.Errorf("SID#%X Failed to connect to %s[%s] : [%s]\n", sid, s5.host, s5.dst, err)
-	} else {
-		fconn.cipher = cipher
-		log.Infof("SID#%X %s[%s] is established\n", sid, s5.host, s5.dst)
-		go Pipe(target, fconn, sid, session.ctlThread)
-		Pipe(fconn, target, sid, session.ctlThread)
-	}
+	fconn.cipher = session.cipherFactory.NewCipher(token)
+	fconn.identifier = session.uid
+	t.mux.Listen(fconn, session.ctlThread)
 }
 
 func (t *Server) Stats() string {
@@ -193,6 +195,13 @@ func (t *Server) Stats() string {
 		atomic.LoadInt32(&t.aliveCT), atomic.LoadInt32(&t.aliveTT), t.sessionMgr.length())
 }
 
+//
+//
+//
+//  Session
+//
+//
+//
 type Session struct {
 	tun           *Conn
 	identity      string
@@ -213,6 +222,13 @@ func NewSession(tun *Conn, cf *CipherFactory, identity string) *Session {
 	return &Session{tun, identity, uid, cf, make(map[string]bool), nil}
 }
 
+//
+//
+//
+//  CtlThread
+//
+//
+//
 type CtlCommandHandler func(cmd byte, args []byte)
 type CtlExitHandler func()
 
@@ -330,7 +346,7 @@ func (t *CtlThread) active(times int64) {
 }
 
 func (t *CtlThread) areYouAlive() {
-	if log.V(3) {
+	if log.V(5) {
 		log.Infoln("Ping/launched to", t.remoteAddr)
 	}
 	_, err := t.postCommand(CTL_PING, nil)
@@ -346,7 +362,7 @@ func (t *CtlThread) areYouAlive() {
 }
 
 func (t *CtlThread) acknowledged() {
-	if log.V(3) {
+	if log.V(5) {
 		log.Infoln("Ping/acknowledged by", t.remoteAddr)
 	}
 	t.tun.SetReadDeadline(ZERO_TIME)
@@ -354,7 +370,7 @@ func (t *CtlThread) acknowledged() {
 }
 
 func (t *CtlThread) imAlive() {
-	if log.V(3) {
+	if log.V(5) {
 		log.Infoln("Ping/responded to", t.remoteAddr)
 	}
 	t.active(-1) // up tempo for become a sender

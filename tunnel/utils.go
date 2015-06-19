@@ -443,14 +443,19 @@ func DetectRunAsServ() bool {
 func DetectFile(isServ bool) (string, bool) {
 	p, e := osext.ExecutableFolder()
 	u, e := user.Current()
-	ThrowErr(e)
+	var homeDir string
+	if e == nil {
+		homeDir = u.HomeDir
+	} else {
+		homeDir = os.Getenv("HOME")
+	}
 	var name string
 	if isServ {
 		name = "deblocus.d5s"
 	} else {
 		name = "deblocus.d5c"
 	}
-	for _, f := range []string{filepath.Join(p, name), filepath.Join(u.HomeDir, name), filepath.Join("/etc/deblocus", name)} {
+	for _, f := range []string{filepath.Join(p, name), filepath.Join(homeDir, name), filepath.Join("/etc/deblocus", name)} {
 		if !IsNotExist(f) {
 			return f, true
 		}

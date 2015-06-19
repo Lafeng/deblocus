@@ -90,7 +90,7 @@ func startClient(context *bootContext) {
 	var conf = t.Parse_d5cFile(context.config)
 	context.setLogVerbose(conf.Verbose)
 	log.Info(versionString())
-	log.Infoln("Client is starting at", conf.ListenAddr)
+	log.Infoln("Socks5/Http is working at", conf.ListenAddr)
 
 	mgr := NewClientMgr(conf)
 	context.statser = mgr // for do stats
@@ -118,7 +118,7 @@ func startServer(context *bootContext) {
 	var conf = t.Parse_d5sFile(context.config)
 	context.setLogVerbose(conf.Verbose)
 	log.Info(versionString())
-	log.Infoln("Server is starting at", conf.ListenAddr)
+	log.Infoln("Server is listening on", conf.ListenAddr)
 
 	ln, err := net.ListenTCP("tcp", conf.ListenAddr)
 	if err != nil {

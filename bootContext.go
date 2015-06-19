@@ -32,6 +32,7 @@ type bootContext struct {
 }
 
 func (c *bootContext) parse() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
 	if !c.isServ {
 		c.isServ = c.icc || t.DetectRunAsServ()
 	}
@@ -43,9 +44,6 @@ func (c *bootContext) parse() {
 			fmt.Println("Create/put config in typical path or indicate it explicitly.")
 			os.Exit(1)
 		}
-	}
-	if c.isServ {
-		runtime.GOMAXPROCS(runtime.NumCPU())
 	}
 	t.VERSION = version
 }

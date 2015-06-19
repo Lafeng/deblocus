@@ -9,11 +9,10 @@ import (
 	"sync/atomic"
 )
 
-var client_sid int32
-
 type Client struct {
 	d5p           *D5Params
 	ctl           *CtlThread
+	mux           *multiplexer
 	token         []byte
 	cipherFactory *CipherFactory
 	lock          sync.Locker
@@ -23,13 +22,15 @@ type Client struct {
 }
 
 func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Client {
+	// new d5CNegotiation and set parameters
 	nego := new(d5CNegotiation)
 	nego.D5Params = d5p
 	nego.dhKeys = dhKeys
 	nego.algoId = d5p.algoId
+	// connect to server
 	ctlConn := nego.negotiate()
 	ctlConn.SetSockOpt(1, 1, 1)
-	log.Infof("Backend %s is ready.\n", ctlConn.identifier)
+	log.Infof("Negotiated the tunnel with gateway %s successfully.\n", ctlConn.identifier)
 	me := &Client{
 		d5p:   d5p,
 		token: nego.token,
@@ -47,58 +48,61 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 	}
 	me.ctl = NewCtlThread(ctlConn, int(nego.interval))
 	go me.ctl.start(me.commandHandler, exitHandlerCallback)
+	me.startConnPool()
 	return me
 }
 
+func (this *Client) startConnPool() {
+	this.mux = NewClientMultiplexer()
+	var onTDC onTunDisconnectedCallback = func(old *Conn) {
+		bconn := this.createTunnel()
+		go this.mux.Listen(bconn, this.ctl)
+	}
+	this.mux.onTDC = onTDC
+	for i := 0; i < 1; i++ {
+		onTDC(nil)
+	}
+}
+
 func (this *Client) ClientServe(conn net.Conn) {
-	var bconn *Conn
 	var done bool
 	defer func() {
 		ex.CatchException(recover())
 		atomic.AddInt32(&this.aliveTT, -1)
 		if !done {
 			SafeClose(conn)
-			SafeClose(bconn)
 		}
 	}()
-	if log.V(2) {
-		log.Infoln("Request/socks5 from", conn.RemoteAddr().String())
-	}
+
 	s5 := S5Step1{conn: conn}
 	s5.Handshake()
 	if !s5.HandshakeAck() {
-		target := s5.parseSocks5Request()
+		target_str := s5.parseSocks5Request()
+		if log.V(1) {
+			log.Infof("Socks5 -> %s from %s\n", target_str, conn.RemoteAddr())
+		}
 		if !s5.respondSocks5() {
-			sid := atomic.AddInt32(&client_sid, 1)
-			bconn = this.createTunnel(sid, s5.target)
-			bconn.SetSockOpt(-1, 0, 0)
-			bconn.identifier = this.d5p.RemoteId()
-			log.Infof("SID#%X connect to %s via %s\n", sid, target, bconn.identifier)
 			atomic.AddInt32(&this.aliveTT, 1)
-			go Pipe(conn, bconn, sid, this.ctl)
-			Pipe(bconn, conn, sid, this.ctl)
+			this.mux.HandleRequest(conn, s5.target, target_str)
 			done = true
 		}
 	}
 }
 
-func (this *Client) createTunnel(sid int32, target []byte) *Conn {
+func (this *Client) createTunnel() *Conn {
 	conn, err := net.DialTCP("tcp", nil, this.d5p.d5sAddr)
 	ThrowErr(err)
-	buf := make([]byte, DMLEN)
-	token := this.getToken(sid)
+	buf := make([]byte, SzTk+1)
+	token := this.getToken()
 	copy(buf, token)
-	copy(buf[TT_TOKEN_OFFSET:], token) // TT_TOKEN_OFFSET
-	copy(buf[TT_TOKEN_OFFSET+SzTk:], target)
-	// |-----------------DMLEN----------------|
-	// | token~20 | enc:token~20 | s5target~? |
-	buf[SzTk] = token[SzTk-1]
-	buf[SzTk+1] = D5
+	buf[SzTk] = byte(D5 - int(int8(token[SzTk-1])))
+
 	cipher := this.cipherFactory.NewCipher(token)
-	cipher.encrypt(buf[TT_TOKEN_OFFSET:], buf[TT_TOKEN_OFFSET:])
 	_, err = conn.Write(buf)
 	ThrowErr(err)
-	return NewConn(conn, cipher)
+	c := NewConn(conn, cipher)
+	c.identifier = this.d5p.RemoteId()
+	return c
 }
 
 func (t *Client) Stats() string {
@@ -106,7 +110,7 @@ func (t *Client) Stats() string {
 		atomic.LoadInt32(&t.aliveTT), len(t.token)/SzTk)
 }
 
-func (this *Client) getToken(sid int32) []byte {
+func (this *Client) getToken() []byte {
 	defer func() {
 		this.lock.Unlock()
 		tlen := len(this.token) / SzTk
@@ -121,7 +125,7 @@ func (this *Client) getToken(sid int32) []byte {
 	this.lock.Lock()
 	for len(this.token) < SzTk {
 		if log.V(2) {
-			log.Infof("SID#%X waiting for token. May be the requests came too fast, or that responded slowly.\n", sid)
+			log.Infoln("waiting for token. May be the requests came too fast, or that responded slowly.")
 		}
 		this.waitTk.Wait()
 		if atomic.LoadInt32(&this.State) < 0 {
@@ -130,10 +134,7 @@ func (this *Client) getToken(sid int32) []byte {
 	}
 	token := this.token[:SzTk]
 	this.token = this.token[SzTk:]
-	if log.V(3) {
-		tlen := len(this.token) / SzTk
-		log.Infof("SID#%X take token=%x pool=%d\n", sid, token, tlen)
-	}
+
 	return token
 }
 
