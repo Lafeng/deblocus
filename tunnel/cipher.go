@@ -14,32 +14,20 @@ import (
 )
 
 var (
-	UNSUPPORTED_CIPHER = exception.NewW("Unsupported cipher method")
+	UNSUPPORTED_CIPHER = exception.NewW("Unsupported cipher")
 )
 
-var cipherLiteral = map[string]int{
-	"RC4":       0,
-	"AES128CFB": 1,
-	"AES256CFB": 2,
+type cipherBuilder func(k, iv []byte) *Cipher
+
+type cipherDecr struct {
+	keyLen  int
+	builder cipherBuilder
 }
 
-var cipherDefines = [][]interface{}{
-	{newRC4, 16},
-	{newAES_CFB, 16},
-	{newAES_CFB, 32},
-}
-
-func secretToKey(secret []byte, size int) []byte {
-	// size mod 16 must be 0
-	h := md5.New()
-	buf := make([]byte, size)
-	count := size / md5.Size
-	// repeatly fill the key with the secret
-	for i := 0; i < count; i++ {
-		h.Write(secret)
-		copy(buf[md5.Size*i:md5.Size*(i+1)-1], h.Sum(nil))
-	}
-	return buf
+var availableCiphers = map[string]*cipherDecr{
+	"RC4":       &cipherDecr{16, newRC4},
+	"AES128CFB": &cipherDecr{16, newAES_CFB},
+	"AES256CFB": &cipherDecr{32, newAES_CFB},
 }
 
 func newRC4(key, iv []byte) *Cipher {
@@ -74,22 +62,33 @@ func (c *Cipher) decrypt(dst, src []byte) {
 }
 
 type CipherFactory struct {
-	key           []byte
-	cryptoBuilder func(k, iv []byte) *Cipher
+	key     []byte
+	builder cipherBuilder
 }
 
 func (c *CipherFactory) NewCipher(iv []byte) *Cipher {
-	return c.cryptoBuilder(c.key, iv)
+	return c.builder(c.key, iv)
 }
 
-func NewCipherFactory(id int, secret []byte) *CipherFactory {
-	def := cipherDefines[id]
-	cc := def[0].(func(k, iv []byte) *Cipher)
-	size := def[1].(int)
-	key := secretToKey(secret, size)
+func NewCipherFactory(name string, secret []byte) *CipherFactory {
+	def := availableCiphers[name]
+	key := toSecretKey(secret, def.keyLen)
 	return &CipherFactory{
-		key, cc,
+		key, def.builder,
 	}
+}
+
+func toSecretKey(secret []byte, size int) []byte {
+	// size mod 16 must be 0
+	h := md5.New()
+	buf := make([]byte, size)
+	count := size / md5.Size
+	// repeatly fill the key with the secret
+	for i := 0; i < count; i++ {
+		h.Write(secret)
+		copy(buf[md5.Size*i:md5.Size*(i+1)-1], h.Sum(nil))
+	}
+	return buf
 }
 
 // single block encrypt

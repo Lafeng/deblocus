@@ -1,7 +1,7 @@
 package tunnel
 
 import (
-	//"fmt"
+	log "github.com/spance/deblocus/golang/glog"
 	"sort"
 	"sync"
 )
@@ -71,6 +71,8 @@ func (h *ConnPool) Select() *Conn {
 		return nil
 	}
 	sort.Sort(h.pool)
-	//fmt.Println("selected", h.pool[0].LocalAddr())
+	if log.V(5) {
+		log.Infoln("selected tun", h.pool[0].LocalAddr())
+	}
 	return h.pool[0]
 }

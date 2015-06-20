@@ -106,7 +106,7 @@ type D5Params struct {
 	d5sAddr    *net.TCPAddr
 	provider   string
 	sPub       *rsa.PublicKey
-	algoId     int
+	algo       string
 	user       string
 	pass       string
 }
@@ -134,7 +134,7 @@ func NewD5Params(uri string) (*D5Params, error) {
 	if len(ma) != 5 {
 		return nil, INVALID_D5PARAMS
 	}
-	algoId, y := cipherLiteral[ma[4]]
+	_, y := availableCiphers[ma[4]]
 	if !y {
 		return nil, UNSUPPORTED_CIPHER.Apply(ma[4])
 	}
@@ -148,7 +148,7 @@ func NewD5Params(uri string) (*D5Params, error) {
 	return &D5Params{
 		d5sAddrStr: ma[3],
 		d5sAddr:    d5sAddr,
-		algoId:     algoId,
+		algo:       ma[4],
 		user:       ma[1],
 		pass:       ma[2],
 	}, nil
@@ -161,7 +161,6 @@ type D5ServConf struct {
 	Algo       string `importable:"AES128CFB"`
 	ServerName string `importable:"SERVER_INDENTIFIER"`
 	Verbose    int    `importable:"2"`
-	AlgoId     int
 	AuthSys    auth.AuthSys
 	RSAKeys    *RSAKeyPair
 	ListenAddr *net.TCPAddr
@@ -184,11 +183,10 @@ func (d *D5ServConf) validate() error {
 	if len(d.Algo) < 1 {
 		return CONF_MISS.Apply("Algo")
 	}
-	algoId, y := cipherLiteral[d.Algo]
+	_, y := availableCiphers[d.Algo]
 	if !y {
 		return UNSUPPORTED_CIPHER.Apply(d.Algo)
 	}
-	d.AlgoId = algoId
 	if d.ServerName == NULL {
 		return CONF_ERROR.Apply("ServerName")
 	}

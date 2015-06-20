@@ -27,18 +27,17 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 	nego := new(d5CNegotiation)
 	nego.D5Params = d5p
 	nego.dhKeys = dhKeys
-	nego.algoId = d5p.algoId
 	// connect to server
 	ctlConn := nego.negotiate()
 	ctlConn.SetSockOpt(1, 1, 1)
 	log.Infof("Negotiated the tunnel with gateway %s successfully.\n", ctlConn.identifier)
 	me := &Client{
-		d5p:   d5p,
-		token: nego.token,
-		lock:  new(sync.Mutex),
+		d5p:           d5p,
+		token:         nego.token,
+		lock:          new(sync.Mutex),
+		cipherFactory: nego.cipherFactory,
 	}
 	me.waitTk = sync.NewCond(me.lock)
-	me.cipherFactory = nego.cipherFactory
 	var exitHandlerCallback CtlExitHandler = func() {
 		// flag: negative State
 		// 1, for some blocking tunSession to abort.
@@ -47,7 +46,7 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 		log.Warningf("Lost connection of backend %s, then will reconnect.\n", d5p.RemoteId())
 		exitHandler()
 	}
-	me.ctl = NewCtlThread(ctlConn, int(nego.interval))
+	me.ctl = NewCtlThread(ctlConn, nego.interval)
 	go me.ctl.start(me.commandHandler, exitHandlerCallback)
 	me.startConnPool()
 	return me

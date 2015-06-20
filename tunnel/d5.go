@@ -262,7 +262,7 @@ type d5CNegotiation struct {
 	identity      string
 	cipherFactory *CipherFactory
 	token         []byte
-	interval      uint16
+	interval      int
 }
 
 func (nego *d5CNegotiation) negotiate() (sconn *Conn) {
@@ -321,7 +321,7 @@ func (nego *d5CNegotiation) finishDHExThenSetupCipher(conn *Conn) (err error) {
 		return
 	}
 	secret := takeSharedKey(nego.dhKeys, buf)
-	nego.cipherFactory = NewCipherFactory(nego.algoId, secret)
+	nego.cipherFactory = NewCipherFactory(nego.algo, secret)
 	if log.V(5) {
 		dumpHex("Sharedkey", secret)
 	}
@@ -343,7 +343,7 @@ func (nego *d5CNegotiation) validateAndGetTokens(sconn *Conn) (err error) {
 			return INCOMPATIBLE_VERSION.Apply(oVerStr)
 		}
 	}
-	nego.interval = binary.BigEndian.Uint16(buf[TP_INTERVAL_OFS:])
+	nego.interval = int(binary.BigEndian.Uint16(buf[TP_INTERVAL_OFS:]))
 	nego.token = buf[TUN_PARAMS_LEN:]
 	if log.V(4) {
 		n := len(buf) - TUN_PARAMS_LEN
@@ -395,7 +395,7 @@ func (nego *d5SNegotiation) negotiate(conn *Conn) (session *Session, err error) 
 		)
 		skey, err = nego.verifyThenDHExchange(conn, buf[256:])
 		ThrowErr(err)
-		cf = NewCipherFactory(nego.AlgoId, skey)
+		cf = NewCipherFactory(nego.Algo, skey)
 		conn.cipher = cf.NewCipher(nil)
 		session = NewSession(conn, cf, nego.clientIdentity)
 		err = nego.respondTestWithToken(conn, session)
