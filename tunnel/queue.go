@@ -50,6 +50,7 @@ func (q *queue) Listen() {
 	}
 }
 
+// TODO should clean all queueing frames of conn that already has error occurred
 func sendFrame(frm *frame) bool {
 	dst := frm.conn.conn
 	if frm.action == FRAME_ACTION_CLOSE {

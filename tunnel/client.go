@@ -53,6 +53,7 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Cl
 	return me
 }
 
+// TODO start by ctl event
 func (this *Client) startConnPool() {
 	this.mux = NewClientMultiplexer()
 	var tdc onTunDisconnectedCallback = func(old *Conn) {
@@ -65,7 +66,8 @@ func (this *Client) startConnPool() {
 		}
 	}
 	this.mux.onTDC = tdc
-	for i := 0; i < 1; i++ {
+	// TODO need server parameters
+	for i := 0; i < 3; i++ {
 		tdc(nil)
 	}
 }
@@ -85,7 +87,7 @@ func (this *Client) ClientServe(conn net.Conn) {
 	if !s5.HandshakeAck() {
 		target_str := s5.parseSocks5Request()
 		if log.V(1) {
-			log.Infof("Socks5 -> %s from %s\n", target_str, conn.RemoteAddr())
+			log.Infoln("Socks5 ->", target_str, "from", conn.RemoteAddr())
 		}
 
 		if !s5.respondSocks5() {

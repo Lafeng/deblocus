@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	//"fmt"
 	"sort"
 	"sync"
 )
@@ -70,5 +71,6 @@ func (h *ConnPool) Select() *Conn {
 		return nil
 	}
 	sort.Sort(h.pool)
+	//fmt.Println("selected", h.pool[0].LocalAddr())
 	return h.pool[0]
 }

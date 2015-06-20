@@ -43,8 +43,7 @@ func CatchException(e interface{}) bool {
 		log.Errorln(ex.msg)
 		return true
 	} else if e != nil {
-		//log.Errorln(e)
-		panic(e)
+		log.Errorln(e)
 		return true
 	}
 	return false

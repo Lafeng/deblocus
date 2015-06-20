@@ -345,7 +345,7 @@ func (nego *d5CNegotiation) validateAndGetTokens(sconn *Conn) (err error) {
 	}
 	nego.interval = binary.BigEndian.Uint16(buf[TP_INTERVAL_OFS:])
 	nego.token = buf[TUN_PARAMS_LEN:]
-	if log.V(2) {
+	if log.V(4) {
 		n := len(buf) - TUN_PARAMS_LEN
 		log.Infof("Got tokens, length=%d\n", n/SzTk)
 	}

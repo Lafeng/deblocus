@@ -14,16 +14,15 @@ import (
 )
 
 const (
-	FRAME_ACTION_CLOSE         = 0
-	FRAME_ACTION_OPEN          = 1
-	FRAME_ACTION_OPEN_N        = 2
-	FRAME_ACTION_OPEN_Y        = 3
-	FRAME_ACTION_DATA          = 4
-	FRAME_STATUS_HALF_CLOSE    = 0xfe
-	FRAME_STATUS_PENDING_CLOSE = 0xff
-	FRAME_MAX_LEN              = 0xffff
-	FRAME_HEADER_LEN           = 5
-	FRAME_OPEN_TIMEOUT         = time.Second * 9
+	FRAME_ACTION_CLOSE    = 0
+	FRAME_ACTION_OPEN     = 1
+	FRAME_ACTION_OPEN_N   = 2
+	FRAME_ACTION_OPEN_Y   = 3
+	FRAME_ACTION_DATA     = 4
+	FRAME_ACTION_SLOWDOWN = 0xff
+	FRAME_MAX_LEN         = 0xffff
+	FRAME_HEADER_LEN      = 5
+	FRAME_OPEN_TIMEOUT    = time.Second * 15
 )
 
 var (
@@ -56,7 +55,7 @@ type frame struct {
 }
 
 func (f *frame) String() string {
-	return fmt.Sprintf("Frame{act=%d sid=%d len=%d}", f.action, f.sid, f.length)
+	return fmt.Sprintf("Frame{sid=%d act=%d len=%d}", f.sid, f.action, f.length)
 }
 
 func (f *frame) toNewBuffer() []byte {
@@ -79,7 +78,6 @@ type multiplexer struct {
 	registry map[string]*edgeConn
 	closed   map[string]bool
 	cLock    sync.Locker
-	tLock    sync.Locker
 	queue    *queue
 	mode     string
 	onTDC    onTunDisconnectedCallback
@@ -93,7 +91,6 @@ func NewClientMultiplexer() *multiplexer {
 		registry: make(map[string]*edgeConn),
 		closed:   make(map[string]bool),
 		cLock:    new(sync.Mutex),
-		tLock:    new(sync.Mutex),
 		mode:     "CLI",
 	}
 	m.queue = NewQueue(m)
@@ -174,9 +171,11 @@ func (p *multiplexer) HandleRequest(client net.Conn, target []byte, target_str s
 	defer p.unregisterConn(key, false)
 	p.registerEdgeConn(key, client, target_str)
 	bconn := p.pool.Select()
+	ThrowIf(bconn == nil, "No tun to deliveries request")
 	p.copyToTun(client, bconn, key, sid, target)
 }
 
+// TODO clean related conn and queue
 func (p *multiplexer) onTunDisconnected(tun *Conn) {
 	log.Warningf("Tun->%s was disconnected\n", IdentifierOf(tun))
 	p.pool.Remove(tun)
@@ -185,9 +184,10 @@ func (p *multiplexer) onTunDisconnected(tun *Conn) {
 	}
 }
 
+// TODO notify peer to slow down when queue increased too fast
 func (p *multiplexer) Listen(tun *Conn, ctl *CtlThread) {
 	if p.isClient {
-		tun.priority = new(TSPriority)
+		tun.priority = &TSPriority{0, 1e9}
 		p.pool.Push(tun)
 		defer p.onTunDisconnected(tun)
 	}
@@ -204,10 +204,11 @@ func (p *multiplexer) Listen(tun *Conn, ctl *CtlThread) {
 		nr, er = io.ReadFull(tun, header)
 		if nr == FRAME_HEADER_LEN {
 			frm = _parseFrameHeader(header)
-			frm.data = make([]byte, frm.length)
-			nr, er = io.ReadFull(tun, frm.data)
+			if frm.length > 0 {
+				nr, er = io.ReadFull(tun, frm.data)
+			}
 			if log.V(6) {
-				log.Infof("%s <- %s\n", p.mode, frm)
+				log.Infoln(p.mode, "<-", frm)
 			}
 		}
 		if er != nil {
@@ -219,7 +220,7 @@ func (p *multiplexer) Listen(tun *Conn, ctl *CtlThread) {
 		switch frm.action {
 		case FRAME_ACTION_CLOSE:
 			if log.V(5) {
-				log.Infof("%s recv CLOSE %s by peer", p.mode, key)
+				log.Infof("%s recv CLOSE %s by peer\n", p.mode, key)
 			}
 			if edge := p.unregisterConn(key, true); edge != nil {
 				frm.conn = edge
@@ -249,13 +250,13 @@ func (p *multiplexer) Listen(tun *Conn, ctl *CtlThread) {
 				log.Warningf("peer send OPEN_%d to an unexisted socket. %s.key=%s\n", frm.action, p.mode, key)
 			} else {
 				if log.V(5) {
-					log.Infof("recv action %s\n", frm)
+					log.Infoln("recv action", frm)
 				}
 				edge.ready <- frm.action
 				close(edge.ready)
 			}
 		default:
-			log.Errorf("%s Unrecognized frame %s\n", p.mode, frm)
+			log.Errorln(p.mode, "Unrecognized", frm)
 		}
 		// prevent frequently calling, especially in high-speed transmitting.
 		if now = time.Now().Unix(); (now-lastTime) > 2 && ctl != nil {
@@ -300,7 +301,12 @@ func (p *multiplexer) openEgress(frm *frame, key string, tun *Conn) {
 		frm.action = FRAME_ACTION_OPEN_Y
 		nw, err = tun.Write(frm.toNewBuffer())
 		ThrowIf(nw != FRAME_HEADER_LEN, err)
-		p.copyToTun(dstConn, tun, key, frm.sid, nil)
+		if nw == FRAME_HEADER_LEN {
+			p.copyToTun(dstConn, tun, key, frm.sid, nil)
+		} else {
+			SafeClose(dstConn)
+			log.Errorf("tun write error", err)
+		}
 	}
 }
 
@@ -343,9 +349,7 @@ func (p *multiplexer) copyToTun(src net.Conn, tun *Conn, key string, sid uint16,
 	for {
 		nr, er = src.Read(buf[FRAME_HEADER_LEN:])
 		if nr > 0 {
-			buf[0] = FRAME_ACTION_DATA
-			binary.BigEndian.PutUint16(buf[1:], sid)
-			binary.BigEndian.PutUint16(buf[3:], uint16(nr))
+			_frame(buf, FRAME_ACTION_DATA, sid, uint16(nr))
 			nr += FRAME_HEADER_LEN
 			nw, ew = tun.Write(buf[:nr])
 			if nr != nw || ew != nil { // close tunnel ?
@@ -371,22 +375,36 @@ func _nextSID() uint16 {
 }
 
 func _parseFrameHeader(header []byte) *frame {
-	return &frame{
+	f := &frame{
 		header[0],
 		binary.BigEndian.Uint16(header[1:]),
 		binary.BigEndian.Uint16(header[3:]),
 		nil, nil,
 	}
+	if f.length > 0 {
+		f.data = make([]byte, f.length)
+	}
+	return f
 }
 
-func _frame(buf []byte, action byte, sid uint16, body []byte) int {
+func _frame(buf []byte, action byte, sid uint16, body_or_len interface{}) int {
 	var _len = FRAME_HEADER_LEN
 	buf[0] = action
 	binary.BigEndian.PutUint16(buf[1:], sid)
-	if body != nil {
-		_len += len(body)
-		binary.BigEndian.PutUint16(buf[3:], uint16(len(body)))
-		copy(buf[FRAME_HEADER_LEN:], body)
+	if body_or_len != nil {
+		switch body_or_len.(type) {
+		case []byte:
+			body := body_or_len.([]byte)
+			_len += len(body)
+			binary.BigEndian.PutUint16(buf[3:], uint16(len(body)))
+			copy(buf[FRAME_HEADER_LEN:], body)
+		case uint16:
+			blen := body_or_len.(uint16)
+			_len += int(blen)
+			binary.BigEndian.PutUint16(buf[3:], blen)
+		default:
+			panic("unknown body_or_len")
+		}
 	} else {
 		buf[3] = 0
 		buf[4] = 0

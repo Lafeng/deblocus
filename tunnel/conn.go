@@ -112,7 +112,11 @@ func (c *Conn) WHashSum() []byte {
 func (c *Conn) Update() {
 	n := time.Now().UnixNano()
 	if d := n - c.priority.last; d < 1e9 {
-		c.priority.rank = (d*3 + c.priority.rank) / 4
+		if d <= 0 {
+			c.priority.rank -= 1e9
+		} else {
+			c.priority.rank -= 1e9 / d
+		}
 	} else {
 		c.priority.rank = 1e9
 	}
