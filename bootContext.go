@@ -14,10 +14,6 @@ import (
 	"time"
 )
 
-const (
-	RETRY_INTERVAL = 5
-)
-
 type Statser interface {
 	Stats() string
 }
@@ -92,11 +88,8 @@ func (m *clientMgr) selectClient() *t.Client {
 			return w
 		}
 	}
-	log.Errorf("No available connection of backend for servicing new request")
-	// sleep to prevent a lot of new connections come into.
-	time.Sleep(5 * time.Second)
-	// no better way reliably detect remote was closed
-	// so just take null then close self
+	log.Errorf("No available tunnels for servicing new request")
+	time.Sleep(time.Second)
 	return nil
 }
 
@@ -106,30 +99,6 @@ func (m *clientMgr) selectClientServ(conn net.Conn) {
 	} else {
 		t.SafeClose(conn)
 	}
-}
-
-func (m *clientMgr) rebuildClient(index, try int) {
-	var d5p = m.d5pArray[index]
-	defer func() {
-		err := recover()
-		if err != nil {
-			log.Errorln("Failed to connect to backend", d5p.RemoteIdFull(), err)
-			go m.rebuildClient(index, try<<1)
-		}
-	}()
-	var exitHandler t.CtlExitHandler = func() {
-		m.clients[index] = nil
-		m.rebuildClient(index, 1)
-	}
-	if try > 1 {
-		if try > 60 {
-			try = 60
-		}
-		var times = time.Duration(try*RETRY_INTERVAL) * time.Second
-		log.Warningf("Will retry after %s.\n", times)
-		time.Sleep(times)
-	}
-	m.clients[index] = t.NewClient(d5p, m.dhKeys, exitHandler)
 }
 
 func (m *clientMgr) Stats() string {
@@ -162,7 +131,9 @@ func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
 	}
 
 	for i := 0; i < num; i++ {
-		mgr.rebuildClient(i, 1)
+		c := t.NewClient(d5pArray[i], dhKeys)
+		mgr.clients[i] = c
+		go c.StartSigTun()
 	}
 	return mgr
 }

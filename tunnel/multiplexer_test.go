@@ -10,7 +10,6 @@ import (
 	"net"
 	"reflect"
 	"runtime"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -22,18 +21,12 @@ var (
 	dstAddr = "127.0.0.3:34569"
 	client  *multiplexer
 	server  *multiplexer
-	target  = []byte{0x03, 0x09}
 )
 
 func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	log.Set_output(true, "")
 	log.Set_Verbose(4)
-
-	h, p, _ := net.SplitHostPort(dstAddr)
-	target = append(target, (h + "00")...)
-	port, _ := strconv.Atoi(p)
-	binary.BigEndian.PutUint16(target[len(target)-2:], uint16(port))
 }
 
 func startEmulation() {
@@ -109,7 +102,7 @@ func startClient(size int) {
 	for {
 		conn, e := ln.Accept()
 		ThrowErr(e)
-		go client.HandleRequest(conn, target, "")
+		go client.HandleRequest(conn, dstAddr)
 	}
 }
 

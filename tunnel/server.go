@@ -16,14 +16,97 @@ import (
 
 const (
 	GENERATE_TOKEN_NUM = 16
-	SzTk               = sha1.Size
-	CMD_HEADER_LEN     = 16
-	CTL_PING           = byte(1)
-	CTL_PONG           = byte(2)
-	TOKEN_REQUEST      = byte(5)
-	TOKEN_REPLY        = byte(6)
-	CTL_PING_INTERVAL  = uint16(180) // time.Second
+	TOKENS_FLOOR       = 8
+	TKSZ               = sha1.Size
 )
+
+//
+//
+//
+//  Session
+//
+//
+//
+type Session struct {
+	svr           *Server
+	tun           *Conn
+	uid           string
+	cipherFactory *CipherFactory
+	tokens        map[string]bool
+	sigTun        *signalTunnel
+}
+
+func NewSession(tun *Conn, cf *CipherFactory, identity string) *Session {
+	sep := strings.IndexByte(identity, 0)
+	var uid string
+	if sep > 0 {
+		uid = identity[:sep]
+	} else {
+		uid = identity
+	}
+	return &Session{
+		tun:           tun,
+		uid:           uid,
+		cipherFactory: cf,
+		tokens:        make(map[string]bool),
+	}
+}
+func (t *Session) eventHandler(e event, msg ...interface{}) {
+	var mlen = len(msg)
+	switch e {
+	case evt_st_msg:
+		if mlen == 1 {
+			go t.commandHandler(msg[0].(byte), nil)
+		} else {
+			go t.commandHandler(msg[0].(byte), msg[1].([]byte))
+		}
+	case evt_st_closed:
+		t.onSTDisconnected()
+	case evt_st_active:
+		t.sigTun.active(msg[0].(int64))
+	}
+}
+
+func (t *Session) onSTDisconnected() {
+	tid := IdentifierOf(t.tun)
+	SafeClose(t.tun)
+	atomic.AddInt32(&t.svr.stCnt, -1)
+	log.Warningln("Client", tid, "disconnected")
+	i := t.svr.sessionMgr.clearTokens(t)
+	if log.V(3) {
+		log.Infof("Clear tokens %d of %s\n", i, tid)
+	}
+}
+
+func (t *Session) commandHandler(cmd byte, args []byte) {
+	switch cmd {
+	case TOKEN_REQUEST:
+		tokens := t.svr.sessionMgr.createTokens(t, GENERATE_TOKEN_NUM)
+		t.sigTun.postCommand(TOKEN_REPLY, tokens)
+	default:
+		log.Warningf("Unrecognized command=%x packet=[% x]\n", cmd, args)
+	}
+}
+
+func (t *Session) DataTunServe(fconn *Conn, buf []byte) {
+	var svr = t.svr
+	defer func() {
+		atomic.AddInt32(&svr.dtCnt, -1)
+		SafeClose(fconn)
+		ex.CatchException(recover())
+	}()
+	atomic.AddInt32(&svr.dtCnt, 1)
+	token := buf[:TKSZ]
+	fconn.cipher = t.cipherFactory.NewCipher(token)
+	fconn.identifier = fmt.Sprintf("%s(%s)", t.uid, fconn.RemoteAddr())
+	log.Infoln(fconn.identifier, "client-DT is established")
+	svr.mux.Listen(fconn, t.eventHandler)
+}
+
+//
+//
+//
+type SessionContainer map[string]*Session
 
 //
 //
@@ -32,23 +115,21 @@ const (
 //
 //
 //
-type SessionCtType map[string]*Session
+type SessionMgr struct {
+	container SessionContainer
+	lock      *sync.RWMutex
+}
 
 func NewSessionMgr() *SessionMgr {
 	return &SessionMgr{
-		container: make(SessionCtType),
+		container: make(SessionContainer),
 		lock:      new(sync.RWMutex),
 	}
 }
 
-type SessionMgr struct {
-	container SessionCtType
-	lock      *sync.RWMutex
-}
-
 func (s *SessionMgr) take(token []byte) *Session {
-	defer s.lock.Unlock()
 	s.lock.Lock()
+	defer s.lock.Unlock()
 	key := fmt.Sprintf("%x", token)
 	ses := s.container[key]
 	delete(s.container, key)
@@ -59,14 +140,12 @@ func (s *SessionMgr) take(token []byte) *Session {
 }
 
 func (s *SessionMgr) length() int {
-	//defer s.lock.RUnlock()
-	//s.lock.RLock()
 	return len(s.container)
 }
 
 func (s *SessionMgr) clearTokens(session *Session) int {
-	defer s.lock.Unlock()
 	s.lock.Lock()
+	defer s.lock.Unlock()
 	var i = len(session.tokens)
 	for k, _ := range session.tokens {
 		delete(s.container, k)
@@ -76,21 +155,21 @@ func (s *SessionMgr) clearTokens(session *Session) int {
 }
 
 func (s *SessionMgr) createTokens(session *Session, many int) []byte {
-	defer s.lock.Unlock()
 	s.lock.Lock()
-	tokens := make([]byte, many*SzTk)
+	defer s.lock.Unlock()
+	tokens := make([]byte, many*TKSZ)
 	i64buf := make([]byte, 8)
 	sha := sha1.New()
 	rand.Seed(time.Now().UnixNano())
-	sha.Write([]byte(session.identity))
+	sha.Write([]byte(session.uid))
 	for i := 0; i < many; i++ {
 		binary.BigEndian.PutUint64(i64buf, uint64(rand.Int63()))
 		sha.Write(i64buf)
 		binary.BigEndian.PutUint64(i64buf, uint64(time.Now().UnixNano()))
 		sha.Write(i64buf)
-		pos := i * SzTk
+		pos := i * TKSZ
 		sha.Sum(tokens[pos:pos])
-		token := tokens[pos : pos+SzTk]
+		token := tokens[pos : pos+TKSZ]
 		key := fmt.Sprintf("%x", token)
 		if _, y := s.container[key]; y {
 			i--
@@ -117,16 +196,14 @@ type Server struct {
 	dhKeys     *DHKeyPair
 	sessionMgr *SessionMgr
 	mux        *multiplexer
-	sid        int32
-	aliveTT    int32
-	aliveCT    int32
+	dtCnt      int32
+	stCnt      int32
 }
 
 func NewServer(d5s *D5ServConf, dhKeys *DHKeyPair) *Server {
-	s := &Server{
-		d5s, dhKeys, NewSessionMgr(), NewServerMultiplexer(), 0, 0, 0,
+	return &Server{
+		d5s, dhKeys, NewSessionMgr(), NewServerMultiplexer(), 0, 0,
 	}
-	return s
 }
 
 func (t *Server) TunnelServe(conn *net.TCPConn) {
@@ -136,247 +213,29 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 	fconn := NewConnWithHash(conn)
 	nego := &d5SNegotiation{Server: t}
 	session, err := nego.negotiate(fconn)
-	if err == TRANS_SESSION {
-		t.TransServe(fconn, session, nego.tokenBuf)
-		return
-	}
-	if err != nil {
-		log.Warningln("Close abnormal connection from ", conn.RemoteAddr(), err)
-		SafeClose(conn)
-		if session != nil {
-			t.sessionMgr.clearTokens(session)
-		}
-		return
-	}
-	if session != nil { // CtlThread
-		atomic.AddInt32(&t.aliveCT, 1)
-		fconn.SetSockOpt(1, 1, 1)
-		var clientId = IdentifierOf(fconn)
-		log.Infof("Client %s established.\n", clientId)
-		var ctl = NewCtlThread(session.tun, 0)
-		session.ctlThread = ctl
-		var ser_cmdHandler CtlCommandHandler = func(cmd byte, args []byte) {
-			switch cmd {
-			case TOKEN_REQUEST:
-				tokens := t.sessionMgr.createTokens(session, GENERATE_TOKEN_NUM)
-				ctl.postCommand(TOKEN_REPLY, tokens)
-			default:
-				log.Warningf("Unrecognized command=%x packet=[% x]\n", cmd, args)
-			}
-		}
-		var ser_exitHandler CtlExitHandler = func() {
-			log.Warningf("Client %s disconnected.\n", clientId)
-			var i = t.sessionMgr.clearTokens(session)
-			SafeClose(session.tun)
-			atomic.AddInt32(&t.aliveCT, -1)
-			if log.V(2) {
-				log.Infof("Clear tokens %d of %s\n", i, clientId)
-			}
-		}
-		ctl.start(ser_cmdHandler, ser_exitHandler)
-	}
-}
 
-func (t *Server) TransServe(fconn *Conn, session *Session, buf []byte) {
-	defer func() {
-		SafeClose(fconn)
-		ex.CatchException(recover())
-		atomic.AddInt32(&t.aliveTT, -1)
-	}()
-	atomic.AddInt32(&t.aliveTT, 1)
-	token := buf[:SzTk]
-	fconn.cipher = session.cipherFactory.NewCipher(token)
-	fconn.identifier = session.uid
-	t.mux.Listen(fconn, session.ctlThread)
+	if err != nil {
+		if err == DATATUN_SESSION { // dataTunnel
+			go session.DataTunServe(fconn, nego.tokenBuf)
+		} else {
+			log.Warningln("Close abnormal connection from", conn.RemoteAddr(), err)
+			SafeClose(conn)
+			if session != nil {
+				t.sessionMgr.clearTokens(session)
+			}
+		}
+	} else if session != nil { // signalTunnel
+		log.Infoln(session.uid, conn.RemoteAddr(), "client-ST is established")
+		atomic.AddInt32(&t.stCnt, 1)
+		fconn.SetSockOpt(1, 1, 1)
+		var st = NewSignalTunnel(session.tun, 0)
+		session.svr = t
+		session.sigTun = st
+		go st.start(session.eventHandler)
+	}
 }
 
 func (t *Server) Stats() string {
-	return fmt.Sprintf("Stats/Server CT=%d TT=%d TK=%d",
-		atomic.LoadInt32(&t.aliveCT), atomic.LoadInt32(&t.aliveTT), t.sessionMgr.length())
-}
-
-//
-//
-//
-//  Session
-//
-//
-//
-type Session struct {
-	tun           *Conn
-	identity      string
-	uid           string
-	cipherFactory *CipherFactory
-	tokens        map[string]bool
-	ctlThread     *CtlThread
-}
-
-func NewSession(tun *Conn, cf *CipherFactory, identity string) *Session {
-	sep := strings.IndexByte(identity, 0)
-	var uid string
-	if sep > 0 {
-		uid = identity[:sep]
-	} else {
-		uid = identity
-	}
-	return &Session{tun, identity, uid, cf, make(map[string]bool), nil}
-}
-
-//
-//
-//
-//  CtlThread
-//
-//
-//
-type CtlCommandHandler func(cmd byte, args []byte)
-type CtlExitHandler func()
-
-type CtlThread struct {
-	tun           *Conn
-	remoteAddr    string
-	lived         *time.Timer
-	lock          sync.Locker
-	interval      time.Duration
-	baseInterval  time.Duration
-	lastResetTime int64
-}
-
-func NewCtlThread(conn *Conn, interval int) *CtlThread {
-	var bi, i time.Duration
-	if interval >= 30 && interval <= 300 {
-		bi = time.Duration(interval) * time.Second
-		i = 2 * bi
-	} else {
-		i = time.Duration(CTL_PING_INTERVAL) * time.Second
-		bi = i
-	}
-	t := &CtlThread{
-		tun:          conn,
-		remoteAddr:   IdentifierOf(conn),
-		lock:         new(sync.Mutex),
-		interval:     i,
-		baseInterval: bi,
-	}
-	t.lived = time.AfterFunc(i, t.areYouAlive)
-	return t
-}
-
-// all of the CtlCommandHandler and CtlExitHandler will be called in a new routine
-func (t *CtlThread) start(cmdHd CtlCommandHandler, exitHd CtlExitHandler) {
-	defer func() {
-		ex.CatchException(recover())
-		if t.lived != nil {
-			// must clear timer
-			t.lived.Stop()
-		}
-		if exitHd != nil {
-			go exitHd()
-		}
-	}()
-	buf := make([]byte, CMD_HEADER_LEN)
-	for {
-		n, err := t.tun.Read(buf)
-		if err != nil {
-			log.Warningln("Exiting CtlThread caused by", err)
-			break
-		}
-		if n == CMD_HEADER_LEN {
-			cmd := buf[0]
-			argslen := binary.BigEndian.Uint16(buf[2:])
-			if argslen > 0 {
-				argsbuf := make([]byte, argslen)
-				n, err = t.tun.Read(argsbuf)
-				go cmdHd(cmd, argsbuf)
-			} else {
-				switch cmd {
-				case CTL_PING: // reply
-					go t.imAlive()
-				case CTL_PONG: // aware of living
-					go t.acknowledged()
-				default:
-					go cmdHd(cmd, nil)
-				}
-			}
-		} else {
-			log.Errorln("Abnormal command", buf, err)
-			continue
-		}
-	}
-}
-
-func (t *CtlThread) postCommand(cmd byte, args []byte) (n int, err error) {
-	t.lock.Lock()
-	defer func() {
-		t.lock.Unlock()
-		t.tun.SetWriteDeadline(ZERO_TIME)
-	}()
-	buf := randArray(CMD_HEADER_LEN, CMD_HEADER_LEN)
-	buf[0] = cmd
-	binary.BigEndian.PutUint16(buf[2:], uint16(len(args)))
-	if args != nil {
-		buf = append(buf, args...)
-	}
-	if log.V(5) {
-		log.Infof("send command packet=[% x]\n", buf)
-	}
-	t.tun.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT * 2))
-	n, err = t.tun.Write(buf)
-	return
-}
-
-func (t *CtlThread) active(times int64) {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-	if times > 0 { // active link in transferring
-		var d = (times - t.lastResetTime) << 1
-		// allow reset at least half interval
-		if d > int64(t.interval/time.Second) {
-			if log.V(5) {
-				log.Infoln("suppress the next ping task")
-			}
-			t.lastResetTime = times
-			t.lived.Reset(t.interval)
-		}
-	} else if times < 0 { // scheduled ping
-		t.interval = t.baseInterval * time.Duration(-times)
-		t.lastResetTime = time.Now().Unix()
-		t.lived.Reset(t.interval)
-	}
-}
-
-func (t *CtlThread) areYouAlive() {
-	if log.V(5) {
-		log.Infoln("Ping/launched to", t.remoteAddr)
-	}
-	_, err := t.postCommand(CTL_PING, nil)
-	// Either waiting pong timeout or send ping failed
-	if err != nil {
-		SafeClose(t.tun)
-		log.Warningln("Ping remote failed and then closed", t.remoteAddr, err)
-	} else {
-		t.tun.SetReadDeadline(time.Now().Add(GENERAL_SO_TIMEOUT * 2))
-		// impossible call by timer, will reset by acknowledged or read timeout.
-		t.active(-1)
-	}
-}
-
-func (t *CtlThread) acknowledged() {
-	if log.V(5) {
-		log.Infoln("Ping/acknowledged by", t.remoteAddr)
-	}
-	t.tun.SetReadDeadline(ZERO_TIME)
-	t.active(-2) // so slow down the tempo
-}
-
-func (t *CtlThread) imAlive() {
-	if log.V(5) {
-		log.Infoln("Ping/responded to", t.remoteAddr)
-	}
-	t.active(-1) // up tempo for become a sender
-	_, err := t.postCommand(CTL_PONG, nil)
-	if err != nil {
-		SafeClose(t.tun)
-		log.Warningln("Reply ping failed and then closed", t.remoteAddr, err)
-	}
+	return fmt.Sprintf("Stats/Server ST=%d DT=%d TK=%d",
+		atomic.LoadInt32(&t.stCnt), atomic.LoadInt32(&t.dtCnt), t.sessionMgr.length())
 }

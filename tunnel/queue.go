@@ -50,22 +50,22 @@ func (q *queue) Listen() {
 	}
 }
 
-// TODO should clean all queueing frames of conn that already has error occurred
+// TODO should clean all queued frames of conn that already has error occurred
 func sendFrame(frm *frame) bool {
 	dst := frm.conn.conn
 	if frm.action == FRAME_ACTION_CLOSE {
-		if log.V(5) {
-			fmt.Printf("perform close by frame_action, link->%s %s\n", frm.conn.getTarget(), frm)
+		if log.V(4) {
+			fmt.Println("perform close by frame_action, Target ->", frm.conn.getTarget(), frm)
 		}
 	} else {
-		if log.V(6) {
+		if log.V(5) {
 			fmt.Println("send", frm)
 		}
 		nw, ew := dst.Write(frm.data)
 		if nw == int(frm.length) && ew == nil {
 			return false
 		}
-		log.Warningf("Write edgeConn error. link->%s %s %s\n", frm.conn.getTarget(), frm, ew)
+		log.Warningln("Write edgeConn error. Target ->", frm.conn.getTarget(), frm, ew)
 	}
 	SafeClose(dst)
 	return true

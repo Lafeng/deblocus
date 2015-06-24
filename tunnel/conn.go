@@ -82,7 +82,9 @@ func (c *Conn) SetSockOpt(disableDeadline, keepAlive, noDelay int8) {
 		// SetKeepAlivePeriod(d time.Duration) error
 		if keepAlive >= 0 {
 			t.SetKeepAlive(keepAlive > 0)
-			t.SetKeepAlivePeriod(time.Minute * 10)
+			if keepAlive > 0 {
+				t.SetKeepAlivePeriod(time.Second * 90)
+			}
 		}
 		if noDelay >= 0 {
 			t.SetNoDelay(noDelay > 0)

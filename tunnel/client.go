@@ -10,72 +10,124 @@ import (
 	"time"
 )
 
+const (
+	RETRY_INTERVAL = time.Second * 3
+)
+
 type Client struct {
-	d5p           *D5Params
-	ctl           *CtlThread
-	mux           *multiplexer
-	token         []byte
-	cipherFactory *CipherFactory
-	lock          sync.Locker
-	aliveTT       int32
-	waitTk        *sync.Cond
-	State         int32 // -1:aborted 0:working 1:token requesting
+	sigTun *signalTunnel
+	mux    *multiplexer
+	token  []byte
+	nego   *d5CNegotiation
+	tp     *tunParams
+	lock   sync.Locker
+	retry  uint32
+	dtCnt  int32
+	State  int32 // -1:aborted 0:working 1:token requesting
+	waitTK *sync.Cond
 }
 
-func NewClient(d5p *D5Params, dhKeys *DHKeyPair, exitHandler CtlExitHandler) *Client {
-	// new d5CNegotiation and set parameters
-	nego := new(d5CNegotiation)
-	nego.D5Params = d5p
-	nego.dhKeys = dhKeys
-	// connect to server
-	ctlConn := nego.negotiate()
-	ctlConn.SetSockOpt(1, 1, 1)
-	log.Infof("Negotiated the tunnel with gateway %s successfully.\n", ctlConn.identifier)
-	me := &Client{
-		d5p:           d5p,
-		token:         nego.token,
-		lock:          new(sync.Mutex),
-		cipherFactory: nego.cipherFactory,
+type event byte
+
+var (
+	evt_st_closed = event(0)
+	evt_st_ready  = event(1)
+	evt_st_msg    = event(4)
+	evt_st_active = event(5)
+	evt_dt_closed = event(2)
+	evt_dt_ready  = event(3)
+)
+
+type event_handler func(e event, msg ...interface{})
+
+func NewClient(d5p *D5Params, dhKeys *DHKeyPair) *Client {
+	clt := &Client{
+		lock: new(sync.Mutex),
+		nego: new(d5CNegotiation),
 	}
-	me.waitTk = sync.NewCond(me.lock)
-	var exitHandlerCallback CtlExitHandler = func() {
-		// flag: negative State
-		// 1, for some blocking tunSession to abort.
-		// 2, for skipping when selecting client
-		atomic.StoreInt32(&me.State, -1)
-		log.Warningf("Lost connection of backend %s, then will reconnect.\n", d5p.RemoteId())
-		exitHandler()
-	}
-	me.ctl = NewCtlThread(ctlConn, nego.interval)
-	go me.ctl.start(me.commandHandler, exitHandlerCallback)
-	me.startConnPool()
-	return me
+	clt.waitTK = sync.NewCond(clt.lock)
+	// set parameters
+	clt.nego.D5Params = d5p
+	clt.nego.dhKeys = dhKeys
+	return clt
 }
 
-// TODO start by ctl event
-func (this *Client) startConnPool() {
-	this.mux = NewClientMultiplexer()
-	var tdc onTunDisconnectedCallback = func(old *Conn) {
-		if old != nil {
-			time.Sleep(time.Second)
+func (c *Client) StartSigTun() {
+	defer func() {
+		if ex.CatchException(recover()) {
+			c.eventHandler(evt_st_closed)
 		}
-		if atomic.LoadInt32(&this.State) >= 0 {
-			bconn := this.createTunnel()
-			go this.mux.Listen(bconn, this.ctl)
-		}
+	}()
+	if c.retry > 0 {
+		log.Warningln("Will retry after", RETRY_INTERVAL)
+		time.Sleep(RETRY_INTERVAL)
 	}
-	this.mux.onTDC = tdc
+	stConn, tp := c.nego.negotiate()
+	// connected
+	defer c.eventHandler(evt_st_ready, stConn.identifier)
+	stConn.SetSockOpt(1, 1, 1)
+	c.tp, c.token = tp, tp.token
+	c.sigTun = NewSignalTunnel(stConn, tp.interval)
+	go c.sigTun.start(c.eventHandler)
+}
+
+func (c *Client) startMultiplexer() {
+	c.mux = NewClientMultiplexer()
 	// TODO need server parameters
 	for i := 0; i < 3; i++ {
-		tdc(nil)
+		go c.startDataTun(false)
 	}
 }
 
-func (this *Client) ClientServe(conn net.Conn) {
+func (c *Client) startDataTun(again bool) {
+	defer func() {
+		if ex.CatchException(recover()) {
+			c.eventHandler(evt_dt_closed, true)
+		}
+	}()
+	if again {
+		log.Warningln("DTun was disconnected then will reconnect after", RETRY_INTERVAL)
+		time.Sleep(RETRY_INTERVAL)
+	}
+	if atomic.LoadInt32(&c.State) >= 0 {
+		bconn := c.createDataTun()
+		c.mux.Listen(bconn, c.eventHandler)
+	}
+}
+
+func (c *Client) eventHandler(e event, msg ...interface{}) {
+	var mlen = len(msg)
+	switch e {
+	case evt_st_closed:
+		atomic.StoreInt32(&c.State, -1)
+		atomic.AddUint32(&c.retry, 1)
+		log.Warningln("Lost connection of gateway", c.nego.RemoteId())
+		go c.StartSigTun()
+	case evt_st_ready:
+		atomic.StoreInt32(&c.State, 0)
+		atomic.StoreUint32(&c.retry, 0)
+		log.Infoln("Tunnel negotiated with gateway", msg[0], "successfully")
+		if c.mux == nil {
+			go c.startMultiplexer()
+		}
+	case evt_dt_closed:
+		go c.startDataTun(mlen > 0)
+	case evt_st_msg:
+		if mlen == 1 {
+			go c.commandHandler(msg[0].(byte), nil)
+		} else {
+			go c.commandHandler(msg[0].(byte), msg[1].([]byte))
+		}
+	case evt_st_active:
+		c.sigTun.active(msg[0].(int64))
+	}
+}
+
+func (c *Client) ClientServe(conn net.Conn) {
 	var done bool
 	defer func() {
 		ex.CatchException(recover())
-		atomic.AddInt32(&this.aliveTT, -1)
+		atomic.AddInt32(&c.dtCnt, -1)
 		if !done {
 			SafeClose(conn)
 		}
@@ -84,81 +136,77 @@ func (this *Client) ClientServe(conn net.Conn) {
 	s5 := S5Step1{conn: conn}
 	s5.Handshake()
 	if !s5.HandshakeAck() {
-		target_str := s5.parseSocks5Request()
-		if log.V(1) {
-			log.Infoln("Socks5 ->", target_str, "from", conn.RemoteAddr())
-		}
-
+		literalTarget := s5.parseSocks5Request()
 		if !s5.respondSocks5() {
-			atomic.AddInt32(&this.aliveTT, 1)
-			this.mux.HandleRequest(conn, s5.target, target_str)
+			atomic.AddInt32(&c.dtCnt, 1)
+			c.mux.HandleRequest(conn, literalTarget)
 			done = true
 		}
 	}
 }
 
-func (this *Client) createTunnel() *Conn {
-	conn, err := net.DialTCP("tcp", nil, this.d5p.d5sAddr)
+func (t *Client) createDataTun() *Conn {
+	conn, err := net.DialTCP("tcp", nil, t.nego.d5sAddr)
 	ThrowErr(err)
-	buf := make([]byte, SzTk+1)
-	token := this.getToken()
+	buf := make([]byte, TKSZ+1)
+	token := t.getToken()
 	copy(buf, token)
-	buf[SzTk] = byte(D5 - int(int8(token[SzTk-1])))
+	buf[TKSZ] = byte(D5 - int(int8(token[TKSZ-1])))
 
-	cipher := this.cipherFactory.NewCipher(token)
+	cipher := t.tp.cipherFactory.NewCipher(token)
 	_, err = conn.Write(buf)
 	ThrowErr(err)
 	c := NewConn(conn, cipher)
-	c.identifier = this.d5p.RemoteId()
+	c.identifier = t.nego.RemoteId()
 	return c
 }
 
 func (t *Client) Stats() string {
-	return fmt.Sprintf("Stats/Client To-%s TT=%d TK=%d", t.d5p.d5sAddrStr,
-		atomic.LoadInt32(&t.aliveTT), len(t.token)/SzTk)
+	return fmt.Sprintf("Stats/Client -> %s DT=%d TK=%d", t.nego.d5sAddrStr,
+		atomic.LoadInt32(&t.dtCnt), len(t.token)/TKSZ)
 }
 
-func (this *Client) getToken() []byte {
-	this.lock.Lock()
+func (c *Client) getToken() []byte {
+	c.lock.Lock()
 	defer func() {
-		this.lock.Unlock()
-		tlen := len(this.token) / SzTk
-		if tlen <= 8 && atomic.LoadInt32(&this.State) == 0 {
-			atomic.AddInt32(&this.State, 1)
-			if log.V(2) {
+		c.lock.Unlock()
+		tlen := len(c.token) / TKSZ
+		if tlen <= TOKENS_FLOOR && atomic.LoadInt32(&c.State) == 0 {
+			atomic.AddInt32(&c.State, 1)
+			if log.V(3) {
 				log.Infof("Request new tokens, pool=%d\n", tlen)
 			}
-			this.ctl.postCommand(TOKEN_REQUEST, nil)
+			c.sigTun.postCommand(TOKEN_REQUEST, nil)
 		}
 	}()
-	for len(this.token) < SzTk {
-		if log.V(2) {
-			log.Infoln("waiting for token. May be the requests came too fast, or that responded slowly.")
-		}
-		this.waitTk.Wait()
-		if atomic.LoadInt32(&this.State) < 0 {
+	for len(c.token) < TKSZ {
+		log.Warningln("waiting for token. May be the requests are coming too fast.")
+		c.waitTK.Wait()
+		if atomic.LoadInt32(&c.State) < 0 {
 			panic("Abandon the request beacause the tunSession was lost.")
 		}
 	}
-	token := this.token[:SzTk]
-	this.token = this.token[SzTk:]
+	token := c.token[:TKSZ]
+	c.token = c.token[TKSZ:]
 
 	return token
 }
 
-func (this *Client) putTokens(tokens []byte) {
-	defer this.lock.Unlock()
-	this.lock.Lock()
-	this.token = append(this.token, tokens...)
-	atomic.StoreInt32(&this.State, 0)
-	this.waitTk.Broadcast()
-	log.Infof("Recv tokens=%d pool=%d\n", len(tokens)/SzTk, len(this.token)/SzTk)
+func (c *Client) putTokens(tokens []byte) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.token = append(c.token, tokens...)
+	atomic.StoreInt32(&c.State, 0)
+	c.waitTK.Broadcast()
+	if log.V(3) {
+		log.Infof("Recv tokens=%d pool=%d\n", len(tokens)/TKSZ, len(c.token)/TKSZ)
+	}
 }
 
-func (this *Client) commandHandler(cmd byte, args []byte) {
+func (c *Client) commandHandler(cmd byte, args []byte) {
 	switch cmd {
 	case TOKEN_REPLY:
-		this.putTokens(args)
+		c.putTokens(args)
 	default:
 		log.Warningf("Unrecognized command=%x packet=[% x]\n", cmd, args)
 	}
