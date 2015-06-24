@@ -3,6 +3,7 @@ package exception
 import (
 	"fmt"
 	log "github.com/spance/deblocus/golang/glog"
+	"runtime"
 )
 
 type Exception struct {
@@ -43,7 +44,13 @@ func CatchException(e interface{}) bool {
 		log.Errorln(ex.msg)
 		return true
 	} else if e != nil {
-		log.Errorln(e)
+		if log.V(2) {
+			buf := make([]byte, 1600)
+			runtime.Stack(buf, false)
+			fmt.Println(string(buf))
+		} else {
+			log.Errorln(e)
+		}
 		return true
 	}
 	return false

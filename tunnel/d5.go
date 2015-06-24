@@ -316,7 +316,7 @@ func (nego *d5CNegotiation) validateAndGetTokens(sconn *hashedConn, t *tunParams
 	t.token = buf[TUN_PARAMS_LEN:]
 	if log.V(2) {
 		n := len(buf) - TUN_PARAMS_LEN
-		log.Infof("Got tokens, length=%d\n", n/TKSZ)
+		log.Infof("Got tokens length=%d\n", n/TKSZ)
 	}
 	rHash := sconn.RHashSum()
 	wHash := sconn.WHashSum()
@@ -418,9 +418,7 @@ func (nego *d5SNegotiation) respondTestWithToken(sconn *hashedConn, session *Ses
 	binary.BigEndian.PutUint16(tpBuf, uint16(TUN_PARAMS_LEN+GENERATE_TOKEN_NUM*TKSZ))
 	copy(tpBuf[2:], ito4b(VERSION))
 	binary.BigEndian.PutUint16(tpBuf[2+TP_INTERVAL_OFS:], CTL_PING_INTERVAL)
-	if log.V(5) {
-		dumpHex("Send tunParams", tpBuf)
-	}
+
 	_, err = sconn.Write(tpBuf)
 	ThrowErr(err)
 	tokens := nego.sessionMgr.createTokens(session, GENERATE_TOKEN_NUM)

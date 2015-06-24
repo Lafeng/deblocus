@@ -111,14 +111,16 @@ func NewConnWithHash(conn *net.TCPConn) *hashedConn {
 
 func (c *hashedConn) Read(b []byte) (n int, e error) {
 	n, e = c.Conn.Read(b)
-	if n > 0 {
+	if c.rHash != nil && n > 0 {
 		c.rHash.Write(b[:n])
 	}
 	return
 }
 
 func (c *hashedConn) Write(b []byte) (int, error) {
-	c.wHash.Write(b)
+	if c.wHash != nil {
+		c.wHash.Write(b)
+	}
 	return c.Conn.Write(b)
 }
 
