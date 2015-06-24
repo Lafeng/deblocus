@@ -55,7 +55,7 @@ func sendFrame(frm *frame) bool {
 	dst := frm.conn.conn
 	if frm.action == FRAME_ACTION_CLOSE {
 		if log.V(4) {
-			fmt.Println("perform close by frame_action, Target ->", frm.conn.getTarget(), frm)
+			log.Infoln("perform close by frame_action, Target ->", frm.conn.getTarget(), frm)
 		}
 	} else {
 		if log.V(5) {

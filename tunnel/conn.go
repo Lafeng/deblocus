@@ -11,20 +11,9 @@ import (
 type Conn struct {
 	net.Conn
 	cipher     *Cipher
-	rHash      hash.Hash
-	wHash      hash.Hash
 	identifier string
 	wlock      sync.Locker
 	priority   *TSPriority
-}
-
-func NewConnWithHash(conn *net.TCPConn) *Conn {
-	return &Conn{
-		Conn:  conn,
-		rHash: sha1.New(),
-		wHash: sha1.New(),
-		wlock: new(sync.Mutex),
-	}
 }
 
 func NewConn(conn *net.TCPConn, cipher *Cipher) *Conn {
@@ -37,9 +26,6 @@ func NewConn(conn *net.TCPConn, cipher *Cipher) *Conn {
 
 func (c *Conn) Read(b []byte) (int, error) {
 	n, err := c.Conn.Read(b)
-	if c.rHash != nil && n > 0 {
-		c.rHash.Write(b[:n])
-	}
 	if n > 0 && c.cipher != nil {
 		c.cipher.decrypt(b[:n], b[:n])
 	}
@@ -51,9 +37,6 @@ func (c *Conn) Write(b []byte) (int, error) {
 	defer c.wlock.Unlock()
 	if c.cipher != nil {
 		c.cipher.encrypt(b, b)
-	}
-	if c.wHash != nil {
-		c.wHash.Write(b)
 	}
 	return c.Conn.Write(b)
 }
@@ -79,7 +62,6 @@ func (c *Conn) SetSockOpt(disableDeadline, keepAlive, noDelay int8) {
 		c.Conn.SetDeadline(ZERO_TIME)
 	}
 	if t, y := c.Conn.(*net.TCPConn); y {
-		// SetKeepAlivePeriod(d time.Duration) error
 		if keepAlive >= 0 {
 			t.SetKeepAlive(keepAlive > 0)
 			if keepAlive > 0 {
@@ -90,25 +72,6 @@ func (c *Conn) SetSockOpt(disableDeadline, keepAlive, noDelay int8) {
 			t.SetNoDelay(noDelay > 0)
 		}
 	}
-}
-
-func (c *Conn) FreeHash() {
-	c.rHash = nil
-	c.wHash = nil
-}
-
-func (c *Conn) RHashSum() []byte {
-	hash := c.rHash.Sum(nil)
-	c.rHash.Reset()
-	c.rHash = nil
-	return hash
-}
-
-func (c *Conn) WHashSum() []byte {
-	hash := c.wHash.Sum(nil)
-	c.wHash.Reset()
-	c.wHash = nil
-	return hash
 }
 
 func (c *Conn) Update() {
@@ -130,4 +93,50 @@ func IdentifierOf(con net.Conn) string {
 		return c.identifier
 	}
 	return ipAddr(con.RemoteAddr())
+}
+
+type hashedConn struct {
+	*Conn
+	rHash hash.Hash
+	wHash hash.Hash
+}
+
+func NewConnWithHash(conn *net.TCPConn) *hashedConn {
+	return &hashedConn{
+		Conn:  &Conn{Conn: conn, wlock: new(sync.Mutex)},
+		rHash: sha1.New(),
+		wHash: sha1.New(),
+	}
+}
+
+func (c *hashedConn) Read(b []byte) (n int, e error) {
+	n, e = c.Conn.Read(b)
+	if n > 0 {
+		c.rHash.Write(b[:n])
+	}
+	return
+}
+
+func (c *hashedConn) Write(b []byte) (int, error) {
+	c.wHash.Write(b)
+	return c.Conn.Write(b)
+}
+
+func (c *hashedConn) FreeHash() {
+	c.rHash = nil
+	c.wHash = nil
+}
+
+func (c *hashedConn) RHashSum() []byte {
+	hash := c.rHash.Sum(nil)
+	c.rHash.Reset()
+	c.rHash = nil
+	return hash
+}
+
+func (c *hashedConn) WHashSum() []byte {
+	hash := c.wHash.Sum(nil)
+	c.wHash.Reset()
+	c.wHash = nil
+	return hash
 }

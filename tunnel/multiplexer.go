@@ -217,7 +217,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler) {
 		switch frm.action {
 		case FRAME_ACTION_CLOSE:
 			if log.V(4) {
-				log.Infoln(p.mode, "recv CLOSE", key, "by peer")
+				log.Infoln(p.mode, "recv CLOSE by peer key:", key)
 			}
 			if edge := p.unregisterConn(key, true); edge != nil {
 				frm.conn = edge
@@ -227,14 +227,14 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler) {
 			edge := p.getRegistered(key)
 			if edge == nil {
 				if log.V(2) {
-					log.Warningln("peer try send data to an unexisted socket.", p.mode, "key=", key, frm)
+					log.Warningln("peer try send data to an unexisted socket.", p.mode, "key:", key, frm)
 				}
 				// when the edgeConn of this side is proactively closed, will enter here.
 				// so need to send close for notify peer.
 				_frame(header, FRAME_ACTION_CLOSE, frm.sid, nil)
 				nw, ew = tun.Write(header)
 				if nw != FRAME_HEADER_LEN || ew != nil {
-					log.Errorln("Write tunnel error.", er)
+					log.Errorln("Write tunnel error", er)
 					return // error, abandon tunnel
 				}
 			} else {
@@ -247,11 +247,15 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler) {
 			edge := p.getRegistered(key)
 			if edge == nil {
 				if log.V(2) {
-					log.Warningln("peer try send OPEN to an unexisted socket.", p.mode, "key=", key, frm)
+					log.Warningln("peer try send OPEN to an unexisted socket.", p.mode, "key:", key, frm)
 				}
 			} else {
 				if log.V(4) {
-					log.Infoln("open_action", frm, "->", p.mode)
+					if frm.action == FRAME_ACTION_OPEN_Y {
+						log.Infoln("OPEN_Y", frm, "->", p.mode)
+					} else {
+						log.Infoln("OPEN_N", frm, "->", p.mode)
+					}
 				}
 				edge.ready <- frm.action
 				close(edge.ready)
@@ -297,7 +301,7 @@ func (p *multiplexer) openEgress(frm *frame, key string, tun *Conn) {
 		p.registerConn(key, dstConn)
 		dstConn.(*net.TCPConn).SetNoDelay(true)
 		if log.V(4) {
-			log.Infoln(target, "established open_y", frm.sid)
+			log.Infoln(target, "established OPEN_Y sid:", frm.sid)
 		}
 		frm.action = FRAME_ACTION_OPEN_Y
 		nw, err = tun.Write(frm.toNewBuffer())

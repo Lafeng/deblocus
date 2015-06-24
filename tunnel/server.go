@@ -207,16 +207,17 @@ func NewServer(d5s *D5ServConf, dhKeys *DHKeyPair) *Server {
 }
 
 func (t *Server) TunnelServe(conn *net.TCPConn) {
+	fconn := NewConnWithHash(conn)
 	defer func() {
+		fconn.FreeHash()
 		ex.CatchException(recover())
 	}()
-	fconn := NewConnWithHash(conn)
 	nego := &d5SNegotiation{Server: t}
 	session, err := nego.negotiate(fconn)
 
 	if err != nil {
 		if err == DATATUN_SESSION { // dataTunnel
-			go session.DataTunServe(fconn, nego.tokenBuf)
+			go session.DataTunServe(fconn.Conn, nego.tokenBuf)
 		} else {
 			log.Warningln("Close abnormal connection from", conn.RemoteAddr(), err)
 			SafeClose(conn)
