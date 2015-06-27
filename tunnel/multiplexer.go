@@ -20,7 +20,7 @@ const (
 	FRAME_ACTION_SLOWDOWN = 0xff
 	FRAME_MAX_LEN         = 0xffff
 	FRAME_HEADER_LEN      = 5
-	FRAME_OPEN_TIMEOUT    = time.Second * 15
+	FRAME_OPEN_TIMEOUT    = time.Second * 30
 )
 
 var (
@@ -65,6 +65,11 @@ func (f *frame) toNewBuffer() []byte {
 		copy(b[FRAME_HEADER_LEN:], f.data)
 	}
 	return b
+}
+
+func closeUi8(ch chan byte) {
+	defer func() { _ = recover() }()
+	close(ch)
 }
 
 type multiplexer struct {
@@ -112,6 +117,7 @@ func (p *multiplexer) registerConn(key string, conn net.Conn) {
 }
 
 func (p *multiplexer) registerEdgeConn(key string, conn net.Conn, target string) {
+	log.Infoln("registerEdgeConn 0", key)
 	p.cLock.Lock()
 	defer p.cLock.Unlock()
 	p.registry[key] = &edgeConn{
@@ -120,10 +126,12 @@ func (p *multiplexer) registerEdgeConn(key string, conn net.Conn, target string)
 		key:    key,
 		target: target,
 	}
+	log.Infoln("registerEdgeConn 1", key)
 }
 
 // set passively close mark
 func (p *multiplexer) unregisterConn(key string, isPasv bool) (edge *edgeConn) {
+	log.Infoln("unregisterConn 0", key)
 	p.cLock.Lock()
 	defer p.cLock.Unlock()
 	if isPasv {
@@ -135,11 +143,10 @@ func (p *multiplexer) unregisterConn(key string, isPasv bool) (edge *edgeConn) {
 	if edge != nil {
 		delete(p.registry, key)
 		if edge.ready != nil {
-			if _, y := <-edge.ready; y {
-				close(edge.ready)
-			}
+			closeUi8(edge.ready)
 		}
 	}
+	log.Infoln("unregisterConn 1", key)
 	return
 }
 
@@ -175,7 +182,9 @@ func (p *multiplexer) HandleRequest(client net.Conn, target string) {
 
 // TODO clean related conn and queue
 func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
-	p.pool.Remove(tun)
+	if !p.pool.Remove(tun) {
+		log.Warningln("remove tun failed", tun.LocalAddr())
+	}
 	if handler != nil {
 		handler(evt_dt_closed, tun)
 	}
@@ -299,9 +308,8 @@ func (p *multiplexer) openEgress(frm *frame, key string, tun *Conn) {
 		ThrowIf(nw != FRAME_HEADER_LEN, err)
 	} else {
 		p.registerConn(key, dstConn)
-		dstConn.(*net.TCPConn).SetNoDelay(true)
 		if log.V(4) {
-			log.Infoln(target, "established OPEN_Y sid:", frm.sid)
+			log.Infoln(target, "established OPEN_Y key:", key)
 		}
 		frm.action = FRAME_ACTION_OPEN_Y
 		nw, err = tun.Write(frm.toNewBuffer())
@@ -310,7 +318,7 @@ func (p *multiplexer) openEgress(frm *frame, key string, tun *Conn) {
 			p.copyToTun(dstConn, tun, key, frm.sid, NULL)
 		} else {
 			SafeClose(dstConn)
-			log.Errorln("tun write error", err)
+			log.Errorln("tun write error.", key, err)
 		}
 	}
 }

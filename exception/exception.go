@@ -47,6 +47,7 @@ func CatchException(e interface{}) bool {
 		if log.V(2) {
 			buf := make([]byte, 1600)
 			runtime.Stack(buf, false)
+			fmt.Println(e)
 			fmt.Println(string(buf))
 		} else {
 			log.Errorln(e)

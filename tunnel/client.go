@@ -80,7 +80,11 @@ func (c *Client) startMultiplexer() {
 }
 
 func (c *Client) startDataTun(again bool) {
+	var used bool
 	defer func() {
+		if used {
+			atomic.AddInt32(&c.dtCnt, -1)
+		}
 		if ex.CatchException(recover()) {
 			c.eventHandler(evt_dt_closed, true)
 		}
@@ -90,8 +94,10 @@ func (c *Client) startDataTun(again bool) {
 		time.Sleep(RETRY_INTERVAL)
 	}
 	if atomic.LoadInt32(&c.State) >= 0 {
-		bconn := c.createDataTun()
-		c.mux.Listen(bconn, c.eventHandler)
+		conn := c.createDataTun()
+		used = true
+		atomic.AddInt32(&c.dtCnt, 1)
+		c.mux.Listen(conn, c.eventHandler)
 	}
 }
 
@@ -127,7 +133,6 @@ func (c *Client) ClientServe(conn net.Conn) {
 	var done bool
 	defer func() {
 		ex.CatchException(recover())
-		atomic.AddInt32(&c.dtCnt, -1)
 		if !done {
 			SafeClose(conn)
 		}
@@ -138,7 +143,6 @@ func (c *Client) ClientServe(conn net.Conn) {
 	if !s5.HandshakeAck() {
 		literalTarget := s5.parseSocks5Request()
 		if !s5.respondSocks5() {
-			atomic.AddInt32(&c.dtCnt, 1)
 			c.mux.HandleRequest(conn, literalTarget)
 			done = true
 		}
@@ -146,7 +150,7 @@ func (c *Client) ClientServe(conn net.Conn) {
 }
 
 func (t *Client) createDataTun() *Conn {
-	conn, err := net.DialTCP("tcp", nil, t.nego.d5sAddr)
+	conn, err := net.DialTimeout("tcp", t.nego.d5sAddr.String(), FRAME_OPEN_TIMEOUT/2)
 	ThrowErr(err)
 	buf := make([]byte, TKSZ+1)
 	token := t.getToken()
@@ -156,7 +160,7 @@ func (t *Client) createDataTun() *Conn {
 	cipher := t.tp.cipherFactory.NewCipher(token)
 	_, err = conn.Write(buf)
 	ThrowErr(err)
-	c := NewConn(conn, cipher)
+	c := NewConn(conn.(*net.TCPConn), cipher)
 	c.identifier = t.nego.RemoteId()
 	return c
 }
