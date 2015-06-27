@@ -133,7 +133,7 @@ func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
 	for i := 0; i < num; i++ {
 		c := t.NewClient(d5pArray[i], dhKeys)
 		mgr.clients[i] = c
-		go c.StartSigTun()
+		go c.StartSigTun(false)
 	}
 	return mgr
 }

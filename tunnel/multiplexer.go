@@ -3,6 +3,7 @@ package tunnel
 import (
 	"encoding/binary"
 	"fmt"
+	ex "github.com/spance/deblocus/exception"
 	log "github.com/spance/deblocus/golang/glog"
 	"io"
 	"net"
@@ -115,7 +116,7 @@ func NewServerMultiplexer() *multiplexer {
 
 func (p *multiplexer) destroy() {
 	defer func() {
-		if recover() == nil {
+		if ex.CatchException(recover()) {
 			p.status = MUX_CLOSED
 		}
 	}()

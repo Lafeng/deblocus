@@ -61,7 +61,9 @@ func (c *Client) StartSigTun(again bool) {
 		log.Warningln("Will retry after", RETRY_INTERVAL)
 		if c.mux != nil {
 			c.mux.destroy()
-			c.mux = nil
+			if c.mux.status == MUX_PENDING_CLOSE {
+				c.mux = nil
+			}
 		}
 		time.Sleep(RETRY_INTERVAL)
 	}
