@@ -21,6 +21,8 @@ const (
 	FRAME_MAX_LEN         = 0xffff
 	FRAME_HEADER_LEN      = 5
 	FRAME_OPEN_TIMEOUT    = time.Second * 30
+	MUX_PENDING_CLOSE     = -1
+	MUX_CLOSED            = -2
 )
 
 var (
@@ -81,6 +83,7 @@ type multiplexer struct {
 	cLock    sync.Locker
 	queue    *queue
 	mode     string
+	status   int
 }
 
 func NewClientMultiplexer() *multiplexer {
@@ -110,6 +113,23 @@ func NewServerMultiplexer() *multiplexer {
 	return m
 }
 
+func (p *multiplexer) destroy() {
+	defer func() {
+		if recover() == nil {
+			p.status = MUX_CLOSED
+		}
+	}()
+	p.cLock.Lock()
+	defer p.cLock.Unlock()
+	p.status = MUX_PENDING_CLOSE
+	p.pool.destroy()
+	for _, v := range p.registry {
+		SafeClose(v.conn)
+	}
+	p.queue.status = MUX_CLOSED
+	p.queue.cond.Broadcast()
+}
+
 func (p *multiplexer) registerConn(key string, conn net.Conn) {
 	p.cLock.Lock()
 	defer p.cLock.Unlock()
@@ -117,7 +137,6 @@ func (p *multiplexer) registerConn(key string, conn net.Conn) {
 }
 
 func (p *multiplexer) registerEdgeConn(key string, conn net.Conn, target string) {
-	log.Infoln("registerEdgeConn 0", key)
 	p.cLock.Lock()
 	defer p.cLock.Unlock()
 	p.registry[key] = &edgeConn{
@@ -126,12 +145,10 @@ func (p *multiplexer) registerEdgeConn(key string, conn net.Conn, target string)
 		key:    key,
 		target: target,
 	}
-	log.Infoln("registerEdgeConn 1", key)
 }
 
 // set passively close mark
 func (p *multiplexer) unregisterConn(key string, isPasv bool) (edge *edgeConn) {
-	log.Infoln("unregisterConn 0", key)
 	p.cLock.Lock()
 	defer p.cLock.Unlock()
 	if isPasv {
@@ -146,7 +163,6 @@ func (p *multiplexer) unregisterConn(key string, isPasv bool) (edge *edgeConn) {
 			closeUi8(edge.ready)
 		}
 	}
-	log.Infoln("unregisterConn 1", key)
 	return
 }
 
@@ -182,10 +198,8 @@ func (p *multiplexer) HandleRequest(client net.Conn, target string) {
 
 // TODO clean related conn and queue
 func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
-	if !p.pool.Remove(tun) {
-		log.Warningln("remove tun failed", tun.LocalAddr())
-	}
-	if handler != nil {
+	p.pool.Remove(tun)
+	if handler != nil && p.status >= 0 {
 		handler(evt_dt_closed, tun)
 	}
 }
@@ -197,7 +211,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler) {
 		p.pool.Push(tun)
 		defer p.onTunDisconnected(tun, handler)
 	}
-	tun.SetSockOpt(1, 1, 0)
+	tun.SetSockOpt(1, 0, 0)
 	var (
 		frm      *frame
 		header   = make([]byte, FRAME_HEADER_LEN)

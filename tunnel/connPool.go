@@ -76,3 +76,11 @@ func (h *ConnPool) Select() *Conn {
 	}
 	return h.pool[0]
 }
+
+func (h *ConnPool) destroy() {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+	for _, c := range h.pool {
+		SafeClose(c)
+	}
+}

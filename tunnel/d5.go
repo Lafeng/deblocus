@@ -313,6 +313,7 @@ func (nego *d5CNegotiation) validateAndGetTokens(sconn *hashedConn, t *tunParams
 		}
 	}
 	t.interval = int(binary.BigEndian.Uint16(buf[TP_INTERVAL_OFS:]))
+	t.tunQty = int(buf[TP_INTERVAL_OFS+2])
 	t.token = buf[TUN_PARAMS_LEN:]
 	if log.V(2) {
 		n := len(buf) - TUN_PARAMS_LEN
@@ -417,7 +418,8 @@ func (nego *d5SNegotiation) respondTestWithToken(sconn *hashedConn, session *Ses
 	tpBuf := randArray(headLen, headLen)
 	binary.BigEndian.PutUint16(tpBuf, uint16(TUN_PARAMS_LEN+GENERATE_TOKEN_NUM*TKSZ))
 	copy(tpBuf[2:], ito4b(VERSION))
-	binary.BigEndian.PutUint16(tpBuf[2+TP_INTERVAL_OFS:], CTL_PING_INTERVAL)
+	binary.BigEndian.PutUint16(tpBuf[2+4:], CTL_PING_INTERVAL)
+	tpBuf[8] = PARALLEL_TUN_QTY
 
 	_, err = sconn.Write(tpBuf)
 	ThrowErr(err)

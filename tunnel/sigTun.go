@@ -55,7 +55,7 @@ func (t *signalTunnel) start(handler event_handler) {
 			t.lived.Stop()
 		}
 		if handler != nil {
-			handler(evt_st_closed)
+			handler(evt_st_closed, true)
 		}
 	}()
 	buf := make([]byte, CMD_HEADER_LEN)

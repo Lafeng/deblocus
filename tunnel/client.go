@@ -21,7 +21,6 @@ type Client struct {
 	nego   *d5CNegotiation
 	tp     *tunParams
 	lock   sync.Locker
-	retry  uint32
 	dtCnt  int32
 	State  int32 // -1:aborted 0:working 1:token requesting
 	waitTK *sync.Cond
@@ -52,20 +51,24 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair) *Client {
 	return clt
 }
 
-func (c *Client) StartSigTun() {
+func (c *Client) StartSigTun(again bool) {
 	defer func() {
 		if ex.CatchException(recover()) {
 			c.eventHandler(evt_st_closed)
 		}
 	}()
-	if c.retry > 0 {
+	if again {
 		log.Warningln("Will retry after", RETRY_INTERVAL)
+		if c.mux != nil {
+			c.mux.destroy()
+			c.mux = nil
+		}
 		time.Sleep(RETRY_INTERVAL)
 	}
 	stConn, tp := c.nego.negotiate()
 	// connected
 	defer c.eventHandler(evt_st_ready, stConn.identifier)
-	stConn.SetSockOpt(1, 1, 1)
+	stConn.SetSockOpt(1, 0, 1)
 	c.tp, c.token = tp, tp.token
 	c.sigTun = NewSignalTunnel(stConn, tp.interval)
 	go c.sigTun.start(c.eventHandler)
@@ -73,8 +76,7 @@ func (c *Client) StartSigTun() {
 
 func (c *Client) startMultiplexer() {
 	c.mux = NewClientMultiplexer()
-	// TODO need server parameters
-	for i := 0; i < 3; i++ {
+	for i := 0; i < c.tp.tunQty; i++ {
 		go c.startDataTun(false)
 	}
 }
@@ -96,6 +98,9 @@ func (c *Client) startDataTun(again bool) {
 	if atomic.LoadInt32(&c.State) >= 0 {
 		conn := c.createDataTun()
 		used = true
+		if log.V(4) {
+			log.Infoln("DTun has been established.", conn.LocalAddr())
+		}
 		atomic.AddInt32(&c.dtCnt, 1)
 		c.mux.Listen(conn, c.eventHandler)
 	}
@@ -106,12 +111,10 @@ func (c *Client) eventHandler(e event, msg ...interface{}) {
 	switch e {
 	case evt_st_closed:
 		atomic.StoreInt32(&c.State, -1)
-		atomic.AddUint32(&c.retry, 1)
 		log.Warningln("Lost connection of gateway", c.nego.RemoteId())
-		go c.StartSigTun()
+		go c.StartSigTun(mlen > 0)
 	case evt_st_ready:
 		atomic.StoreInt32(&c.State, 0)
-		atomic.StoreUint32(&c.retry, 0)
 		log.Infoln("Tunnel negotiated with gateway", msg[0], "successfully")
 		if c.mux == nil {
 			go c.startMultiplexer()

@@ -12,6 +12,7 @@ type queue struct {
 	lock   sync.Locker
 	cond   *sync.Cond
 	mux    *multiplexer
+	status int
 }
 
 func NewQueue(m *multiplexer) *queue {
@@ -37,6 +38,10 @@ func (q *queue) Listen() {
 		q.lock.Lock()
 		for q.buffer.Len() <= 0 {
 			q.cond.Wait()
+			if q.status < 0 {
+				q.lock.Unlock()
+				return
+			}
 		}
 		item := q.buffer.Front()
 		q.buffer.Remove(item)
