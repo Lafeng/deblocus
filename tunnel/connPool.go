@@ -83,4 +83,5 @@ func (h *ConnPool) destroy() {
 	for _, c := range h.pool {
 		SafeClose(c)
 	}
+	h.pool = nil
 }

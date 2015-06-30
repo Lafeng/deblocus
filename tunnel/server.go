@@ -74,7 +74,7 @@ func (t *Session) onSTDisconnected() {
 	atomic.AddInt32(&t.svr.stCnt, -1)
 	log.Warningln("Client", tid, "disconnected")
 	i := t.svr.sessionMgr.clearTokens(t)
-	if log.V(3) {
+	if log.V(4) {
 		log.Infof("Clear tokens %d of %s\n", i, tid)
 	}
 }
@@ -99,9 +99,10 @@ func (t *Session) DataTunServe(fconn *Conn, buf []byte) {
 	atomic.AddInt32(&svr.dtCnt, 1)
 	token := buf[:TKSZ]
 	fconn.cipher = t.cipherFactory.NewCipher(token)
+	// unique
 	fconn.identifier = fmt.Sprintf("%s(%s)", t.uid, fconn.RemoteAddr())
-	log.Infoln(fconn.identifier, "client-DT is established")
-	svr.mux.Listen(fconn, t.eventHandler)
+	log.Infoln(fconn.identifier, "client/DT established")
+	svr.mux.Listen(fconn, t.eventHandler, DT_PING_INTERVAL)
 }
 
 //
@@ -179,7 +180,7 @@ func (s *SessionMgr) createTokens(session *Session, many int) []byte {
 		s.container[key] = session
 		session.tokens[key] = true
 	}
-	if log.V(3) {
+	if log.V(4) {
 		log.Errorf("sessionMap created=%d len=%d\n", many, len(s.container))
 	}
 	return tokens
@@ -227,9 +228,9 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 			}
 		}
 	} else if session != nil { // signalTunnel
-		log.Infoln(session.uid, conn.RemoteAddr(), "client-ST is established")
+		log.Infoln(session.uid, conn.RemoteAddr(), "client/ST established")
 		atomic.AddInt32(&t.stCnt, 1)
-		fconn.SetSockOpt(1, 1, 1)
+		fconn.SetSockOpt(1, 0, 1)
 		var st = NewSignalTunnel(session.tun, 0)
 		session.svr = t
 		session.sigTun = st

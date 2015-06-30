@@ -28,6 +28,7 @@ const (
 	GENERAL_SO_TIMEOUT = 10 * time.Second
 	TUN_PARAMS_LEN     = 32
 	TP_INTERVAL_OFS    = 4
+	DT_PING_INTERVAL   = CTL_PING_INTERVAL * 2
 )
 
 var (
@@ -119,7 +120,7 @@ func (s *S5Step1) Handshake() {
 	n, err := io.ReadAtLeast(s.conn, buf, nmethods)
 	if err != nil || n != nmethods {
 		s.err = INVALID_SOCKS5_HEADER
-		log.Warningln("invalid socks5 header: " + hex.EncodeToString(buf))
+		log.Warningln("invalid socks5 header:", hex.EncodeToString(buf))
 	}
 }
 
@@ -159,23 +160,23 @@ func (s *S5Step1) parseSocks5Request() string {
 	s.target = buf[3:]
 	buf = buf[4:]
 	var host string
-	var skip int
+	var ofs int
 	switch atyp {
 	case IPV4:
 		host = net.IP(buf[:net.IPv4len]).String()
-		skip = net.IPv4len
+		ofs = net.IPv4len
 	case IPV6:
 		host = net.IP(buf[:net.IPv6len]).String()
-		skip = net.IPv6len
+		ofs = net.IPv6len
 	case DOMAIN:
 		dlen := int(buf[0])
 		host = string(buf[1 : dlen+1])
-		skip = dlen + 1
+		ofs = dlen + 1
 	default:
 		s.err = INVALID_SOCKS5_REQUEST
 		return NULL
 	}
-	var dst_port = binary.BigEndian.Uint16(buf[skip : skip+2])
+	var dst_port = binary.BigEndian.Uint16(buf[ofs : ofs+2])
 	return host + ":" + strconv.Itoa(int(dst_port))
 }
 
@@ -221,7 +222,8 @@ func ito4b(val uint32) []byte {
 type tunParams struct {
 	cipherFactory *CipherFactory
 	token         []byte
-	interval      int
+	stInterval    int
+	dtInterval    int
 	tunQty        int
 }
 
@@ -312,8 +314,12 @@ func (nego *d5CNegotiation) validateAndGetTokens(sconn *hashedConn, t *tunParams
 			return INCOMPATIBLE_VERSION.Apply(oVerStr)
 		}
 	}
-	t.interval = int(binary.BigEndian.Uint16(buf[TP_INTERVAL_OFS:]))
-	t.tunQty = int(buf[TP_INTERVAL_OFS+2])
+	ofs := 4
+	t.stInterval = int(binary.BigEndian.Uint16(buf[ofs:]))
+	ofs += 2
+	t.dtInterval = int(binary.BigEndian.Uint16(buf[ofs:]))
+	ofs += 2
+	t.tunQty = int(buf[ofs])
 	t.token = buf[TUN_PARAMS_LEN:]
 	if log.V(2) {
 		n := len(buf) - TUN_PARAMS_LEN
@@ -388,7 +394,7 @@ func (nego *d5SNegotiation) verifyThenDHExchange(conn net.Conn, credBuf []byte) 
 	userIdentity, err := RSADecrypt(credBuf, nego.RSAKeys.priv)
 	ThrowErr(err)
 	clientIdentity := string(userIdentity)
-	if log.V(1) {
+	if log.V(2) {
 		log.Infoln("Auth clientIdentity:", clientIdentity)
 	}
 	allow, ex := nego.AuthSys.Authenticate(userIdentity)
@@ -400,9 +406,9 @@ func (nego *d5SNegotiation) verifyThenDHExchange(conn net.Conn, credBuf []byte) 
 	}
 	nego.clientIdentity = clientIdentity
 	key = takeSharedKey(nego.dhKeys, cDHPub)
-	if log.V(5) {
-		dumpHex("Sharedkey", key)
-	}
+	//	if log.V(5) {
+	//		dumpHex("Sharedkey", key)
+	//	}
 	buf := new(bytes.Buffer)
 	buf.Write(nego.dhKeys.pubLen)
 	buf.Write(nego.dhKeys.pub)
@@ -417,9 +423,14 @@ func (nego *d5SNegotiation) respondTestWithToken(sconn *hashedConn, session *Ses
 	// tun params
 	tpBuf := randArray(headLen, headLen)
 	binary.BigEndian.PutUint16(tpBuf, uint16(TUN_PARAMS_LEN+GENERATE_TOKEN_NUM*TKSZ))
-	copy(tpBuf[2:], ito4b(VERSION))
-	binary.BigEndian.PutUint16(tpBuf[2+4:], CTL_PING_INTERVAL)
-	tpBuf[8] = PARALLEL_TUN_QTY
+	ofs := 2
+	copy(tpBuf[ofs:], ito4b(VERSION))
+	ofs += 4
+	binary.BigEndian.PutUint16(tpBuf[ofs:], uint16(CTL_PING_INTERVAL))
+	ofs += 2
+	binary.BigEndian.PutUint16(tpBuf[ofs:], uint16(DT_PING_INTERVAL))
+	ofs += 2
+	tpBuf[ofs] = PARALLEL_TUN_QTY
 
 	_, err = sconn.Write(tpBuf)
 	ThrowErr(err)

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,12 +19,17 @@ const (
 	FRAME_ACTION_OPEN_N   = 2
 	FRAME_ACTION_OPEN_Y   = 3
 	FRAME_ACTION_DATA     = 4
+	FRAME_ACTION_PING     = 5
+	FRAME_ACTION_PONG     = 6
 	FRAME_ACTION_SLOWDOWN = 0xff
 	FRAME_MAX_LEN         = 0xffff
 	FRAME_HEADER_LEN      = 5
 	FRAME_OPEN_TIMEOUT    = time.Second * 30
 	MUX_PENDING_CLOSE     = -1
 	MUX_CLOSED            = -2
+	ERR_PING_TIMEOUT      = 0xe
+	ERR_NEW_PING          = 0xf
+	ERR_UNKNOWN           = 0x0
 )
 
 var (
@@ -35,16 +41,81 @@ type edgeConn struct {
 	conn   net.Conn
 	ready  chan byte // peer status
 	key    string
-	target string
+	dest   string
 	status byte
 }
 
 func (e *edgeConn) getTarget() string {
-	if e.target != NULL {
-		return e.target
+	if e.dest != NULL {
+		return e.dest
 	} else {
 		return e.conn.RemoteAddr().String()
 	}
+}
+
+type idler struct {
+	enabled  bool
+	waiting  bool
+	interval time.Duration
+}
+
+func NewIdler(interval int, isClient bool) *idler {
+	if interval > 300 || interval < 30 {
+		interval = DT_PING_INTERVAL
+	}
+	i := &idler{interval: time.Second * time.Duration(interval)}
+	if isClient {
+		i.interval *= 2
+	}
+	i.enabled = i.interval > 0
+	return i
+}
+
+func (i *idler) newRound(tun *Conn) {
+	if i.enabled {
+		if i.waiting {
+			tun.SetReadDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
+		} else {
+			tun.SetReadDeadline(time.Now().Add(i.interval))
+		}
+	} /* else {
+		tun.SetReadDeadline(ZERO_TIME)
+	} */
+}
+
+func (i *idler) consumeError(er error) uint {
+	if i.enabled {
+		if netErr, y := er.(net.Error); y && netErr.Timeout() {
+			if i.waiting {
+				return ERR_PING_TIMEOUT
+			} else {
+				return ERR_NEW_PING
+			}
+		}
+	}
+	return ERR_UNKNOWN
+}
+
+func (i *idler) ping(tun *Conn) error {
+	//i.lastPing = time.Now().Unix()
+	i.waiting = true
+	buf := make([]byte, FRAME_HEADER_LEN)
+	_frame(buf, FRAME_ACTION_PING, 0, nil)
+	return tunWrite1(tun, buf)
+}
+
+func (i *idler) pong(tun *Conn) error {
+	buf := make([]byte, FRAME_HEADER_LEN)
+	_frame(buf, FRAME_ACTION_PONG, 0, nil)
+	return tunWrite1(tun, buf)
+}
+
+func (i *idler) verify() (r bool) {
+	r = i.waiting
+	if i.waiting {
+		i.waiting = false
+	}
+	return
 }
 
 type frame struct {
@@ -76,7 +147,6 @@ func closeUi8(ch chan byte) {
 }
 
 type multiplexer struct {
-	size     int
 	isClient bool
 	pool     *ConnPool
 	registry map[string]*edgeConn
@@ -89,7 +159,6 @@ type multiplexer struct {
 
 func NewClientMultiplexer() *multiplexer {
 	m := &multiplexer{
-		size:     1,
 		isClient: true,
 		pool:     NewConnPool(),
 		registry: make(map[string]*edgeConn),
@@ -116,48 +185,48 @@ func NewServerMultiplexer() *multiplexer {
 
 func (p *multiplexer) destroy() {
 	defer func() {
-		if ex.CatchException(recover()) {
+		if !ex.CatchException(recover()) {
 			p.status = MUX_CLOSED
 		}
 	}()
 	p.cLock.Lock()
 	defer p.cLock.Unlock()
+	// will not send evt_dt_closed while pending_close was indicated
 	p.status = MUX_PENDING_CLOSE
 	p.pool.destroy()
 	for _, v := range p.registry {
 		SafeClose(v.conn)
 	}
 	p.queue.status = MUX_CLOSED
-	p.queue.cond.Broadcast()
+	p.queue.cond.Broadcast() // destroy queue
 }
 
-func (p *multiplexer) registerConn(key string, conn net.Conn) {
+func (p *multiplexer) registerEdge(key string, conn net.Conn) {
 	p.cLock.Lock()
 	defer p.cLock.Unlock()
 	p.registry[key] = &edgeConn{conn: conn, key: key}
 }
 
-func (p *multiplexer) registerEdgeConn(key string, conn net.Conn, target string) {
+func (p *multiplexer) registerEdgeWithDest(key string, conn net.Conn, destination string) {
 	p.cLock.Lock()
 	defer p.cLock.Unlock()
 	p.registry[key] = &edgeConn{
-		conn:   conn,
-		ready:  make(chan byte, 1),
-		key:    key,
-		target: target,
+		conn:  conn,
+		ready: make(chan byte, 1),
+		key:   key,
+		dest:  destination,
 	}
 }
 
-// set passively close mark
-func (p *multiplexer) unregisterConn(key string, isPasv bool) (edge *edgeConn) {
+// active-close: deny deliveries from queue to edge
+// passive-close: close in queue loop, then call back here.
+func (p *multiplexer) unregisterEdge(key string, isPasv bool) (edge *edgeConn) {
 	p.cLock.Lock()
 	defer p.cLock.Unlock()
 	if isPasv {
 		p.closed[key] = true
 	}
 	edge = p.registry[key]
-	// edge主动关闭时：remove registry 拒绝tun-queue投递
-	// 被动关闭时：发完tun-queue的余货后在queue中关闭，再调用此remove registry
 	if edge != nil {
 		delete(p.registry, key)
 		if edge.ready != nil {
@@ -188,25 +257,37 @@ func (p *multiplexer) HandleRequest(client net.Conn, target string) {
 	sid := _nextSID()
 	key := p.tunKey(nil, sid)
 	if log.V(1) {
-		log.Infoln("Socks5 ->", target, "from", IdentifierOf(client), "sid", sid)
+		log.Infoln("Socks5", target, "from", IdentifierOf(client), "sid", sid)
 	}
-	defer p.unregisterConn(key, false)
-	p.registerEdgeConn(key, client, target)
+	defer p.unregisterEdge(key, false)
+	p.registerEdgeWithDest(key, client, target)
 	bconn := p.pool.Select()
 	ThrowIf(bconn == nil, "No tun to deliveries request")
 	p.copyToTun(client, bconn, key, sid, target)
 }
 
-// TODO clean related conn and queue
-func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
+func (p *multiplexer) cleanupOfTun(tun *Conn) {
 	p.pool.Remove(tun)
+	p.cLock.Lock()
+	defer p.cLock.Unlock()
+	var prefix = tun.identifier
+	for k, v := range p.registry {
+		if strings.HasPrefix(k, prefix) {
+			SafeClose(v.conn)
+			delete(p.registry, k)
+		}
+	}
+}
+
+func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
+	p.cleanupOfTun(tun)
 	if handler != nil && p.status >= 0 {
 		handler(evt_dt_closed, tun)
 	}
 }
 
 // TODO notify peer to slow down when queue increased too fast
-func (p *multiplexer) Listen(tun *Conn, handler event_handler) {
+func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 	if p.isClient {
 		tun.priority = &TSPriority{0, 1e9}
 		p.pool.Push(tun)
@@ -214,14 +295,16 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler) {
 	}
 	tun.SetSockOpt(1, 0, 0)
 	var (
-		frm      *frame
-		header   = make([]byte, FRAME_HEADER_LEN)
-		nr, nw   int
-		er, ew   error
-		now      int64
-		lastTime = time.Now().Unix()
+		frm        *frame
+		header     = make([]byte, FRAME_HEADER_LEN)
+		nr         int
+		er         error
+		now        int64
+		lastActive int64 = time.Now().Unix()
+		idle             = NewIdler(interval, p.isClient)
 	)
 	for {
+		idle.newRound(tun)
 		nr, er = io.ReadFull(tun, header)
 		if nr == FRAME_HEADER_LEN {
 			frm = _parseFrameHeader(header)
@@ -229,21 +312,30 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler) {
 				nr, er = io.ReadFull(tun, frm.data)
 			}
 			if log.V(5) {
-				log.Infoln(frm, "->", p.mode)
+				log.Infoln(p.mode, "RECV", frm)
 			}
 		}
 		if er != nil {
-			log.Errorln("Read tunnel error.", er)
+			switch idle.consumeError(er) {
+			case ERR_NEW_PING:
+				if idle.ping(tun) == nil {
+					continue
+				}
+			case ERR_PING_TIMEOUT:
+				log.Errorln("Peer was unresponsive and then close tun.")
+			default:
+				log.Errorln("Read tunnel error.", er)
+			}
 			return // error, abandon tunnel
 		}
 		key := p.tunKey(tun, frm.sid)
 
 		switch frm.action {
 		case FRAME_ACTION_CLOSE:
-			if log.V(4) {
-				log.Infoln(p.mode, "recv CLOSE by peer key:", key)
+			if log.V(3) {
+				log.Infoln(p.mode, "recv CLOSE by peer. key:", key)
 			}
-			if edge := p.unregisterConn(key, true); edge != nil {
+			if edge := p.unregisterEdge(key, true); edge != nil {
 				frm.conn = edge
 				p.queue.push(frm)
 			}
@@ -251,15 +343,12 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler) {
 			edge := p.getRegistered(key)
 			if edge == nil {
 				if log.V(2) {
-					log.Warningln("peer try send data to an unexisted socket.", p.mode, "key:", key, frm)
+					log.Warningln("peer try send data to an unexisted socket. key:", key, frm)
 				}
-				// when the edgeConn of this side is proactively closed, will enter here.
 				// so need to send close for notify peer.
 				_frame(header, FRAME_ACTION_CLOSE, frm.sid, nil)
-				nw, ew = tun.Write(header)
-				if nw != FRAME_HEADER_LEN || ew != nil {
-					log.Errorln("Write tunnel error", er)
-					return // error, abandon tunnel
+				if tunWrite1(tun, header) != nil {
+					return
 				}
 			} else {
 				frm.conn = edge
@@ -271,25 +360,34 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler) {
 			edge := p.getRegistered(key)
 			if edge == nil {
 				if log.V(2) {
-					log.Warningln("peer try send OPEN to an unexisted socket.", p.mode, "key:", key, frm)
+					log.Warningln("peer try send OPEN to an unexisted socket. key:", key, frm)
 				}
 			} else {
-				if log.V(4) {
+				if log.V(3) {
 					if frm.action == FRAME_ACTION_OPEN_Y {
-						log.Infoln("OPEN_Y", frm, "->", p.mode)
+						log.Infoln(p.mode, "recv OPEN_Y", frm)
 					} else {
-						log.Infoln("OPEN_N", frm, "->", p.mode)
+						log.Infoln(p.mode, "recv OPEN_N", frm)
 					}
 				}
 				edge.ready <- frm.action
 				close(edge.ready)
 			}
+		case FRAME_ACTION_PING:
+			if idle.pong(tun) != nil {
+				return
+			}
+		case FRAME_ACTION_PONG:
+			if !idle.verify() {
+				log.Warningln("Incorrect action_pong received")
+			}
 		default:
 			log.Errorln(p.mode, "Unrecognized", frm)
 		}
+
 		// prevent frequently calling, especially in high-speed transmitting.
-		if now = time.Now().Unix(); (now-lastTime) > 2 && handler != nil {
-			lastTime = now
+		if now = time.Now().Unix(); (now-lastActive) > 2 && handler != nil {
+			lastActive = now
 			handler(evt_st_active, now)
 		}
 		if p.isClient {
@@ -299,76 +397,69 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler) {
 }
 
 func (p *multiplexer) tunKey(tun *Conn, sid uint16) string {
-	if p.isClient {
-		return strconv.Itoa(int(sid))
-	} else {
-		return fmt.Sprintf("%s_%d", tun.RemoteAddr(), sid)
-	}
+	return tun.identifier + "_" + strconv.FormatUint(uint64(sid), 10)
 }
 
 func (p *multiplexer) openEgress(frm *frame, key string, tun *Conn) {
+	defer func() {
+		ex.CatchException(recover())
+	}()
 	var (
 		dstConn net.Conn
 		err     error
-		nw      int
 		target  = string(frm.data)
 	)
-
 	dstConn, err = net.DialTimeout("tcp", target, FRAME_OPEN_TIMEOUT/3)
 	frm.length = 0
 	if err != nil {
-		log.Errorf("Cannot connect to [%s] error: %s\n", target, err)
+		log.Errorf("Cannot connect to [%s] for %s error: %s\n", target, key, err)
 		frm.action = FRAME_ACTION_OPEN_N
-		nw, err = tun.Write(frm.toNewBuffer())
-		ThrowIf(nw != FRAME_HEADER_LEN, err)
+		tunWrite2(tun, frm)
 	} else {
-		p.registerConn(key, dstConn)
-		if log.V(4) {
-			log.Infoln(target, "established OPEN_Y key:", key)
+		p.registerEdge(key, dstConn)
+		if log.V(3) {
+			log.Infoln("OPEN_Y", target, "established for key:", key)
 		}
 		frm.action = FRAME_ACTION_OPEN_Y
-		nw, err = tun.Write(frm.toNewBuffer())
-		ThrowIf(nw != FRAME_HEADER_LEN, err)
-		if nw == FRAME_HEADER_LEN {
+		if tunWrite2(tun, frm) == nil {
 			p.copyToTun(dstConn, tun, key, frm.sid, NULL)
 		} else {
 			SafeClose(dstConn)
-			log.Errorln("tun write error.", key, err)
 		}
 	}
 }
 
 func (p *multiplexer) copyToTun(src net.Conn, tun *Conn, key string, sid uint16, target string) {
 	var (
-		buf    = make([]byte, FRAME_MAX_LEN)
-		nr, nw int
-		er, ew error
+		buf = make([]byte, FRAME_MAX_LEN)
+		nr  int
+		er  error
 	)
 	defer func() {
 		if !p.ckeckClosed(key) { // only proactive mode could send close
 			_frame(buf, FRAME_ACTION_CLOSE, sid, nil)
-			nw, ew = tun.Write(buf[:FRAME_HEADER_LEN])
-			//ThrowIf(nw != FRAME_HEADER_LEN, ew) // ignore
+			tunWrite1(tun, buf[:FRAME_HEADER_LEN])
 		}
 		// who read, who close
 		// if closed passively, there is second close
-		src.Close()
+		SafeClose(src)
 	}()
 	src.SetReadDeadline(ZERO_TIME)
 	if target != NULL { // for client:
 		// new connection must send OPEN first.
 		_len := _frame(buf, FRAME_ACTION_OPEN, sid, []byte(target))
-		nw, ew = tun.Write(buf[:_len])
-		if _len != nw || ew != nil { // close tunnel ?
+		if tunWrite1(tun, buf[:_len]) != nil {
 			SafeClose(tun)
 			return
 		}
-		edge := p.getRegistered(key)
-		var code byte
+		var (
+			edge = p.getRegistered(key)
+			code byte
+		)
 		select {
 		case code = <-edge.ready:
 		case <-time.After(FRAME_OPEN_TIMEOUT):
-			log.Errorf("waiting open_signal timeout sid=%d target=%s", sid, edge.target)
+			log.Errorf("waiting open-signal(sid=%d) timeout for %s\n", sid, edge.dest)
 		}
 		if code != FRAME_ACTION_OPEN_Y {
 			return
@@ -379,9 +470,7 @@ func (p *multiplexer) copyToTun(src net.Conn, tun *Conn, key string, sid uint16,
 		if nr > 0 {
 			_frame(buf, FRAME_ACTION_DATA, sid, uint16(nr))
 			nr += FRAME_HEADER_LEN
-			nw, ew = tun.Write(buf[:nr])
-			if nr != nw || ew != nil { // close tunnel ?
-				fmt.Printf("Write tun error sid=%d tun->%s %v\n", sid, tun.RemoteAddr(), ew)
+			if tunWrite1(tun, buf[:nr]) != nil {
 				SafeClose(tun)
 				return
 			}
@@ -392,12 +481,33 @@ func (p *multiplexer) copyToTun(src net.Conn, tun *Conn, key string, sid uint16,
 	}
 }
 
+func tunWrite1(tun *Conn, buf []byte) error {
+	nr := len(buf)
+	nw, err := tun.Write(buf)
+	if nr != nw || err != nil {
+		log.Warningf("Write tun(%s) error(%v) when sending buf.len=%d\n", tun.RemoteAddr(), err, nr)
+		SafeClose(tun)
+		return err
+	}
+	return nil
+}
+
+func tunWrite2(tun *Conn, frm *frame) error {
+	nw, err := tun.Write(frm.toNewBuffer())
+	if int(frm.length) != nw || err != nil {
+		log.Warningf("Write tun(%s) error(%v) when sending %s\n", tun.RemoteAddr(), err, frm)
+		SafeClose(tun)
+		return err
+	}
+	return nil
+}
+
 func _nextSID() uint16 {
 	seqLock.Lock()
 	defer seqLock.Unlock()
 	SID_SEQ += 1
 	if SID_SEQ > 0xffff {
-		SID_SEQ = 0
+		SID_SEQ = 1
 	}
 	return uint16(SID_SEQ)
 }

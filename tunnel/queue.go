@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"fmt"
 	log "github.com/spance/deblocus/golang/glog"
+	"net"
 	"sync"
 )
 
@@ -38,7 +39,10 @@ func (q *queue) Listen() {
 		q.lock.Lock()
 		for q.buffer.Len() <= 0 {
 			q.cond.Wait()
+			// MUX_CLOSED: exit loop
 			if q.status < 0 {
+				q.buffer.Init()
+				q.buffer = nil
 				q.lock.Unlock()
 				return
 			}
@@ -48,15 +52,27 @@ func (q *queue) Listen() {
 		q.lock.Unlock()
 		// send
 		var frm *frame = item.Value.(*frame)
-		err := sendFrame(frm)
+		closed, err := sendFrame(frm)
+		if closed {
+			q.mux.unregisterEdge(frm.conn.key, false)
+		}
 		if err {
-			q.mux.unregisterConn(frm.conn.key, false)
+			q.cleanOfConn(frm.conn.conn)
 		}
 	}
 }
 
-// TODO should clean all queued frames of conn that already has error occurred
-func sendFrame(frm *frame) bool {
+func (q *queue) cleanOfConn(conn net.Conn) {
+	q.lock.Lock()
+	defer q.lock.Unlock()
+	for cur := q.buffer.Front(); cur != nil; cur = cur.Next() {
+		if cur.Value == conn {
+			q.buffer.Remove(cur)
+		}
+	}
+}
+
+func sendFrame(frm *frame) (closed, err bool) {
 	dst := frm.conn.conn
 	if frm.action == FRAME_ACTION_CLOSE {
 		if log.V(4) {
@@ -68,10 +84,12 @@ func sendFrame(frm *frame) bool {
 		}
 		nw, ew := dst.Write(frm.data)
 		if nw == int(frm.length) && ew == nil {
-			return false
+			return
 		}
+		err = true
 		log.Warningln("Write edgeConn error. Target ->", frm.conn.getTarget(), frm, ew)
 	}
+	closed = true
 	SafeClose(dst)
-	return true
+	return
 }

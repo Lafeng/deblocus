@@ -14,7 +14,7 @@ const (
 	CTL_PONG          = byte(2)
 	TOKEN_REQUEST     = byte(5)
 	TOKEN_REPLY       = byte(6)
-	CTL_PING_INTERVAL = uint16(180) // time.Second
+	CTL_PING_INTERVAL = 180 // time.Second
 )
 
 type signalTunnel struct {
@@ -101,7 +101,7 @@ func (t *signalTunnel) postCommand(cmd byte, args []byte) (n int, err error) {
 	if args != nil {
 		buf = append(buf, args...)
 	}
-	if log.V(5) {
+	if log.V(4) {
 		log.Infof("send command packet=[% x]\n", buf)
 	}
 	t.tun.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT * 2))
@@ -116,7 +116,7 @@ func (t *signalTunnel) active(times int64) {
 		var d = (times - t.lastResetTime) << 1
 		// allow reset at least half interval
 		if d > int64(t.interval/time.Second) {
-			if log.V(5) {
+			if log.V(4) {
 				log.Infoln("suppress the next ping task")
 			}
 			t.lastResetTime = times
@@ -130,7 +130,7 @@ func (t *signalTunnel) active(times int64) {
 }
 
 func (t *signalTunnel) areYouAlive() {
-	if log.V(5) {
+	if log.V(4) {
 		log.Infoln("Ping/launched to", t.remoteAddr)
 	}
 	_, err := t.postCommand(CTL_PING, nil)
@@ -146,7 +146,7 @@ func (t *signalTunnel) areYouAlive() {
 }
 
 func (t *signalTunnel) acknowledged() {
-	if log.V(5) {
+	if log.V(4) {
 		log.Infoln("Ping/acknowledged by", t.remoteAddr)
 	}
 	t.tun.SetReadDeadline(ZERO_TIME)
@@ -154,7 +154,7 @@ func (t *signalTunnel) acknowledged() {
 }
 
 func (t *signalTunnel) imAlive() {
-	if log.V(5) {
+	if log.V(4) {
 		log.Infoln("Ping/responded to", t.remoteAddr)
 	}
 	t.active(-1) // up tempo for become a sender

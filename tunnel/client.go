@@ -72,7 +72,7 @@ func (c *Client) StartSigTun(again bool) {
 	defer c.eventHandler(evt_st_ready, stConn.identifier)
 	stConn.SetSockOpt(1, 0, 1)
 	c.tp, c.token = tp, tp.token
-	c.sigTun = NewSignalTunnel(stConn, tp.interval)
+	c.sigTun = NewSignalTunnel(stConn, tp.stInterval)
 	go c.sigTun.start(c.eventHandler)
 }
 
@@ -100,11 +100,9 @@ func (c *Client) startDataTun(again bool) {
 	if atomic.LoadInt32(&c.State) >= 0 {
 		conn := c.createDataTun()
 		used = true
-		if log.V(4) {
-			log.Infoln("DTun has been established.", conn.LocalAddr())
-		}
+		log.Infoln("DTun established.", conn.LocalAddr())
 		atomic.AddInt32(&c.dtCnt, 1)
-		c.mux.Listen(conn, c.eventHandler)
+		c.mux.Listen(conn, c.eventHandler, c.tp.dtInterval)
 	}
 }
 
@@ -182,7 +180,7 @@ func (c *Client) getToken() []byte {
 		tlen := len(c.token) / TKSZ
 		if tlen <= TOKENS_FLOOR && atomic.LoadInt32(&c.State) == 0 {
 			atomic.AddInt32(&c.State, 1)
-			if log.V(3) {
+			if log.V(4) {
 				log.Infof("Request new tokens, pool=%d\n", tlen)
 			}
 			c.sigTun.postCommand(TOKEN_REQUEST, nil)
@@ -207,7 +205,7 @@ func (c *Client) putTokens(tokens []byte) {
 	c.token = append(c.token, tokens...)
 	atomic.StoreInt32(&c.State, 0)
 	c.waitTK.Broadcast()
-	if log.V(3) {
+	if log.V(4) {
 		log.Infof("Recv tokens=%d pool=%d\n", len(tokens)/TKSZ, len(c.token)/TKSZ)
 	}
 }
