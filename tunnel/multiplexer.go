@@ -255,15 +255,15 @@ func (p *multiplexer) getRegistered(key string) *edgeConn {
 
 func (p *multiplexer) HandleRequest(client net.Conn, target string) {
 	sid := _nextSID()
-	key := p.tunKey(nil, sid)
 	if log.V(1) {
 		log.Infoln("Socks5", target, "from", IdentifierOf(client), "sid", sid)
 	}
+	tun := p.pool.Select()
+	ThrowIf(tun == nil, "No tun to deliveries request")
+	key := p.tunKey(tun, sid)
 	defer p.unregisterEdge(key, false)
 	p.registerEdgeWithDest(key, client, target)
-	bconn := p.pool.Select()
-	ThrowIf(bconn == nil, "No tun to deliveries request")
-	p.copyToTun(client, bconn, key, sid, target)
+	p.copyToTun(client, tun, key, sid, target)
 }
 
 func (p *multiplexer) cleanupOfTun(tun *Conn) {
@@ -397,7 +397,11 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 }
 
 func (p *multiplexer) tunKey(tun *Conn, sid uint16) string {
-	return tun.identifier + "_" + strconv.FormatUint(uint64(sid), 10)
+	if tun.identifier != NULL {
+		return tun.identifier + "_" + strconv.FormatUint(uint64(sid), 10)
+	} else {
+		return fmt.Sprintf("%s_%s_%d", tun.LocalAddr(), tun.RemoteAddr(), sid)
+	}
 }
 
 func (p *multiplexer) openEgress(frm *frame, key string, tun *Conn) {
@@ -494,7 +498,8 @@ func tunWrite1(tun *Conn, buf []byte) error {
 
 func tunWrite2(tun *Conn, frm *frame) error {
 	nw, err := tun.Write(frm.toNewBuffer())
-	if int(frm.length) != nw || err != nil {
+	nr := int(frm.length) + FRAME_HEADER_LEN
+	if nr != nw || err != nil {
 		log.Warningf("Write tun(%s) error(%v) when sending %s\n", tun.RemoteAddr(), err, frm)
 		SafeClose(tun)
 		return err

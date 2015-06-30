@@ -84,7 +84,7 @@ func startServer() {
 	for {
 		conn, e := ln.Accept()
 		ThrowErr(e)
-		go server.Listen(NewConn(conn.(*net.TCPConn), nil), nil)
+		go server.Listen(NewConn(conn.(*net.TCPConn), nil), nil, 0)
 	}
 }
 
@@ -93,7 +93,7 @@ func startClient(size int) {
 	for i := 0; i < size; i++ {
 		conn, e := net.Dial("tcp", svrAddr)
 		ThrowErr(e)
-		go client.Listen(NewConn(conn.(*net.TCPConn), nil), nil)
+		go client.Listen(NewConn(conn.(*net.TCPConn), nil), nil, 0)
 	}
 	ln, e := net.Listen("tcp", cltAddr)
 	ThrowErr(e)

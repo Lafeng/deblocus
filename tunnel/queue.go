@@ -76,18 +76,18 @@ func sendFrame(frm *frame) (closed, err bool) {
 	dst := frm.conn.conn
 	if frm.action == FRAME_ACTION_CLOSE {
 		if log.V(4) {
-			log.Infoln("perform close by frame_action, Target ->", frm.conn.getTarget(), frm)
+			log.Infof("perform close(%s) by peer\n", frm.conn.getTarget())
 		}
 	} else {
 		if log.V(5) {
-			fmt.Println("send", frm)
+			fmt.Println("SEND", frm)
 		}
 		nw, ew := dst.Write(frm.data)
 		if nw == int(frm.length) && ew == nil {
 			return
 		}
 		err = true
-		log.Warningln("Write edgeConn error. Target ->", frm.conn.getTarget(), frm, ew)
+		log.Warningf("Write edge(%s) error(%v). %s\n", frm.conn.getTarget(), ew, frm)
 	}
 	closed = true
 	SafeClose(dst)
