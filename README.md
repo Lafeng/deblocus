@@ -23,7 +23,7 @@ What does it mean?
 
 - Don't worry about history traffic could be decrypted by others in anytime (Past, future, and present you will be at risk if lost password based on fixed-key encryption)
 - Could share server with friends, and use multiple servers to offload single gateway traffic.
-- Lots of short request will be accelerated by multiplexer through tunnel (if have high packet lose rate or establish new network connection difficultly on your access network or transmission network, it will save time from without TCP 3-handshakes, and save much time  from if establish new connection when syn or ack+syn lost until tcp stack waiting timeout. Although do nothing but the acceleration is existing really, that cause of using old established connection could be able to gain more active transmitting strategies and lost detection (such as fast-restransmit, SACK) fully by kernel, then will enjoy fast responses and high throughput)
+- Lots of short requests will be accelerated by multiplexer through tunnel (if have high packet lose rate or establish new network connection difficultly on your access network or transmission network, it will save time from without TCP 3-handshakes, and save much time  from if establish new connection when syn or ack+syn lost until tcp stack waiting timeout. Although do nothing but the acceleration is existing really, that cause of using old established connection could be able to gain more active transmitting strategies and lost detection (such as fast-restransmit, SACK) fully by kernel, then will enjoy fast responses and high throughput)
 
 ## Usage
 
@@ -31,9 +31,11 @@ Compile from source ([guide](https://github.com/spance/deblocus/wiki/)) or downl
 
 ### GUI Manager
 
-This tool is useful to manage deblocus process and minimize window. Download from Releases.
+This tool is useful to manage deblocus process and minimize to tray.
 
 ![deblocusMonitor.png](https://i.imgur.com/pdBpKN6.png)
+
+Download [deblocusMonitor](https://deblocus.codeplex.com/releases).
 
 ## Acknowledgements
 
