@@ -29,6 +29,12 @@ What does it mean?
 
 Compile from source ([guide](https://github.com/spance/deblocus/wiki/)) or download [Latest Binaries](https://github.com/spance/deblocus/releases), and should read [Wiki](https://github.com/spance/deblocus/wiki) at first.
 
+### GUI Manager
+
+This tool is useful to manage deblocus process and minimize window. Download from Releases.
+
+![deblocusMonitor.png](https://i.imgur.com/pdBpKN6.png)
+
 ## Acknowledgements
 
 [qtunnel](https://github.com/getqujing/qtunnel), [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx) and [glog](https://github.com/golang/glog), thanks to those projects.
@@ -36,12 +42,6 @@ Compile from source ([guide](https://github.com/spance/deblocus/wiki/)) or downl
 ## Code License:
 
 [MIT License](https://github.com/tvvocold/deblocus/blob/master/LICENSE)
-
-## Icon License:
-
-[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)
-
-[![](https://github.com/tvvocold/deblocus/blob/master/logo.png)](https://github.com/tvvocold)
 
 
 # deblocus
