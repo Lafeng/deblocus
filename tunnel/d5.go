@@ -24,11 +24,9 @@ const (
 	SOCKS5_VER         = byte(5)
 	NULL               = ""
 	DMLEN              = 384
-	TT_TOKEN_OFFSET    = TKSZ + 2
 	GENERAL_SO_TIMEOUT = 10 * time.Second
 	TUN_PARAMS_LEN     = 32
-	TP_INTERVAL_OFS    = 4
-	DT_PING_INTERVAL   = CTL_PING_INTERVAL * 2
+	DT_PING_INTERVAL   = CTL_PING_INTERVAL
 )
 
 var (
@@ -271,9 +269,9 @@ func (nego *d5CNegotiation) requestAuthAndDHExchange(conn *hashedConn) (err erro
 	buf.Write(idBlock)
 	buf.Write(nego.dhKeys.pubLen)
 	buf.Write(nego.dhKeys.pub)
-	if log.V(5) {
-		dumpHex("d5CNegotiation send", buf.Bytes())
-	}
+	//	if log.V(5) {
+	//		dumpHex("d5CNegotiation send", buf.Bytes())
+	//	}
 	_, err = conn.Write(buf.Bytes())
 	return
 }
@@ -293,9 +291,9 @@ func (nego *d5CNegotiation) finishDHExThenSetupCipher(conn *hashedConn, t *tunPa
 	}
 	secret := takeSharedKey(nego.dhKeys, buf)
 	t.cipherFactory = NewCipherFactory(nego.algo, secret)
-	if log.V(5) {
-		dumpHex("Sharedkey", secret)
-	}
+	//	if log.V(5) {
+	//		dumpHex("Sharedkey", secret)
+	//	}
 	return
 }
 

@@ -2,7 +2,6 @@ package tunnel
 
 import (
 	"container/list"
-	"fmt"
 	log "github.com/spance/deblocus/golang/glog"
 	"net"
 	"sync"
@@ -80,7 +79,7 @@ func sendFrame(frm *frame) (closed, err bool) {
 		}
 	} else {
 		if log.V(5) {
-			fmt.Println("SEND", frm)
+			log.Infoln("SEND queue", frm)
 		}
 		nw, ew := dst.Write(frm.data)
 		if nw == int(frm.length) && ew == nil {

@@ -15,15 +15,16 @@ const (
 )
 
 type Client struct {
-	sigTun *signalTunnel
-	mux    *multiplexer
-	token  []byte
-	nego   *d5CNegotiation
-	tp     *tunParams
-	lock   sync.Locker
-	dtCnt  int32
-	State  int32 // -1:aborted 0:working 1:token requesting
-	waitTK *sync.Cond
+	sigTun      *signalTunnel
+	mux         *multiplexer
+	token       []byte
+	nego        *d5CNegotiation
+	tp          *tunParams
+	lock        sync.Locker
+	dtCnt       int32
+	State       int32 // -1:aborted 0:working 1:requesting token
+	waitTK      *sync.Cond
+	pendingSema *semaphore
 }
 
 type event byte
@@ -41,8 +42,9 @@ type event_handler func(e event, msg ...interface{})
 
 func NewClient(d5p *D5Params, dhKeys *DHKeyPair) *Client {
 	clt := &Client{
-		lock: new(sync.Mutex),
-		nego: new(d5CNegotiation),
+		lock:        new(sync.Mutex),
+		nego:        new(d5CNegotiation),
+		pendingSema: NewSemaphore(),
 	}
 	clt.waitTK = sync.NewCond(clt.lock)
 	// set parameters
@@ -54,39 +56,46 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair) *Client {
 func (c *Client) StartSigTun(again bool) {
 	defer func() {
 		if ex.CatchException(recover()) {
-			c.eventHandler(evt_st_closed)
+			c.eventHandler(evt_st_closed, true)
+		} else {
+			c.eventHandler(evt_st_ready, c.sigTun.tun.identifier)
 		}
 	}()
 	if again {
 		log.Warningln("Will retry after", RETRY_INTERVAL)
-		if c.mux != nil {
-			c.mux.destroy()
-			if c.mux.status == MUX_PENDING_CLOSE {
-				c.mux = nil
+		/*
+			if c.mux != nil {
+				c.mux.destroy()
+				if c.mux.status == MUX_CLOSED {
+					c.mux = nil
+				}
 			}
-		}
+		*/
 		time.Sleep(RETRY_INTERVAL)
 	}
 	stConn, tp := c.nego.negotiate()
-	// connected
-	defer c.eventHandler(evt_st_ready, stConn.identifier)
 	stConn.SetSockOpt(1, 0, 1)
 	c.tp, c.token = tp, tp.token
 	c.sigTun = NewSignalTunnel(stConn, tp.stInterval)
 	go c.sigTun.start(c.eventHandler)
 }
 
+// when sigTun is ready
 func (c *Client) startMultiplexer() {
-	c.mux = NewClientMultiplexer()
-	for i := 0; i < c.tp.tunQty; i++ {
-		go c.startDataTun(false)
+	if c.mux == nil {
+		c.mux = NewClientMultiplexer()
+		for i := c.tp.tunQty; i > 0; i-- {
+			go c.startDataTun(false)
+		}
+	} else {
+		c.pendingSema.notifyAll()
 	}
 }
 
 func (c *Client) startDataTun(again bool) {
-	var used bool
+	var connected bool
 	defer func() {
-		if used {
+		if connected {
 			atomic.AddInt32(&c.dtCnt, -1)
 		}
 		if ex.CatchException(recover()) {
@@ -97,12 +106,18 @@ func (c *Client) startDataTun(again bool) {
 		log.Warningln("DTun was disconnected then will reconnect after", RETRY_INTERVAL)
 		time.Sleep(RETRY_INTERVAL)
 	}
-	if atomic.LoadInt32(&c.State) >= 0 {
-		conn := c.createDataTun()
-		used = true
-		log.Infoln("DTun established.", conn.LocalAddr())
-		atomic.AddInt32(&c.dtCnt, 1)
-		c.mux.Listen(conn, c.eventHandler, c.tp.dtInterval)
+	for {
+		if atomic.LoadInt32(&c.State) == 0 {
+			conn := c.createDataTun()
+			connected = true
+			log.Infoln("DTun established.", conn.LocalAddr())
+			atomic.AddInt32(&c.dtCnt, 1)
+			c.mux.Listen(conn, c.eventHandler, c.tp.dtInterval)
+			break
+		} else {
+			tmo := c.pendingSema.acquire(RETRY_INTERVAL)
+			log.Infof("waiting sigtun timeout=%v state=%d\n", tmo, c.State)
+		}
 	}
 }
 
@@ -116,9 +131,7 @@ func (c *Client) eventHandler(e event, msg ...interface{}) {
 	case evt_st_ready:
 		atomic.StoreInt32(&c.State, 0)
 		log.Infoln("Tunnel negotiated with gateway", msg[0], "successfully")
-		if c.mux == nil {
-			go c.startMultiplexer()
-		}
+		go c.startMultiplexer()
 	case evt_dt_closed:
 		go c.startDataTun(mlen > 0)
 	case evt_st_msg:

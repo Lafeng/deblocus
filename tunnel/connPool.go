@@ -74,7 +74,9 @@ func (h *ConnPool) Select() *Conn {
 	if log.V(5) {
 		log.Infoln("selected tun", h.pool[0].LocalAddr())
 	}
-	return h.pool[0]
+	selected := h.pool[0]
+	selected.priority.rank -= 1
+	return selected
 }
 
 func (h *ConnPool) destroy() {

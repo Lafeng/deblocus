@@ -256,7 +256,7 @@ func (p *multiplexer) getRegistered(key string) *edgeConn {
 func (p *multiplexer) HandleRequest(client net.Conn, target string) {
 	sid := _nextSID()
 	if log.V(1) {
-		log.Infoln("Socks5", target, "from", IdentifierOf(client), "sid", sid)
+		log.Infof("Socks5-> %s from=%s sid=%d\n", target, IdentifierOf(client), sid)
 	}
 	tun := p.pool.Select()
 	ThrowIf(tun == nil, "No tun to deliveries request")
@@ -311,9 +311,9 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 			if frm.length > 0 {
 				nr, er = io.ReadFull(tun, frm.data)
 			}
-			if log.V(5) {
-				log.Infoln(p.mode, "RECV", frm)
-			}
+			//			if log.V(5) {
+			//				log.Infoln(p.mode, "RECV", frm)
+			//			}
 		}
 		if er != nil {
 			switch idle.consumeError(er) {
@@ -421,6 +421,7 @@ func (p *multiplexer) openEgress(frm *frame, key string, tun *Conn) {
 		tunWrite2(tun, frm)
 	} else {
 		p.registerEdge(key, dstConn)
+		dstConn.SetReadDeadline(ZERO_TIME)
 		if log.V(3) {
 			log.Infoln("OPEN_Y", target, "established for key:", key)
 		}
@@ -448,7 +449,6 @@ func (p *multiplexer) copyToTun(src net.Conn, tun *Conn, key string, sid uint16,
 		// if closed passively, there is second close
 		SafeClose(src)
 	}()
-	src.SetReadDeadline(ZERO_TIME)
 	if target != NULL { // for client:
 		// new connection must send OPEN first.
 		_len := _frame(buf, FRAME_ACTION_OPEN, sid, []byte(target))

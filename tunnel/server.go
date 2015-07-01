@@ -95,6 +95,9 @@ func (t *Session) DataTunServe(fconn *Conn, buf []byte) {
 		atomic.AddInt32(&svr.dtCnt, -1)
 		SafeClose(fconn)
 		ex.CatchException(recover())
+		if log.V(1) {
+			log.Infoln(fconn.identifier, "client/DT disconnected")
+		}
 	}()
 	atomic.AddInt32(&svr.dtCnt, 1)
 	token := buf[:TKSZ]
