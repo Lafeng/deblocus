@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
+	"regexp"
 	"strings"
 )
 
@@ -14,10 +14,10 @@ const (
 	project_url = "https://github.com/spance/delocus"
 	ver_major   = uint8(0)
 	ver_minor   = uint8(8)
-	ver_build   = 10*uint16(182) + uint16(2)
+	ver_build   = 10*uint16(184) + uint16(2)
 )
 
-var build_flag string // -ldflags "-X main.build_flag -alpha"
+var build_flag string // -ldflags "-X main.build_flag -beta"
 
 var version uint32
 
@@ -36,6 +36,7 @@ func versionString() string {
 type CArg struct {
 	literal string
 	usage   string
+	example string
 }
 
 func showUsage() {
@@ -45,29 +46,32 @@ func showUsage() {
 
 	var group = map[string][]*CArg{}
 	var common = "Common"
-	flag.VisitAll(func(flag *flag.Flag) {
+	var reBool, _ = regexp.Compile("(?i)true|false")
+	flag.VisitAll(func(f *flag.Flag) {
 		var literal string
-		if len(flag.DefValue) > 0 {
-			format := "-%s=%s"
-			if strings.Contains(reflect.TypeOf(flag.Value).String(), "string") {
-				// put quotes on the value
-				format = "-%s=%q"
-			}
-			literal = fmt.Sprintf(format, flag.Name, flag.DefValue)
+		if len(f.DefValue) > 0 && !reBool.MatchString(f.DefValue) {
+			literal = fmt.Sprintf("-%s=%s", f.Name, f.DefValue)
 		} else {
-			literal = "-" + flag.Name
+			literal = "-" + f.Name
 		}
-		array := strings.SplitN(flag.Usage, ";;", 2)
+		array := strings.SplitN(f.Usage, ";;", 2)
 		if len(array) != 2 {
-			array = []string{common, flag.Usage}
+			array = []string{common, f.Usage}
 		}
-		cArg := &CArg{literal, array[1]}
+		cArg := &CArg{literal: literal, usage: array[1]}
+		if strings.Index(array[1], "//") >= 0 {
+			ue := strings.SplitN(array[1], "//", 2)
+			cArg.usage, cArg.example = ue[0], ue[1]
+		}
 		group[array[0]] = append(group[array[0]], cArg)
 	})
 	for k, a := range group {
 		fmt.Printf("%s options:\n", k)
 		for _, i := range a {
-			fmt.Printf("    %-12s %s\n", i.literal, i.usage)
+			fmt.Printf("  %-12s %s\n", i.literal, i.usage)
+			if i.example != "" {
+				fmt.Printf("  %-12s %s\n", " ", i.example)
+			}
 		}
 	}
 }

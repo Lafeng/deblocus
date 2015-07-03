@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"crypto/sha1"
+	"fmt"
 	"hash"
 	"net"
 	"sync"
@@ -86,6 +87,10 @@ func (c *Conn) Update() {
 		c.priority.rank = 1e9
 	}
 	c.priority.last = n
+}
+
+func (c *Conn) sign() string {
+	return fmt.Sprintf("L%dR%d", c.LocalAddr().(*net.TCPAddr).Port, c.RemoteAddr().(*net.TCPAddr).Port)
 }
 
 func IdentifierOf(con net.Conn) string {

@@ -1,14 +1,17 @@
 package tunnel
 
 import (
+	log "github.com/spance/deblocus/golang/glog"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
-const acquirer = 66
+const (
+	acquirer = 66
+	tmo      = time.Second * 2
+)
 
-var tmo = time.Second * 2
 var cnt1 int32
 var cnt2 int32
 
@@ -62,10 +65,14 @@ func Test_sema_timeout(t *testing.T) {
 func acquire(s *semaphore, id int, t *testing.T) {
 	if s.acquire(tmo) {
 		atomic.AddInt32(&cnt1, 1)
-		t.Log("\tacquired", id)
+		if log.V(3) {
+			t.Log("\tacquired", id)
+		}
 	} else {
 		atomic.AddInt32(&cnt2, 1)
-		t.Log("\tacquired timeout", id)
+		if log.V(3) {
+			t.Log("\tacquired timeout", id)
+		}
 	}
 }
 

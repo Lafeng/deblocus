@@ -14,7 +14,8 @@ const (
 	CTL_PONG          = byte(2)
 	TOKEN_REQUEST     = byte(5)
 	TOKEN_REPLY       = byte(6)
-	CTL_PING_INTERVAL = 180 // time.Second
+	CTL_PING_INTERVAL = 90 // time.Second
+	DT_PING_INTERVAL  = CTL_PING_INTERVAL
 )
 
 type signalTunnel struct {
@@ -29,6 +30,7 @@ type signalTunnel struct {
 
 func NewSignalTunnel(conn *Conn, interval int) *signalTunnel {
 	var bi, i time.Duration
+	conn.SetSockOpt(1, 0, 1)
 	if interval >= 30 && interval <= 300 {
 		bi = time.Duration(interval) * time.Second
 		i = 2 * bi
@@ -38,7 +40,7 @@ func NewSignalTunnel(conn *Conn, interval int) *signalTunnel {
 	}
 	t := &signalTunnel{
 		tun:          conn,
-		remoteAddr:   IdentifierOf(conn),
+		remoteAddr:   conn.identifier,
 		lock:         new(sync.Mutex),
 		interval:     i,
 		baseInterval: bi,

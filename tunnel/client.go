@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	RETRY_INTERVAL = time.Second * 3
+	RETRY_INTERVAL = time.Second * 5
 )
 
 type Client struct {
@@ -55,14 +55,13 @@ func NewClient(d5p *D5Params, dhKeys *DHKeyPair) *Client {
 
 func (c *Client) StartSigTun(again bool) {
 	defer func() {
-		if ex.CatchException(recover()) {
+		if err := recover(); err != nil {
 			c.eventHandler(evt_st_closed, true)
 		} else {
 			c.eventHandler(evt_st_ready, c.sigTun.tun.identifier)
 		}
 	}()
 	if again {
-		log.Warningln("Will retry after", RETRY_INTERVAL)
 		/*
 			if c.mux != nil {
 				c.mux.destroy()
@@ -74,7 +73,7 @@ func (c *Client) StartSigTun(again bool) {
 		time.Sleep(RETRY_INTERVAL)
 	}
 	stConn, tp := c.nego.negotiate()
-	stConn.SetSockOpt(1, 0, 1)
+	stConn.identifier = c.nego.RemoteName()
 	c.tp, c.token = tp, tp.token
 	c.sigTun = NewSignalTunnel(stConn, tp.stInterval)
 	go c.sigTun.start(c.eventHandler)
@@ -98,25 +97,27 @@ func (c *Client) startDataTun(again bool) {
 		if connected {
 			atomic.AddInt32(&c.dtCnt, -1)
 		}
-		if ex.CatchException(recover()) {
+		if err := recover(); err != nil {
+			log.Warningf("DTun failed to connect(%s). Retry after %s\n", err, RETRY_INTERVAL)
 			c.eventHandler(evt_dt_closed, true)
 		}
 	}()
 	if again {
-		log.Warningln("DTun was disconnected then will reconnect after", RETRY_INTERVAL)
 		time.Sleep(RETRY_INTERVAL)
 	}
 	for {
 		if atomic.LoadInt32(&c.State) == 0 {
 			conn := c.createDataTun()
 			connected = true
-			log.Infoln("DTun established.", conn.LocalAddr())
+			if log.V(1) {
+				log.Infof("DTun(%s) is established\n", conn.sign())
+			}
 			atomic.AddInt32(&c.dtCnt, 1)
 			c.mux.Listen(conn, c.eventHandler, c.tp.dtInterval)
+			log.Warningf("DTun(%s) was disconnected. Reconnect after %s\n", conn.sign(), RETRY_INTERVAL)
 			break
 		} else {
-			tmo := c.pendingSema.acquire(RETRY_INTERVAL)
-			log.Infof("waiting sigtun timeout=%v state=%d\n", tmo, c.State)
+			c.pendingSema.acquire(RETRY_INTERVAL)
 		}
 	}
 }
@@ -126,7 +127,8 @@ func (c *Client) eventHandler(e event, msg ...interface{}) {
 	switch e {
 	case evt_st_closed:
 		atomic.StoreInt32(&c.State, -1)
-		log.Warningln("Lost connection of gateway", c.nego.RemoteId())
+		c.clearTokens()
+		log.Warningf("Lost connection of gateway %s. Reconnect after %s\n", c.nego.RemoteName(), RETRY_INTERVAL)
 		go c.StartSigTun(mlen > 0)
 	case evt_st_ready:
 		atomic.StoreInt32(&c.State, 0)
@@ -168,16 +170,17 @@ func (c *Client) ClientServe(conn net.Conn) {
 func (t *Client) createDataTun() *Conn {
 	conn, err := net.DialTimeout("tcp", t.nego.d5sAddr.String(), FRAME_OPEN_TIMEOUT/2)
 	ThrowErr(err)
-	buf := make([]byte, TKSZ+1)
+	buf := make([]byte, DMLEN2)
 	token := t.getToken()
 	copy(buf, token)
-	buf[TKSZ] = byte(D5 - int(int8(token[TKSZ-1])))
+	buf[TKSZ] = d5Sub(token[TKSZ-2])
+	buf[TKSZ+1] = d5Sub(token[TKSZ-1])
 
 	cipher := t.tp.cipherFactory.NewCipher(token)
 	_, err = conn.Write(buf)
 	ThrowErr(err)
 	c := NewConn(conn.(*net.TCPConn), cipher)
-	c.identifier = t.nego.RemoteId()
+	c.identifier = t.nego.RemoteName()
 	return c
 }
 
@@ -221,6 +224,12 @@ func (c *Client) putTokens(tokens []byte) {
 	if log.V(4) {
 		log.Infof("Recv tokens=%d pool=%d\n", len(tokens)/TKSZ, len(c.token)/TKSZ)
 	}
+}
+
+func (c *Client) clearTokens() {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.token = nil
 }
 
 func (c *Client) commandHandler(cmd byte, args []byte) {

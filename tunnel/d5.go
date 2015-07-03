@@ -23,10 +23,10 @@ const (
 	IPV6               = byte(4)
 	SOCKS5_VER         = byte(5)
 	NULL               = ""
-	DMLEN              = 384
+	DMLEN1             = 384
+	DMLEN2             = TKSZ + 2
 	GENERAL_SO_TIMEOUT = 10 * time.Second
 	TUN_PARAMS_LEN     = 32
-	DT_PING_INTERVAL   = CTL_PING_INTERVAL
 )
 
 var (
@@ -217,6 +217,14 @@ func ito4b(val uint32) []byte {
 	return buf
 }
 
+func d5Sub(a byte) byte {
+	return byte(D5 - int(int8(a)))
+}
+
+func d5SumValid(a, b byte) bool {
+	return uint(int8(a)+int8(b))&0xff == D5
+}
+
 type tunParams struct {
 	cipherFactory *CipherFactory
 	token         []byte
@@ -245,7 +253,6 @@ func (nego *d5CNegotiation) negotiate() (*Conn, *tunParams) {
 	err = nego.finishDHExThenSetupCipher(sconn, t)
 	ThrowErr(err)
 	sconn.cipher = t.cipherFactory.NewCipher(nil)
-	sconn.identifier = nego.RemoteId()
 	err = nego.validateAndGetTokens(sconn, t)
 	ThrowErr(err)
 	return sconn.Conn, t
@@ -256,8 +263,7 @@ func (nego *d5CNegotiation) negotiate() (*Conn, *tunParams) {
 func (nego *d5CNegotiation) requestAuthAndDHExchange(conn *hashedConn) (err error) {
 	// obfuscated header 256
 	obf := randArray(256, 256)
-	obf[0xd5] = D5
-	obf[0xff] = 0
+	obf[0xff] = d5Sub(obf[0xd5])
 	// send identity using rsa
 	// identity must be less than 117byte for once encrypting
 	idBlock := make([]byte, 128)
@@ -353,15 +359,17 @@ func (nego *d5SNegotiation) negotiate(hconn *hashedConn) (session *Session, err 
 	nego.clientAddr = hconn.RemoteAddr().String()
 	var (
 		nr  int
-		buf = make([]byte, DMLEN)
+		buf = make([]byte, DMLEN1)
 	)
 	nr, err = hconn.Read(buf)
 	ThrowErr(err)
 
-	if nr == TKSZ+1 && uint(int8(buf[TKSZ-1])+int8(buf[TKSZ]))&0xff == D5 {
-		return nego.transSession(hconn, buf)
+	if nr == DMLEN2 {
+		if d5SumValid(buf[TKSZ-2], buf[TKSZ]) && d5SumValid(buf[TKSZ-1], buf[TKSZ+1]) {
+			return nego.transSession(hconn, buf)
+		}
 	}
-	if nr == DMLEN && buf[0xd5] == D5 && buf[0xff] == 0 {
+	if nr == DMLEN1 && d5SumValid(buf[0xd5], buf[0xff]) {
 		var (
 			skey []byte
 			cf   *CipherFactory

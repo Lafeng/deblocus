@@ -27,7 +27,7 @@ func (s *semaphore) acquire(timeout time.Duration) bool {
 		oldBus := s.bus
 		s.bus = make(chan byte, size<<1)
 		for i := 0; i < size; i++ {
-			oldBus <- 0
+			oldBus <- 0 // timeout duration will be accumulated when expanding
 		}
 	}
 	s.lock.Unlock()

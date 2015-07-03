@@ -26,7 +26,7 @@ var (
 func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	log.Set_output(true, "")
-	log.Set_Verbose(4)
+	log.Set_Verbose(1)
 }
 
 func startEmulation() {
@@ -153,7 +153,9 @@ func TestSingleRequest(t *testing.T) {
 		ThrowErr(e)
 		nr, e := io.ReadFull(conn, buf1[:n-2])
 		ThrowErr(e)
-		fmt.Printf("\tsend=%d recv=%d\n", nw, nr)
+		if log.V(3) {
+			fmt.Printf("\tsend=%d recv=%d\n", nw, nr)
+		}
 		if !bytes.Equal(buf0[2:n], buf1[:nr]) {
 			t.Errorf("sent is inconsistent with recv. nw=%d nr=%d\n", nw, nr)
 		}
@@ -180,7 +182,9 @@ func TestConcurrency(t *testing.T) {
 				ThrowErr(e)
 				nr, e := io.ReadFull(conn, buf1[:n-2])
 				ThrowErr(e)
-				fmt.Printf("\tthread=%d send=%d recv=%d\n", j, nw, nr)
+				if log.V(3) {
+					fmt.Printf("\tthread=%d send=%d recv=%d\n", j, nw, nr)
+				}
 				if !bytes.Equal(buf0[2:n], buf1[:nr]) {
 					t.Errorf("thread=%d sent != recv. nw=%d nr=%d\n", j, nw, nr)
 				}

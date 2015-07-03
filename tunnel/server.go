@@ -69,10 +69,10 @@ func (t *Session) eventHandler(e event, msg ...interface{}) {
 }
 
 func (t *Session) onSTDisconnected() {
-	tid := IdentifierOf(t.tun)
+	tid := t.tun.identifier
 	SafeClose(t.tun)
 	atomic.AddInt32(&t.svr.stCnt, -1)
-	log.Warningln("Client", tid, "disconnected")
+	log.Warningf("Client(%s)/ST was disconnected\n", tid)
 	i := t.svr.sessionMgr.clearTokens(t)
 	if log.V(4) {
 		log.Infof("Clear tokens %d of %s\n", i, tid)
@@ -94,17 +94,15 @@ func (t *Session) DataTunServe(fconn *Conn, buf []byte) {
 	defer func() {
 		atomic.AddInt32(&svr.dtCnt, -1)
 		SafeClose(fconn)
-		ex.CatchException(recover())
+		err := recover()
 		if log.V(1) {
-			log.Infoln(fconn.identifier, "client/DT disconnected")
+			log.Infof("Client(%s)/DT was disconnected\n", fconn.identifier, err)
 		}
 	}()
 	atomic.AddInt32(&svr.dtCnt, 1)
 	token := buf[:TKSZ]
 	fconn.cipher = t.cipherFactory.NewCipher(token)
-	// unique
-	fconn.identifier = fmt.Sprintf("%s(%s)", t.uid, fconn.RemoteAddr())
-	log.Infoln(fconn.identifier, "client/DT established")
+	log.Infof("Client(%s)/DT is established\n", fconn.identifier)
 	svr.mux.Listen(fconn, t.eventHandler, DT_PING_INTERVAL)
 }
 
@@ -219,7 +217,10 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 	}()
 	nego := &d5SNegotiation{Server: t}
 	session, err := nego.negotiate(fconn)
-
+	if session != nil {
+		// unique
+		fconn.identifier = fmt.Sprintf("%s@%s", session.uid, fconn.RemoteAddr())
+	}
 	if err != nil {
 		if err == DATATUN_SESSION { // dataTunnel
 			go session.DataTunServe(fconn.Conn, nego.tokenBuf)
@@ -231,9 +232,8 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 			}
 		}
 	} else if session != nil { // signalTunnel
-		log.Infoln(session.uid, conn.RemoteAddr(), "client/ST established")
 		atomic.AddInt32(&t.stCnt, 1)
-		fconn.SetSockOpt(1, 0, 1)
+		log.Infof("Client(%s)/ST is established\n", fconn.identifier)
 		var st = NewSignalTunnel(session.tun, 0)
 		session.svr = t
 		session.sigTun = st

@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"github.com/kardianos/osext"
 	"github.com/spance/deblocus/auth"
@@ -71,8 +72,13 @@ func dumpHex(title string, byteArray []byte) {
 }
 
 func ipAddr(addr net.Addr) string {
-	if t, y := addr.(*net.TCPAddr); y {
-		return t.IP.String()
+	switch addr.(type) {
+	case *net.TCPAddr:
+		return addr.(*net.TCPAddr).IP.String()
+	case *net.UDPAddr:
+		return addr.(*net.UDPAddr).IP.String()
+	case *net.IPAddr:
+		return addr.(*net.IPAddr).IP.String()
 	}
 	return addr.String()
 }
@@ -80,7 +86,7 @@ func ipAddr(addr net.Addr) string {
 // client
 type D5ClientConf struct {
 	Listen     string `importable:":9009"`
-	Verbose    int    `importable:"2"`
+	Verbose    int    `importable:"1"`
 	ListenAddr *net.TCPAddr
 	D5PList    []*D5Params
 }
@@ -111,17 +117,9 @@ type D5Params struct {
 	pass       string
 }
 
-func (d *D5Params) RemoteIdFull() string {
+func (d *D5Params) RemoteName() string {
 	if d.provider != NULL {
-		return fmt.Sprintf("%s(d5://%s)", d.provider, d.d5sAddrStr)
-	} else {
-		return d.d5sAddrStr
-	}
-}
-
-func (d *D5Params) RemoteId() string {
-	if d.provider != NULL {
-		return d.provider
+		return fmt.Sprintf("%s[%s]", d.provider, d.d5sAddrStr)
 	} else {
 		return d.d5sAddrStr
 	}
@@ -154,13 +152,24 @@ func NewD5Params(uri string) (*D5Params, error) {
 	}, nil
 }
 
+func IsValidHost(hostport string) (ok bool, err error) {
+	var h, p string
+	h, p, err = net.SplitHostPort(hostport)
+	if h != NULL && p != NULL && err == nil {
+		ok = true
+	} else if err == nil {
+		err = errors.New("Invalid host address " + hostport)
+	}
+	return
+}
+
 // Server
 type D5ServConf struct {
 	Listen     string `importable:":9008"`
 	AuthTable  string `importable:"file:///PATH/YOUR_AUTH_FILE_PATH"`
 	Algo       string `importable:"AES128CFB"`
-	ServerName string `importable:"SERVER_INDENTIFIER"`
-	Verbose    int    `importable:"2"`
+	ServerName string `importable:"SERVER_NAME"`
+	Verbose    int    `importable:"1"`
 	AuthSys    auth.AuthSys
 	RSAKeys    *RSAKeyPair
 	ListenAddr *net.TCPAddr

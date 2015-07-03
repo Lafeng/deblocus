@@ -52,7 +52,7 @@ func (h *ConnPool) Remove(c *Conn) bool {
 	case x == 0:
 		h.pool = h.pool[1:]
 	case x == n-1:
-		h.pool = h.pool[:n]
+		h.pool = h.pool[:x]
 	case x > 0 && x < n-1:
 		copy(h.pool[x:], h.pool[x+1:])
 		h.pool = h.pool[:n-1]

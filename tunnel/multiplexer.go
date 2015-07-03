@@ -256,7 +256,7 @@ func (p *multiplexer) getRegistered(key string) *edgeConn {
 func (p *multiplexer) HandleRequest(client net.Conn, target string) {
 	sid := _nextSID()
 	if log.V(1) {
-		log.Infof("Socks5-> %s from=%s sid=%d\n", target, IdentifierOf(client), sid)
+		log.Infof("Socks5-> %s from=%s sid=%d\n", target, ipAddr(client.RemoteAddr()), sid)
 	}
 	tun := p.pool.Select()
 	ThrowIf(tun == nil, "No tun to deliveries request")
@@ -322,9 +322,9 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 					continue
 				}
 			case ERR_PING_TIMEOUT:
-				log.Errorln("Peer was unresponsive and then close tun.")
+				log.Errorln("Peer was unresponsive and then close tun", tun.identifier)
 			default:
-				log.Errorln("Read tunnel error.", er)
+				log.Errorln("Read tunnel", tun.identifier, er)
 			}
 			return // error, abandon tunnel
 		}
@@ -489,7 +489,7 @@ func tunWrite1(tun *Conn, buf []byte) error {
 	nr := len(buf)
 	nw, err := tun.Write(buf)
 	if nr != nw || err != nil {
-		log.Warningf("Write tun(%s) error(%v) when sending buf.len=%d\n", tun.RemoteAddr(), err, nr)
+		log.Warningf("Write tun(%s) error(%v) when sending buf.len=%d\n", tun.sign(), err, nr)
 		SafeClose(tun)
 		return err
 	}
@@ -500,7 +500,7 @@ func tunWrite2(tun *Conn, frm *frame) error {
 	nw, err := tun.Write(frm.toNewBuffer())
 	nr := int(frm.length) + FRAME_HEADER_LEN
 	if nr != nw || err != nil {
-		log.Warningf("Write tun(%s) error(%v) when sending %s\n", tun.RemoteAddr(), err, frm)
+		log.Warningf("Write tun(%s) error(%v) when sending %s\n", tun.sign(), err, frm)
 		SafeClose(tun)
 		return err
 	}

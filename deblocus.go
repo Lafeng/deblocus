@@ -38,14 +38,14 @@ func main() {
 	var output, logDir string
 	var showVersion bool
 	flag.Usage = showUsage
-	flag.StringVar(&context.config, "config", "", "Server;;indicate config if in nontypical path")
+	flag.StringVar(&context.config, "config", "", "indicate Config if in nontypical path")
 	flag.StringVar(&output, "o", "", "output file")
 	flag.BoolVar(&context.csc, "csc", false, "Server;;Create Server Config")
-	flag.BoolVar(&context.icc, "icc", false, "Server;;Issue Client Credential for user")
-	flag.BoolVar(&context.isServ, "serv", false, "Server;;Run as server explicitly or InitCap")
-	flag.BoolVar(&showVersion, "ver", false, "show version")
-	flag.StringVar(&context.verbosity, "v", "", "verbose log level")
-	flag.StringVar(&logDir, "logdir", "", "If non-empty, write log files in this directory")
+	flag.BoolVar(&context.icc, "icc", false, "Server;;Issue Client Credential for user//-icc <Server public address> <User1> <User2>...")
+	flag.BoolVar(&context.isServ, "serv", false, "Server;;run as Server explicitly")
+	flag.BoolVar(&showVersion, "V", false, "show Version")
+	flag.StringVar(&context.verbosity, "v", "", "Verbose log level")
+	flag.StringVar(&logDir, "logdir", "", "if non-empty will write log into the Directory")
 	flag.Parse()
 
 	if showVersion {
@@ -62,16 +62,8 @@ func main() {
 	}
 
 	if context.icc {
-		if flag.NArg() > 0 {
-			var d5sc = t.Parse_d5sFile(context.config)
-			for _, arg := range flag.Args() {
-				t.CreateClientCredential(output, d5sc, arg)
-			}
-			return
-		} else {
-			fmt.Println("Which user do you issue client credential for?")
-			os.Exit(2)
-		}
+		context.csc_process(output)
+		return
 	}
 
 	if context.isServ {

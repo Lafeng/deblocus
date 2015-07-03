@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"sync/atomic"
 	//ex "github.com/spance/deblocus/exception"
 	"fmt"
@@ -64,6 +65,30 @@ func (c *bootContext) setLogVerbose(level int) {
 		log.Set_Verbose(v)
 	} else {
 		log.Set_Verbose(level)
+	}
+}
+
+func (c *bootContext) csc_process(output string) {
+	defer func() {
+		if e := recover(); e != nil {
+			fmt.Println(e)
+		}
+	}()
+	if flag.NArg() >= 2 {
+		addr := flag.Arg(0)
+		if v, e := t.IsValidHost(addr); !v {
+			panic(e)
+		}
+		var d5sc = t.Parse_d5sFile(c.config)
+		d5sc.Listen = addr
+		for i, arg := range flag.Args() {
+			if i > 0 {
+				t.CreateClientCredential(output, d5sc, arg)
+			}
+		}
+		return
+	} else {
+		fmt.Println("Which user do you issue client credential for?")
 	}
 }
 
