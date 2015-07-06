@@ -6,9 +6,9 @@ import (
 	"hash"
 	"net"
 	"sync"
-	"syscall"
+	//"syscall"
 	"time"
-	"unsafe"
+	//"unsafe"
 )
 
 type Conn struct {
@@ -102,6 +102,7 @@ func IdentifierOf(con net.Conn) string {
 	return ipAddr(con.RemoteAddr())
 }
 
+/*
 func netFd_of_TCPConn(c net.Conn) syscall.Handle {
 	if t, y := c.(*net.TCPConn); y {
 		var p = *(*uintptr)(unsafe.Pointer(t)) // value of tcpconn.field0 == pointer == *netFd
@@ -113,6 +114,7 @@ func netFd_of_TCPConn(c net.Conn) syscall.Handle {
 	}
 	return syscall.InvalidHandle
 }
+*/
 
 type hashedConn struct {
 	*Conn
