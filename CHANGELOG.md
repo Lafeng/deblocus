@@ -2,6 +2,13 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [spance/deblocus](https://github.com/spance/deblocus).
 
+## [0.8.X-beta]
+- implement tcp multiplexer on tunnel
+- improve log output
+- improve reconnect logic and error handling in multiplexer and pool
+- update handshaking
+- clean up and refactor
+
 ## [0.6.0593-alpha](https://github.com/spance/deblocus/compare/0.6.0412-alpha...0.6.0593-alpha) - 2015-2-28
 ### Fixed
 - Fix glog test

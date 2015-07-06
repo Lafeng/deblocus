@@ -5,6 +5,8 @@
 [![Issues](https://img.shields.io/github/issues/spance/deblocus.svg)](https://github.com/spance/deblocus/issues)
 [![Comment-on-Github.Party](https://img.shields.io/badge/Comment%20on-Github.Party-yellow.svg)](https://github.party/item?id=46)
 
+Current version is 0.8.1870-beta
+
 ## Introduction
 
 deblocus is similar to VPN, could establish encrypted tunnels with the remote gateway to achieve access to the remote network, and  provide high secure and performance local proxy (socks5/http) service. 
@@ -27,13 +29,13 @@ What does it mean?
 
 ## Usage
 
-Compile from source ([guide](https://github.com/spance/deblocus/wiki/)) or download [Latest Binaries](https://github.com/spance/deblocus/releases), and should read [Wiki](https://github.com/spance/deblocus/wiki) at first.
+Download [Binaries](https://github.com/spance/deblocus/releases) or Compile from source, and should read [Wiki](https://github.com/spance/deblocus/wiki) at first.
 
 ### GUI Manager
 
-This tool is useful to manage deblocus process and minimize to tray.
+This tool is useful to manage deblocus process and can minimize to tray.
 
-![deblocusMonitor.png](https://i.imgur.com/pdBpKN6.png)
+![deblocusMonitor.png](https://i.imgur.com/pdBpKN6m.png)
 
 Download [deblocusMonitor](https://deblocus.codeplex.com/releases).
 
@@ -52,7 +54,7 @@ Download [deblocusMonitor](https://deblocus.codeplex.com/releases).
 
 类似VPN的网络工具，建立与远端网关的加密通道，实现接入远端网络，在本地提供安全高效的局部代理(socks5/http)服务。
 
-可以满足在企业内网、通信窃听及拦截等不可靠链路上的实现高保密的通信需要。
+可以满足在企业家庭校园内网、公开Wifi、通信窃听和拦截等不可靠链路上实现高保密及高隐私的通信需要。
 
 ## 使用
 
