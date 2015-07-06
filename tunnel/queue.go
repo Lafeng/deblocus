@@ -5,6 +5,7 @@ import (
 	log "github.com/spance/deblocus/golang/glog"
 	"net"
 	"sync"
+	"time"
 )
 
 type queue struct {
@@ -81,6 +82,7 @@ func sendFrame(frm *frame) (closed, err bool) {
 		if log.V(5) {
 			log.Infoln("SEND queue", frm)
 		}
+		dst.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
 		nw, ew := dst.Write(frm.data)
 		if nw == int(frm.length) && ew == nil {
 			return

@@ -14,7 +14,7 @@ const (
 	project_url = "https://github.com/spance/delocus"
 	ver_major   = uint8(0)
 	ver_minor   = uint8(8)
-	ver_build   = 10*uint16(184) + uint16(2)
+	ver_build   = 10*uint16(187) + uint16(0)
 )
 
 var build_flag string // -ldflags "-X main.build_flag -beta"

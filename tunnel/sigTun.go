@@ -93,10 +93,7 @@ func (t *signalTunnel) start(handler event_handler) {
 
 func (t *signalTunnel) postCommand(cmd byte, args []byte) (n int, err error) {
 	t.lock.Lock()
-	defer func() {
-		t.lock.Unlock()
-		t.tun.SetWriteDeadline(ZERO_TIME)
-	}()
+	defer t.lock.Unlock()
 	buf := randArray(CMD_HEADER_LEN, CMD_HEADER_LEN)
 	buf[0] = cmd
 	binary.BigEndian.PutUint16(buf[2:], uint16(len(args)))

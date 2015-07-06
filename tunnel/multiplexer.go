@@ -60,14 +60,16 @@ type idler struct {
 }
 
 func NewIdler(interval int, isClient bool) *idler {
-	if interval > 300 || interval < 30 {
+	if interval > 0 && (interval > 300 || interval < 30) {
 		interval = DT_PING_INTERVAL
 	}
-	i := &idler{interval: time.Second * time.Duration(interval)}
-	if isClient {
-		i.interval *= 2
+	i := &idler{
+		interval: time.Second * time.Duration(interval),
+		enabled:  interval > 0,
 	}
-	i.enabled = i.interval > 0
+	if isClient && i.enabled {
+		i.interval += GENERAL_SO_TIMEOUT
+	}
 	return i
 }
 
@@ -97,17 +99,22 @@ func (i *idler) consumeError(er error) uint {
 }
 
 func (i *idler) ping(tun *Conn) error {
-	//i.lastPing = time.Now().Unix()
-	i.waiting = true
-	buf := make([]byte, FRAME_HEADER_LEN)
-	_frame(buf, FRAME_ACTION_PING, 0, nil)
-	return tunWrite1(tun, buf)
+	if i.enabled {
+		i.waiting = true
+		buf := make([]byte, FRAME_HEADER_LEN)
+		_frame(buf, FRAME_ACTION_PING, 0, nil)
+		return tunWrite1(tun, buf)
+	}
+	return nil
 }
 
 func (i *idler) pong(tun *Conn) error {
-	buf := make([]byte, FRAME_HEADER_LEN)
-	_frame(buf, FRAME_ACTION_PONG, 0, nil)
-	return tunWrite1(tun, buf)
+	if i.enabled {
+		buf := make([]byte, FRAME_HEADER_LEN)
+		_frame(buf, FRAME_ACTION_PONG, 0, nil)
+		return tunWrite1(tun, buf)
+	}
+	return nil
 }
 
 func (i *idler) verify() (r bool) {
@@ -293,7 +300,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 		p.pool.Push(tun)
 		defer p.onTunDisconnected(tun, handler)
 	}
-	tun.SetSockOpt(1, 0, 0)
+	tun.SetSockOpt(1, 1, 0)
 	var (
 		frm        *frame
 		header     = make([]byte, FRAME_HEADER_LEN)
@@ -485,24 +492,34 @@ func (p *multiplexer) copyToTun(src net.Conn, tun *Conn, key string, sid uint16,
 	}
 }
 
-func tunWrite1(tun *Conn, buf []byte) error {
-	nr := len(buf)
-	nw, err := tun.Write(buf)
+func tunWrite1(tun *Conn, buf []byte) (err error) {
+	err = tun.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
+	if err != nil {
+		return
+	}
+	var nr, nw int
+	nr = len(buf)
+	nw, err = tun.Write(buf)
 	if nr != nw || err != nil {
 		log.Warningf("Write tun(%s) error(%v) when sending buf.len=%d\n", tun.sign(), err, nr)
 		SafeClose(tun)
-		return err
+		return
 	}
 	return nil
 }
 
-func tunWrite2(tun *Conn, frm *frame) error {
-	nw, err := tun.Write(frm.toNewBuffer())
-	nr := int(frm.length) + FRAME_HEADER_LEN
+func tunWrite2(tun *Conn, frm *frame) (err error) {
+	err = tun.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
+	if err != nil {
+		return
+	}
+	var nr, nw int
+	nr = int(frm.length) + FRAME_HEADER_LEN
+	nw, err = tun.Write(frm.toNewBuffer())
 	if nr != nw || err != nil {
 		log.Warningf("Write tun(%s) error(%v) when sending %s\n", tun.sign(), err, frm)
 		SafeClose(tun)
-		return err
+		return
 	}
 	return nil
 }
