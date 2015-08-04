@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
 	"crypto/sha1"
@@ -12,7 +13,9 @@ import (
 	log "github.com/spance/deblocus/golang/glog"
 	"io"
 	"net"
+	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -27,6 +30,13 @@ const (
 	DMLEN2             = TKSZ + 2
 	GENERAL_SO_TIMEOUT = 10 * time.Second
 	TUN_PARAMS_LEN     = 32
+
+	REQ_PROT_UNKNOWN    = 1
+	REQ_PROT_HTTP       = 2
+	REQ_PROT_SOCKS5     = 3
+	CRLF                = "\r\n"
+	HTTP_PROXY_VER_LINE = "HTTP/1.1 200 Connection established"
+	HTTP_PROXY_AGENT    = "Proxy-Agent: deblocus"
 )
 
 var (
@@ -198,6 +208,71 @@ func (s *S5Step1) respondSocks5() bool {
 		return true
 	}
 	return false
+}
+
+// http proxy
+
+func detectProtocol(pbconn *pushbackInputStream) int {
+	var b = make([]byte, 2)
+	n, e := pbconn.Read(b)
+	if n != 2 {
+		panic(io.ErrUnexpectedEOF)
+	}
+	if e != nil {
+		panic(e)
+	}
+	defer pbconn.Unread(b)
+	var head = b[0]
+	// hex 0x41-0x5a=A-Z 0x61-0x7a=a-z
+	if head <= 5 {
+		return REQ_PROT_SOCKS5
+	} else if head >= 0x41 && head <= 0x7a {
+		return REQ_PROT_HTTP
+	} else {
+		return REQ_PROT_UNKNOWN
+	}
+}
+
+func httpProxyHandshake(conn *pushbackInputStream) string {
+	reader := bufio.NewReader(conn)
+	req, err := http.ReadRequest(reader)
+	if err != nil {
+		panic(err)
+	}
+	var target string
+	// http tunnel, direct into tunnel
+	if req.Method == "CONNECT" { // respond OK then enter into tunnel
+		conn.WriteString(HTTP_PROXY_VER_LINE)
+		conn.WriteString(CRLF)
+		conn.WriteString(HTTP_PROXY_AGENT)
+		conn.WriteString(CRLF + CRLF)
+		target = req.Host
+	} else { // plain http request
+		for k, _ := range req.Header {
+			if strings.HasPrefix(k, "Proxy") {
+				delete(req.Header, k)
+			}
+		}
+		buf := new(bytes.Buffer)
+		req.Write(buf)
+		conn.Unread(buf.Bytes())
+		fmt.Println(string(buf.Bytes()))
+		target = req.Host
+
+	}
+	if target == NULL {
+		panic("missing host in address")
+	}
+	_, _, err = net.SplitHostPort(target)
+	if err != nil {
+		// the header.Host without port
+		if strings.Contains(err.Error(), "port") && req.Method != "CONNECT" {
+			return target + ":80"
+		} else {
+			panic(err)
+		}
+	}
+	return target
 }
 
 func hash20(byteArray []byte) []byte {

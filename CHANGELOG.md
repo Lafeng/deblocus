@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [spance/deblocus](https://github.com/spance/deblocus).
 
+## [0.9.2170-beta] 15/8/5
+- implement http proxy basically
+
 ## [0.8.X-beta]
 - implement tcp multiplexer on tunnel
 - improve log output

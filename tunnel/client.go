@@ -156,15 +156,31 @@ func (c *Client) ClientServe(conn net.Conn) {
 		}
 	}()
 
-	s5 := S5Step1{conn: conn}
-	s5.Handshake()
-	if !s5.HandshakeAck() {
-		literalTarget := s5.parseSocks5Request()
-		if !s5.respondSocks5() {
-			c.mux.HandleRequest(conn, literalTarget)
-			done = true
+	pbConn := NewPushbackInputStream(conn)
+	switch detectProtocol(pbConn) {
+	case REQ_PROT_SOCKS5:
+		s5 := S5Step1{conn: pbConn}
+		s5.Handshake()
+		if !s5.HandshakeAck() {
+			literalTarget := s5.parseSocks5Request()
+			if !s5.respondSocks5() {
+				c.mux.HandleRequest(conn, literalTarget)
+				done = true
+			}
 		}
+	case REQ_PROT_HTTP:
+		literalTarget := httpProxyHandshake(pbConn)
+		if pbConn.HasRemains() {
+			c.mux.HandleRequest(pbConn, literalTarget)
+		} else {
+			c.mux.HandleRequest(conn, literalTarget)
+		}
+		done = true
+	default:
+		log.Warningln("unrecognized request from", conn.RemoteAddr())
+		time.Sleep(3 * time.Second)
 	}
+
 }
 
 func (t *Client) createDataTun() *Conn {

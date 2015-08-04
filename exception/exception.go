@@ -44,6 +44,10 @@ func CatchException(e interface{}) bool {
 		log.Errorln(ex.msg)
 		return true
 	} else if e != nil {
+		if s, y := e.(string); y {
+			log.Warningln(s)
+			return true
+		}
 		if log.V(2) {
 			buf := make([]byte, 1600)
 			runtime.Stack(buf, false)

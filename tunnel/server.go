@@ -96,7 +96,7 @@ func (t *Session) DataTunServe(fconn *Conn, buf []byte) {
 		SafeClose(fconn)
 		err := recover()
 		if log.V(1) {
-			log.Infof("Client(%s)/DT was disconnected\n", fconn.identifier, err)
+			log.Infof("Client(%s)/DT was disconnected. %v\n", fconn.identifier, err)
 		}
 	}()
 	atomic.AddInt32(&svr.dtCnt, 1)

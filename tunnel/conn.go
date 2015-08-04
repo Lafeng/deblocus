@@ -163,3 +163,41 @@ func (c *hashedConn) WHashSum() []byte {
 	c.wHash = nil
 	return hash
 }
+
+//
+// PushbackInputStream
+//
+type pushbackInputStream struct {
+	net.Conn
+	buffer []byte
+}
+
+func NewPushbackInputStream(conn net.Conn) *pushbackInputStream {
+	return &pushbackInputStream{Conn: conn}
+}
+
+func (s *pushbackInputStream) Read(b []byte) (int, error) {
+	if bl := len(s.buffer); bl > 0 {
+		n := copy(b, s.buffer)
+		if n >= bl {
+			s.buffer = nil
+		} else {
+			s.buffer = s.buffer[n:]
+		}
+		return n, nil
+	} else {
+		return s.Conn.Read(b)
+	}
+}
+
+func (s *pushbackInputStream) WriteString(str string) (int, error) {
+	return s.Write([]byte(str))
+}
+
+func (s *pushbackInputStream) Unread(b []byte) {
+	s.buffer = append(s.buffer, b...)
+}
+
+func (s *pushbackInputStream) HasRemains() bool {
+	return len(s.buffer) > 0
+}
