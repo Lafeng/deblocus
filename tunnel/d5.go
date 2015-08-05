@@ -116,12 +116,12 @@ func (s *S5Step1) Handshake() {
 	var buf = make([]byte, 2)
 	_, err := io.ReadFull(s.conn, buf)
 	if err != nil {
-		s.err = INVALID_SOCKS5_HEADER
+		s.err = INVALID_SOCKS5_HEADER.Apply(err)
 		return
 	}
 	ver, nmethods := buf[0], int(buf[1])
 	if ver != SOCKS5_VER || nmethods < 1 {
-		s.err = INVALID_SOCKS5_HEADER
+		s.err = INVALID_SOCKS5_HEADER.Apply(fmt.Sprintf("[% x]", buf[:2]))
 		return
 	}
 	buf = make([]byte, nmethods+1) // consider method non-00
@@ -216,10 +216,10 @@ func detectProtocol(pbconn *pushbackInputStream) int {
 	var b = make([]byte, 2)
 	n, e := pbconn.Read(b)
 	if n != 2 {
-		panic(io.ErrUnexpectedEOF)
+		panic(io.ErrUnexpectedEOF.Error())
 	}
 	if e != nil {
-		panic(e)
+		panic(e.Error())
 	}
 	defer pbconn.Unread(b)
 	var head = b[0]
@@ -256,9 +256,7 @@ func httpProxyHandshake(conn *pushbackInputStream) string {
 		buf := new(bytes.Buffer)
 		req.Write(buf)
 		conn.Unread(buf.Bytes())
-		fmt.Println(string(buf.Bytes()))
 		target = req.Host
-
 	}
 	if target == NULL {
 		panic("missing host in address")
@@ -269,7 +267,7 @@ func httpProxyHandshake(conn *pushbackInputStream) string {
 		if strings.Contains(err.Error(), "port") && req.Method != "CONNECT" {
 			return target + ":80"
 		} else {
-			panic(err)
+			panic(err.Error())
 		}
 	}
 	return target
