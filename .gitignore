@@ -4,3 +4,4 @@ bin
 *.d5c
 *.d5s
 *.conf
+debug.go

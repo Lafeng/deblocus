@@ -6,6 +6,9 @@ import (
 	"runtime"
 )
 
+// injection
+var DEBUG bool
+
 type Exception struct {
 	msg     string
 	code    int
@@ -44,17 +47,17 @@ func CatchException(e interface{}) bool {
 		log.Errorln(ex.msg)
 		return true
 	} else if e != nil {
-		if s, y := e.(string); y {
-			log.Warningln(s)
-			return true
-		}
-		if log.V(2) {
+		if DEBUG {
 			buf := make([]byte, 1600)
 			runtime.Stack(buf, false)
 			fmt.Println(e)
 			fmt.Println(string(buf))
 		} else {
-			log.Errorln(e)
+			if s, y := e.(string); y {
+				log.Warningln(s)
+			} else {
+				log.Errorln(e)
+			}
 		}
 		return true
 	}

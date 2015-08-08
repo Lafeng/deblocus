@@ -100,6 +100,9 @@ func (c *Client) startDataTun(again bool) {
 		if err := recover(); err != nil {
 			log.Warningf("DTun failed to connect(%s). Retry after %s\n", err, RETRY_INTERVAL)
 			c.eventHandler(evt_dt_closed, true)
+			if DEBUG {
+				ex.CatchException(err)
+			}
 		}
 	}()
 	if again {
@@ -164,16 +167,16 @@ func (c *Client) ClientServe(conn net.Conn) {
 		if !s5.HandshakeAck() {
 			literalTarget := s5.parseSocks5Request()
 			if !s5.respondSocks5() {
-				c.mux.HandleRequest(conn, literalTarget)
+				c.mux.HandleRequest("SOCKS5", conn, literalTarget)
 				done = true
 			}
 		}
 	case REQ_PROT_HTTP:
-		literalTarget := httpProxyHandshake(pbConn)
-		if pbConn.HasRemains() {
-			c.mux.HandleRequest(pbConn, literalTarget)
-		} else {
-			c.mux.HandleRequest(conn, literalTarget)
+		prot, literalTarget := httpProxyHandshake(pbConn)
+		if prot == REQ_PROT_HTTP { // plain http
+			c.mux.HandleRequest("HTTP", pbConn, literalTarget)
+		} else { // http tunnel
+			c.mux.HandleRequest("HTTP/T", conn, literalTarget)
 		}
 		done = true
 	default:
@@ -184,7 +187,7 @@ func (c *Client) ClientServe(conn net.Conn) {
 }
 
 func (t *Client) createDataTun() *Conn {
-	conn, err := net.DialTimeout("tcp", t.nego.d5sAddr.String(), FRAME_OPEN_TIMEOUT/2)
+	conn, err := net.DialTimeout("tcp", t.nego.d5sAddr.String(), GENERAL_SO_TIMEOUT)
 	ThrowErr(err)
 	buf := make([]byte, DMLEN2)
 	token := t.getToken()

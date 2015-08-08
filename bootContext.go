@@ -2,9 +2,8 @@ package main
 
 import (
 	"flag"
-	"sync/atomic"
-	//ex "github.com/spance/deblocus/exception"
 	"fmt"
+	ex "github.com/spance/deblocus/exception"
 	log "github.com/spance/deblocus/golang/glog"
 	t "github.com/spance/deblocus/tunnel"
 	"math/rand"
@@ -12,6 +11,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -26,6 +26,7 @@ type bootContext struct {
 	icc       bool
 	statser   Statser
 	verbosity string
+	debug     bool
 }
 
 func (c *bootContext) parse() {
@@ -43,6 +44,9 @@ func (c *bootContext) parse() {
 		}
 	}
 	t.VERSION = version
+	t.VER_STRING = versionString()
+	t.DEBUG = c.debug
+	ex.DEBUG = c.debug
 }
 
 func (c *bootContext) doStats() {
@@ -161,4 +165,61 @@ func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
 		go c.StartSigTun(false)
 	}
 	return mgr
+}
+
+func (context *bootContext) startClient() {
+	defer func() {
+		ex.CatchException(recover())
+		sigChan <- t.Bye
+	}()
+	var conf = t.Parse_d5cFile(context.config)
+	context.setLogVerbose(conf.Verbose)
+	log.Info(versionString())
+	log.Infoln("Socks5/Http is working at", conf.ListenAddr)
+
+	mgr := NewClientMgr(conf)
+	context.statser = mgr
+
+	ln, err := net.ListenTCP("tcp", conf.ListenAddr)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer ln.Close()
+	for {
+		conn, err := ln.Accept()
+		if err == nil {
+			go mgr.selectClientServ(conn)
+		} else {
+			t.SafeClose(conn)
+		}
+	}
+}
+
+func (context *bootContext) startServer() {
+	defer func() {
+		ex.CatchException(recover())
+		sigChan <- t.Bye
+	}()
+	var conf = t.Parse_d5sFile(context.config)
+	context.setLogVerbose(conf.Verbose)
+	log.Info(versionString())
+	log.Infoln("Server is listening on", conf.ListenAddr)
+
+	ln, err := net.ListenTCP("tcp", conf.ListenAddr)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer ln.Close()
+
+	dhKeys := t.GenerateDHKeyPairs()
+	server := t.NewServer(conf, dhKeys)
+	context.statser = server
+	for {
+		conn, err := ln.AcceptTCP()
+		if err == nil {
+			go server.TunnelServe(conn)
+		} else {
+			t.SafeClose(conn)
+		}
+	}
 }

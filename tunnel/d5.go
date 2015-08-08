@@ -32,27 +32,37 @@ const (
 	TUN_PARAMS_LEN     = 32
 
 	REQ_PROT_UNKNOWN    = 1
-	REQ_PROT_HTTP       = 2
-	REQ_PROT_SOCKS5     = 3
+	REQ_PROT_SOCKS5     = 2
+	REQ_PROT_HTTP       = 3
+	REQ_PROT_HTTP_T     = 4
 	CRLF                = "\r\n"
 	HTTP_PROXY_VER_LINE = "HTTP/1.1 200 Connection established"
 	HTTP_PROXY_AGENT    = "Proxy-Agent: deblocus"
 )
 
 var (
-	VERSION uint32
+	// for main package injection
+	VERSION    uint32
+	VER_STRING string
+	DEBUG      bool
+)
+
+var (
 	// socks5 exceptions
 	INVALID_SOCKS5_HEADER  = exception.New(0xff, "Invalid socks5 header")
 	INVALID_SOCKS5_REQUEST = exception.New(0x07, "Invalid socks5 request")
 	GENERAL_FAILURE        = exception.New(0x01, "General failure")
 	HOST_UNREACHABLE       = exception.New(0x04, "Host is unreachable")
+)
+
+var (
 	// D5 exceptions
 	INVALID_D5PARAMS     = exception.NewW("Invalid D5Params")
 	D5SER_UNREACHABLE    = exception.NewW("D5Server is unreachable")
 	VALIDATION_FAILED    = exception.NewW("Validation failed")
 	NEGOTIATION_FAILED   = exception.NewW("Negotiation failed")
 	DATATUN_SESSION      = exception.NewW("DT")
-	HASH_INCONSISTENCE   = exception.NewW("Hash inconsistence")
+	INCONSISTENT_HASH    = exception.NewW("Inconsistent hash")
 	INCOMPATIBLE_VERSION = exception.NewW("Incompatible version")
 )
 
@@ -73,6 +83,24 @@ func SafeClose(conn net.Conn) {
 		_ = recover()
 	}()
 	if conn != nil {
+		conn.Close()
+	}
+}
+
+func closeR(conn net.Conn) {
+	defer func() { _ = recover() }()
+	if t, y := conn.(*net.TCPConn); y {
+		t.CloseRead()
+	} else {
+		conn.Close()
+	}
+}
+
+func closeW(conn net.Conn) {
+	defer func() { _ = recover() }()
+	if t, y := conn.(*net.TCPConn); y {
+		t.CloseWrite()
+	} else {
 		conn.Close()
 	}
 }
@@ -233,21 +261,22 @@ func detectProtocol(pbconn *pushbackInputStream) int {
 	}
 }
 
-func httpProxyHandshake(conn *pushbackInputStream) string {
+func httpProxyHandshake(conn *pushbackInputStream) (req_prot uint, target string) {
 	reader := bufio.NewReader(conn)
 	req, err := http.ReadRequest(reader)
 	if err != nil {
 		panic(err)
 	}
-	var target string
 	// http tunnel, direct into tunnel
 	if req.Method == "CONNECT" { // respond OK then enter into tunnel
+		req_prot = REQ_PROT_HTTP_T
 		conn.WriteString(HTTP_PROXY_VER_LINE)
 		conn.WriteString(CRLF)
-		conn.WriteString(HTTP_PROXY_AGENT)
+		conn.WriteString(HTTP_PROXY_AGENT + "/" + VER_STRING)
 		conn.WriteString(CRLF + CRLF)
 		target = req.Host
 	} else { // plain http request
+		req_prot = REQ_PROT_HTTP
 		for k, _ := range req.Header {
 			if strings.HasPrefix(k, "Proxy") {
 				delete(req.Header, k)
@@ -265,12 +294,12 @@ func httpProxyHandshake(conn *pushbackInputStream) string {
 	if err != nil {
 		// the header.Host without port
 		if strings.Contains(err.Error(), "port") && req.Method != "CONNECT" {
-			return target + ":80"
+			target += ":80"
 		} else {
 			panic(err.Error())
 		}
 	}
-	return target
+	return
 }
 
 func hash20(byteArray []byte) []byte {
@@ -412,7 +441,7 @@ func (nego *d5CNegotiation) validateAndGetTokens(sconn *hashedConn, t *tunParams
 		log.Errorln("Server hash/r is inconsistence with the client/w")
 		log.Errorf("rHash: [% x] wHash: [% x]\n", rHash, wHash)
 		log.Errorf("oHash: [% x]\n", oHash)
-		return HASH_INCONSISTENCE
+		return INCONSISTENT_HASH
 	}
 	return
 }
@@ -525,7 +554,7 @@ func (nego *d5SNegotiation) respondTestWithToken(sconn *hashedConn, session *Ses
 		log.Errorln("Remote hash/r not equals self/w")
 		log.Errorf("rHash: [% x] wHash: [% x]\n", rHash, wHash)
 		log.Errorf("oHash: [% x]\n", oHash)
-		return HASH_INCONSISTENCE
+		return INCONSISTENT_HASH
 	}
 	_, err = sconn.Write(rHash)
 	ThrowErr(err)

@@ -102,7 +102,7 @@ func startClient(size int) {
 	for {
 		conn, e := ln.Accept()
 		ThrowErr(e)
-		go client.HandleRequest(conn, dstAddr)
+		go client.HandleRequest("T", conn, dstAddr)
 	}
 }
 
@@ -130,12 +130,12 @@ func assertLength(t *testing.T, v ...interface{}) {
 }
 
 func checkFinishedLength(t *testing.T) {
+	server.router.clean()
+	client.router.clean()
 	// assert server.registry.len==0
-	assertLength(t, "server.registry", server.registry, 0)
+	assertLength(t, "server.registry", server.router.registry, 0)
 	// assert client.registry.len==0
-	assertLength(t, "client.registry", client.registry, 0)
-	assertLength(t, "server.closed", server.closed, 0)
-	assertLength(t, "client.closed", client.closed, 0)
+	assertLength(t, "client.registry", client.router.registry, 0)
 }
 
 func TestSingleRequest(t *testing.T) {
@@ -143,7 +143,7 @@ func TestSingleRequest(t *testing.T) {
 	conn, e := net.Dial("tcp", cltAddr)
 	ThrowErr(e)
 	rest(1)
-	assertLength(t, "client.registry", client.registry, 1)
+	assertLength(t, "client.registry", client.router.registry, 1)
 	buf0 := make([]byte, 0xffff)
 	buf1 := make([]byte, 0xffff)
 	for i := 0; i < 10; i++ {

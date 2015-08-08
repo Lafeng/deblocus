@@ -17,7 +17,7 @@ import (
 const (
 	GENERATE_TOKEN_NUM = 16
 	TOKENS_FLOOR       = 8
-	PARALLEL_TUN_QTY   = 3
+	PARALLEL_TUN_QTY   = 2
 	TKSZ               = sha1.Size
 )
 
@@ -72,7 +72,7 @@ func (t *Session) onSTDisconnected() {
 	tid := t.tun.identifier
 	SafeClose(t.tun)
 	atomic.AddInt32(&t.svr.stCnt, -1)
-	log.Warningf("Client(%s)/ST was disconnected\n", tid)
+	log.Warningf("Client(%s)-ST was disconnected\n", tid)
 	i := t.svr.sessionMgr.clearTokens(t)
 	if log.V(4) {
 		log.Infof("Clear tokens %d of %s\n", i, tid)
@@ -95,14 +95,15 @@ func (t *Session) DataTunServe(fconn *Conn, buf []byte) {
 		atomic.AddInt32(&svr.dtCnt, -1)
 		SafeClose(fconn)
 		err := recover()
-		if log.V(1) {
-			log.Infof("Client(%s)/DT was disconnected. %v\n", fconn.identifier, err)
+		log.Infof("Client(%s)-DT was disconnected. %v\n", fconn.identifier, err)
+		if DEBUG {
+			ex.CatchException(err)
 		}
 	}()
 	atomic.AddInt32(&svr.dtCnt, 1)
 	token := buf[:TKSZ]
 	fconn.cipher = t.cipherFactory.NewCipher(token)
-	log.Infof("Client(%s)/DT is established\n", fconn.identifier)
+	log.Infof("Client(%s)-DT is established\n", fconn.identifier)
 	svr.mux.Listen(fconn, t.eventHandler, DT_PING_INTERVAL)
 }
 
@@ -233,7 +234,7 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 		}
 	} else if session != nil { // signalTunnel
 		atomic.AddInt32(&t.stCnt, 1)
-		log.Infof("Client(%s)/ST is established\n", fconn.identifier)
+		log.Infof("Client(%s)-ST is established\n", fconn.identifier)
 		var st = NewSignalTunnel(session.tun, 0)
 		session.svr = t
 		session.sigTun = st

@@ -3,10 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	ex "github.com/spance/deblocus/exception"
 	log "github.com/spance/deblocus/golang/glog"
 	t "github.com/spance/deblocus/tunnel"
-	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -46,6 +44,7 @@ func main() {
 	flag.BoolVar(&showVersion, "V", false, "show Version")
 	flag.StringVar(&context.verbosity, "v", "", "Verbose log level")
 	flag.StringVar(&logDir, "logdir", "", "if non-empty will write log into the Directory")
+	flag.BoolVar(&context.debug, "debug", false, "debug")
 	flag.Parse()
 
 	if showVersion {
@@ -54,6 +53,7 @@ func main() {
 	}
 
 	context.parse()
+	// toStd bool, logDir string
 	log.Set_output(true, logDir)
 
 	if context.csc {
@@ -67,66 +67,9 @@ func main() {
 	}
 
 	if context.isServ {
-		go startServer(context)
+		go context.startServer()
 	} else {
-		go startClient(context)
+		go context.startClient()
 	}
 	waitSignal()
-}
-
-func startClient(context *bootContext) {
-	defer func() {
-		ex.CatchException(recover())
-		sigChan <- t.Bye
-	}()
-	var conf = t.Parse_d5cFile(context.config)
-	context.setLogVerbose(conf.Verbose)
-	log.Info(versionString())
-	log.Infoln("Socks5/Http is working at", conf.ListenAddr)
-
-	mgr := NewClientMgr(conf)
-	context.statser = mgr // for do stats
-
-	ln, err := net.ListenTCP("tcp", conf.ListenAddr)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer ln.Close()
-	for {
-		conn, err := ln.Accept()
-		if err == nil {
-			go mgr.selectClientServ(conn)
-		} else {
-			t.SafeClose(conn)
-		}
-	}
-}
-
-func startServer(context *bootContext) {
-	defer func() {
-		ex.CatchException(recover())
-		sigChan <- t.Bye
-	}()
-	var conf = t.Parse_d5sFile(context.config)
-	context.setLogVerbose(conf.Verbose)
-	log.Info(versionString())
-	log.Infoln("Server is listening on", conf.ListenAddr)
-
-	ln, err := net.ListenTCP("tcp", conf.ListenAddr)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer ln.Close()
-
-	dhKeys := t.GenerateDHKeyPairs()
-	server := t.NewServer(conf, dhKeys)
-	context.statser = server
-	for {
-		conn, err := ln.AcceptTCP()
-		if err == nil {
-			go server.TunnelServe(conn)
-		} else {
-			t.SafeClose(conn)
-		}
-	}
 }

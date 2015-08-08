@@ -96,10 +96,7 @@ func (c *Conn) sign() string {
 }
 
 func IdentifierOf(con net.Conn) string {
-	if c, y := con.(*Conn); y && c.identifier != NULL {
-		return c.identifier
-	}
-	return ipAddr(con.RemoteAddr())
+	return con.LocalAddr().String() + con.RemoteAddr().String()
 }
 
 /*

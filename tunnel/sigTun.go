@@ -14,8 +14,8 @@ const (
 	CTL_PONG          = byte(2)
 	TOKEN_REQUEST     = byte(5)
 	TOKEN_REPLY       = byte(6)
-	CTL_PING_INTERVAL = 90 // time.Second
-	DT_PING_INTERVAL  = CTL_PING_INTERVAL
+	CTL_PING_INTERVAL = 120 // time.Second
+	DT_PING_INTERVAL  = 90
 )
 
 type signalTunnel struct {
