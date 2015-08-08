@@ -50,28 +50,6 @@ func (e *edgeConn) deliver(frm *frame) {
 	e.queue._push(frm)
 }
 
-// close for ending of queued task
-func (e *edgeConn) _close(force bool, close_code uint) {
-	if log.V(4) {
-		switch close_code {
-		case CLOSED_BY_ERR:
-			log.Infoln("terminate", e.dest)
-		case CLOSED_FORCE:
-			log.Infoln("close", e.dest)
-		case CLOSED_WRITE:
-			log.Infof("closeW %s by peer\n", e.dest)
-		}
-	}
-	e.queue.buffer.Init()
-	e.queue.buffer = nil
-	if force {
-		e.closed = TCP_CLOSE_R | TCP_CLOSE_W
-		SafeClose(e.conn)
-	} else {
-		closeW(e.conn)
-	}
-}
-
 // ------------------------------
 // EgressRouter
 // ------------------------------
@@ -221,10 +199,10 @@ func (q *equeue) sendLoop() {
 		var frm *frame = item.Value.(*frame)
 		switch frm.action {
 		case FRAME_ACTION_CLOSE:
-			q.edge._close(true, CLOSED_FORCE)
+			q._close(true, CLOSED_FORCE)
 			return
 		case FRAME_ACTION_CLOSE_W:
-			q.edge._close(false, CLOSED_WRITE)
+			q._close(false, CLOSED_WRITE)
 			return
 		default:
 			werr := sendFrame(frm)
@@ -237,10 +215,35 @@ func (q *equeue) sendLoop() {
 					tun := edge.mux.pool.Select()
 					tunWrite2(tun, frm)
 				}
-				q.edge._close(true, CLOSED_BY_ERR)
+				q._close(true, CLOSED_BY_ERR)
 				return
 			}
 		}
+	}
+}
+
+// close for ending of queued task
+func (q *equeue) _close(force bool, close_code uint) {
+	q.lock.Lock()
+	defer q.lock.Unlock()
+	e := q.edge
+	if log.V(4) {
+		switch close_code {
+		case CLOSED_BY_ERR:
+			log.Infoln("terminate", e.dest)
+		case CLOSED_FORCE:
+			log.Infoln("close", e.dest)
+		case CLOSED_WRITE:
+			log.Infof("closeW %s by peer\n", e.dest)
+		}
+	}
+	q.buffer.Init()
+	q.buffer = nil
+	if force {
+		e.closed = TCP_CLOSE_R | TCP_CLOSE_W
+		SafeClose(e.conn)
+	} else {
+		closeW(e.conn)
 	}
 }
 
