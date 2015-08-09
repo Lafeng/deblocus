@@ -28,6 +28,7 @@ const (
 
 type edgeConn struct {
 	mux      *multiplexer
+	tun      *Conn
 	conn     net.Conn
 	ready    chan byte // peer status
 	key      string
@@ -35,6 +36,20 @@ type edgeConn struct {
 	queue    *equeue
 	positive bool // positively open
 	closed   uint8
+}
+
+func newEdgeConn(mux *multiplexer, key, dest string, tun *Conn, conn net.Conn) *edgeConn {
+	var edge = &edgeConn{
+		mux:  mux,
+		tun:  tun,
+		conn: conn,
+		key:  key,
+		dest: dest,
+	}
+	if mux.isClient {
+		edge.ready = make(chan byte, 1)
+	}
+	return edge
 }
 
 func (e *edgeConn) getTarget() string {
@@ -54,18 +69,20 @@ func (e *edgeConn) deliver(frm *frame) {
 // EgressRouter
 // ------------------------------
 type egressRouter struct {
-	lock     *sync.RWMutex
-	mux      *multiplexer
-	registry map[string]*edgeConn
-	ticker   *time.Ticker
+	lock            *sync.RWMutex
+	mux             *multiplexer
+	registry        map[string]*edgeConn
+	cleanerTicker   *time.Ticker
+	stopCleanerChan chan bool
 }
 
 func newEgressRouter(mux *multiplexer) *egressRouter {
 	r := &egressRouter{
-		lock:     new(sync.RWMutex),
-		mux:      mux,
-		registry: make(map[string]*edgeConn),
-		ticker:   time.NewTicker(TICKER_INTERVAL),
+		lock:            new(sync.RWMutex),
+		mux:             mux,
+		registry:        make(map[string]*edgeConn),
+		cleanerTicker:   time.NewTicker(TICKER_INTERVAL),
+		stopCleanerChan: make(chan bool, 1),
 	}
 	go r.cleanTask()
 	return r
@@ -99,12 +116,13 @@ func (r *egressRouter) clean() {
 	}
 }
 
-func (r *egressRouter) register(key, destination string, conn net.Conn) *edgeConn {
+func (r *egressRouter) register(key, destination string, tun *Conn, conn net.Conn) *edgeConn {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	var edge = r.registry[key]
 	if edge == nil {
-		edge = newEdgeConn(r.mux, key, destination, conn)
+		edge = newEdgeConn(r.mux, key, destination, tun, conn)
+		newEqueue(edge)
 		r.registry[key] = edge
 	}
 	return edge
@@ -137,13 +155,26 @@ func (r *egressRouter) cleanOfTun(tun *Conn) {
 }
 
 func (r *egressRouter) cleanTask() {
-	for _ = range r.ticker.C {
-		r.clean()
+	var (
+		stopCh <-chan bool = r.stopCleanerChan
+		runCh              = r.cleanerTicker.C
+	)
+	for {
+		select {
+		case s := <-stopCh:
+			if s {
+				return
+			}
+		case <-runCh:
+			r.clean()
+		}
 	}
 }
 
 func (r *egressRouter) stopCleanTask() {
-	r.ticker.Stop()
+	r.stopCleanerChan <- true
+	close(r.stopCleanerChan)
+	r.cleanerTicker.Stop()
 }
 
 // -------------------------------
@@ -156,16 +187,7 @@ type equeue struct {
 	buffer *list.List
 }
 
-func newEdgeConn(mux *multiplexer, key, destination string, conn net.Conn) *edgeConn {
-	var edge = &edgeConn{
-		mux:  mux,
-		conn: conn,
-		key:  key,
-		dest: destination,
-	}
-	if mux.isClient {
-		edge.ready = make(chan byte, 1)
-	}
+func newEqueue(edge *edgeConn) *equeue {
 	l := new(sync.Mutex)
 	q := &equeue{
 		edge:   edge,
@@ -175,7 +197,7 @@ func newEdgeConn(mux *multiplexer, key, destination string, conn net.Conn) *edge
 	}
 	edge.queue = q
 	go q.sendLoop()
-	return edge
+	return q
 }
 
 func (q *equeue) _push(frm *frame) {
@@ -183,7 +205,9 @@ func (q *equeue) _push(frm *frame) {
 	defer q.cond.Signal()
 	defer q.lock.Unlock()
 	// push
-	q.buffer.PushBack(frm)
+	if q.buffer != nil {
+		q.buffer.PushBack(frm)
+	} // else the queue was exited
 }
 
 func (q *equeue) sendLoop() {
@@ -207,13 +231,19 @@ func (q *equeue) sendLoop() {
 		default:
 			werr := sendFrame(frm)
 			if werr {
-				if q.edge.closed&TCP_CLOSE_W == 0 { // only positively closed can notify peer
-					frm.length = 0
-					frm.action = FRAME_ACTION_CLOSE_R
-					edge := q.edge
+				edge := q.edge
+				if edge.closed&TCP_CLOSE_W == 0 { // only positively closed can notify peer
 					edge.closed |= TCP_CLOSE_W
-					tun := edge.mux.pool.Select()
-					tunWrite2(tun, frm)
+					tun := edge.tun
+					// may be a broken tun
+					if (tun == nil || tun.LocalAddr() == nil) && edge.mux.isClient {
+						tun = edge.mux.pool.Select()
+					}
+					if tun != nil {
+						frm.length = 0
+						frm.action = FRAME_ACTION_CLOSE_R
+						tunWrite2(tun, frm)
+					}
 				}
 				q._close(true, CLOSED_BY_ERR)
 				return

@@ -195,7 +195,7 @@ func (p *multiplexer) HandleRequest(prot string, client net.Conn, target string)
 	tun := p.pool.Select()
 	ThrowIf(tun == nil, "No tun to deliveries request")
 	key := sessionKey(tun, sid)
-	edge := p.router.register(key, target, client) // write edge
+	edge := p.router.register(key, target, tun, client) // write edge
 	edge.positive = true
 	p.relay(edge, tun, sid) // read edge
 }
@@ -322,7 +322,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 
 func sessionKey(tun *Conn, sid uint16) string {
 	if tun.identifier != NULL {
-		return tun.identifier + "_" + strconv.FormatUint(uint64(sid), 10)
+		return tun.identifier + "." + strconv.FormatUint(uint64(sid), 10)
 	} else {
 		return fmt.Sprintf("%s_%s_%d", tun.LocalAddr(), tun.RemoteAddr(), sid)
 	}
@@ -344,11 +344,11 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		frm.action = FRAME_ACTION_OPEN_N
 		tunWrite2(tun, frm)
 	} else {
-		if log.V(3) {
-			log.Infoln("OPEN_Y", target, "established for", key)
+		if log.V(1) {
+			log.Infoln("OPEN", target, "for", key)
 		}
 		dstConn.SetReadDeadline(ZERO_TIME)
-		edge := p.router.register(key, target, dstConn) // write edge
+		edge := p.router.register(key, target, tun, dstConn) // write edge
 		frm.action = FRAME_ACTION_OPEN_Y
 		if tunWrite2(tun, frm) == nil {
 			p.relay(edge, tun, frm.sid) // read edge

@@ -118,7 +118,7 @@ func (m *clientMgr) selectClient() *t.Client {
 		}
 	}
 	log.Errorf("No available tunnels for servicing new request")
-	time.Sleep(time.Second)
+	time.Sleep(t.REST_INTERVAL)
 	return nil
 }
 

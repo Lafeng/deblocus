@@ -119,7 +119,7 @@ type D5Params struct {
 
 func (d *D5Params) RemoteName() string {
 	if d.provider != NULL {
-		return fmt.Sprintf("%s[%s]", d.provider, d.d5sAddrStr)
+		return d.provider + "@" + d.d5sAddrStr
 	} else {
 		return d.d5sAddrStr
 	}

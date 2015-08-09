@@ -12,6 +12,7 @@ import (
 
 const (
 	RETRY_INTERVAL = time.Second * 5
+	REST_INTERVAL  = RETRY_INTERVAL
 )
 
 type Client struct {
@@ -98,7 +99,7 @@ func (c *Client) startDataTun(again bool) {
 			atomic.AddInt32(&c.dtCnt, -1)
 		}
 		if err := recover(); err != nil {
-			log.Warningf("DTun failed to connect(%s). Retry after %s\n", err, RETRY_INTERVAL)
+			log.Errorf("DTun failed to connect(%s). Retry after %s\n", err, RETRY_INTERVAL)
 			c.eventHandler(evt_dt_closed, true)
 			if DEBUG {
 				ex.CatchException(err)
@@ -117,7 +118,7 @@ func (c *Client) startDataTun(again bool) {
 			}
 			atomic.AddInt32(&c.dtCnt, 1)
 			c.mux.Listen(conn, c.eventHandler, c.tp.dtInterval)
-			log.Warningf("DTun(%s) was disconnected. Reconnect after %s\n", conn.sign(), RETRY_INTERVAL)
+			log.Errorf("DTun(%s) was disconnected. Reconnect after %s\n", conn.sign(), RETRY_INTERVAL)
 			break
 		} else {
 			c.pendingSema.acquire(RETRY_INTERVAL)
@@ -131,7 +132,7 @@ func (c *Client) eventHandler(e event, msg ...interface{}) {
 	case evt_st_closed:
 		atomic.StoreInt32(&c.State, -1)
 		c.clearTokens()
-		log.Warningf("Lost connection of gateway %s. Reconnect after %s\n", c.nego.RemoteName(), RETRY_INTERVAL)
+		log.Errorf("Lost connection of gateway %s. Reconnect after %s\n", c.nego.RemoteName(), RETRY_INTERVAL)
 		go c.StartSigTun(mlen > 0)
 	case evt_st_ready:
 		atomic.StoreInt32(&c.State, 0)
@@ -181,7 +182,7 @@ func (c *Client) ClientServe(conn net.Conn) {
 		done = true
 	default:
 		log.Warningln("unrecognized request from", conn.RemoteAddr())
-		time.Sleep(3 * time.Second)
+		time.Sleep(REST_INTERVAL)
 	}
 
 }

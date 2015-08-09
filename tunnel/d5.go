@@ -242,7 +242,7 @@ func (s *S5Step1) respondSocks5() bool {
 
 func detectProtocol(pbconn *pushbackInputStream) int {
 	var b = make([]byte, 2)
-	n, e := pbconn.Read(b)
+	n, e := io.ReadFull(pbconn, b)
 	if n != 2 {
 		panic(io.ErrUnexpectedEOF.Error())
 	}
