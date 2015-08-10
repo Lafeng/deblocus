@@ -14,6 +14,7 @@ import (
 	"github.com/spance/deblocus/exception"
 	log "github.com/spance/deblocus/golang/glog"
 	"io"
+	"math/rand"
 	"net"
 	"os"
 	"os/user"
@@ -49,6 +50,10 @@ var (
 	CONF_ERROR              = exception.NewW("Error config")
 )
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 func IsNotExist(file string) bool {
 	_, err := os.Stat(file)
 	return os.IsNotExist(err)
@@ -63,6 +68,13 @@ func i64HumanSize(size int64) string {
 		size = size >> 10
 	}
 	return strconv.FormatInt(size, 10) + string(SIZE_UNIT[i])
+}
+
+func randomRange(min, max int64) (n int64) {
+	for n < min || n >= max {
+		n = rand.Int63n(max)
+	}
+	return n
 }
 
 func dumpHex(title string, byteArray []byte) {

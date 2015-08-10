@@ -6,7 +6,6 @@ import (
 	ex "github.com/spance/deblocus/exception"
 	log "github.com/spance/deblocus/golang/glog"
 	"io"
-	"math/rand"
 	"net"
 	"strconv"
 	"sync"
@@ -61,11 +60,12 @@ func NewIdler(interval int, isClient bool) *idler {
 		interval: time.Second * time.Duration(interval),
 		enabled:  interval > 0,
 	}
-	if !isClient && i.enabled {
-		// server ping will be behind
+	if isClient {
+		i.interval -= GENERAL_SO_TIMEOUT
+	} else { // server ping will be behind
 		i.interval += GENERAL_SO_TIMEOUT
 	}
-	i.interval += time.Duration(rand.Int63n(int64(GENERAL_SO_TIMEOUT)))
+	i.interval += time.Duration(randomRange(int64(time.Second), int64(GENERAL_SO_TIMEOUT)))
 	return i
 }
 
@@ -195,9 +195,8 @@ func (p *multiplexer) HandleRequest(prot string, client net.Conn, target string)
 	tun := p.pool.Select()
 	ThrowIf(tun == nil, "No tun to deliveries request")
 	key := sessionKey(tun, sid)
-	edge := p.router.register(key, target, tun, client) // write edge
-	edge.positive = true
-	p.relay(edge, tun, sid) // read edge
+	edge := p.router.register(key, target, tun, client, true) // write edge
+	p.relay(edge, tun, sid)                                   // read edge
 }
 
 func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
@@ -348,7 +347,7 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 			log.Infoln("OPEN", target, "for", key)
 		}
 		dstConn.SetReadDeadline(ZERO_TIME)
-		edge := p.router.register(key, target, tun, dstConn) // write edge
+		edge := p.router.register(key, target, tun, dstConn, false) // write edge
 		frm.action = FRAME_ACTION_OPEN_Y
 		if tunWrite2(tun, frm) == nil {
 			p.relay(edge, tun, frm.sid) // read edge
@@ -383,6 +382,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		}
 		select {
 		case code = <-edge.ready:
+			edge.initEqueue() // client delayed starting queue
 		case <-time.After(WAITING_OPEN_TIMEOUT):
 			log.Errorf("waiting open-signal(sid=%d) timeout for %s\n", sid, edge.dest)
 		}

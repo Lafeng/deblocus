@@ -16,7 +16,7 @@ import (
 
 const (
 	GENERATE_TOKEN_NUM = 16
-	TOKENS_FLOOR       = 8
+	TOKENS_FLOOR       = 2
 	PARALLEL_TUN_QTY   = 2
 	TKSZ               = sha1.Size
 )

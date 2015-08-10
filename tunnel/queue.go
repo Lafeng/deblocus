@@ -52,14 +52,6 @@ func newEdgeConn(mux *multiplexer, key, dest string, tun *Conn, conn net.Conn) *
 	return edge
 }
 
-func (e *edgeConn) getTarget() string {
-	if e.dest != NULL {
-		return e.dest
-	} else {
-		return e.conn.RemoteAddr().String()
-	}
-}
-
 func (e *edgeConn) deliver(frm *frame) {
 	frm.conn = e
 	e.queue._push(frm)
@@ -116,13 +108,16 @@ func (r *egressRouter) clean() {
 	}
 }
 
-func (r *egressRouter) register(key, destination string, tun *Conn, conn net.Conn) *edgeConn {
+func (r *egressRouter) register(key, destination string, tun *Conn, conn net.Conn, positive bool) *edgeConn {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	var edge = r.registry[key]
 	if edge == nil {
 		edge = newEdgeConn(r.mux, key, destination, tun, conn)
-		newEqueue(edge)
+		edge.positive = positive
+		if !positive { // in server
+			edge.initEqueue()
+		}
 		r.registry[key] = edge
 	}
 	return edge
@@ -134,7 +129,9 @@ func (r *egressRouter) destroy() {
 	defer r.lock.Unlock()
 	var frm = &frame{action: FRAME_ACTION_CLOSE}
 	for _, e := range r.registry {
-		e.queue._push(frm) // wakeup and self-exiting
+		if e.queue != nil {
+			e.queue._push(frm) // wakeup and self-exiting
+		}
 	}
 	r.stopCleanTask()
 	r.registry = nil
@@ -147,7 +144,7 @@ func (r *egressRouter) cleanOfTun(tun *Conn) {
 	var prefix = tun.identifier
 	var frm = &frame{action: FRAME_ACTION_CLOSE}
 	for k, e := range r.registry {
-		if strings.HasPrefix(k, prefix) {
+		if strings.HasPrefix(k, prefix) && e.queue != nil {
 			e.queue._push(frm)
 			delete(r.registry, k)
 		}
@@ -187,7 +184,7 @@ type equeue struct {
 	buffer *list.List
 }
 
-func newEqueue(edge *edgeConn) *equeue {
+func (edge *edgeConn) initEqueue() *equeue {
 	l := new(sync.Mutex)
 	q := &equeue{
 		edge:   edge,
@@ -289,6 +286,6 @@ func sendFrame(frm *frame) (werr bool) {
 	}
 	werr = true
 	// an error occured
-	log.Warningf("Write edge(%s) error(%v). %s\n", frm.conn.getTarget(), ew, frm)
+	log.Warningf("Write edge(%s) error(%v). %s\n", frm.conn.dest, ew, frm)
 	return
 }
