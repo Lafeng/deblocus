@@ -371,7 +371,11 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 			tunWrite1(tun, buf[:FRAME_HEADER_LEN]) // tell peer to closeW
 			edge.closed |= TCP_CLOSE_R
 		}
-		closeR(src)
+		if code == FRAME_ACTION_OPEN_Y {
+			closeR(src)
+		} else { // remote open failed
+			SafeClose(src)
+		}
 	}()
 	if edge.positive { // for client:
 		// new connection must send OPEN first.

@@ -53,8 +53,10 @@ func newEdgeConn(mux *multiplexer, key, dest string, tun *Conn, conn net.Conn) *
 }
 
 func (e *edgeConn) deliver(frm *frame) {
-	frm.conn = e
-	e.queue._push(frm)
+	if e.queue != nil {
+		frm.conn = e
+		e.queue._push(frm)
+	}
 }
 
 // ------------------------------
