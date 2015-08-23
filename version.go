@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sort"
 )
 
 const (
@@ -65,9 +66,14 @@ func showUsage() {
 		}
 		group[array[0]] = append(group[array[0]], cArg)
 	})
-	for k, a := range group {
+	sk := make([]string, 0, len(group))
+	for k := range group {
+		sk = append(sk, k)
+	}
+	sort.Strings(sk)
+	for _, k := range sk {
 		fmt.Printf("%s options:\n", k)
-		for _, i := range a {
+		for _, i := range group[k] {
 			fmt.Printf("  %-12s %s\n", i.literal, i.usage)
 			if i.example != "" {
 				fmt.Printf("  %-12s %s\n", " ", i.example)
