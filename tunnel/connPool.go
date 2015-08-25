@@ -36,13 +36,13 @@ func (h *ConnPool) Remove(c *Conn) bool {
 	h.lock.Lock()
 	defer h.lock.Unlock()
 	var (
-		i int
 		x int = -1
 		n     = h.pool.Len()
 	)
-	for i = 0; i < n; i++ {
+	for i := 0; i < n; i++ {
 		if h.pool[i] == c {
 			x = i
+			break
 		}
 	}
 	if x < 0 {

@@ -8,15 +8,17 @@ import (
 )
 
 type semaphore struct {
-	bus      chan byte
-	lock     sync.Locker
-	observer int32
+	bus           chan byte
+	lock          sync.Locker
+	observer      int32
+	timeoutResult bool
 }
 
-func NewSemaphore() *semaphore {
+func NewSemaphore(timeoutResult bool) *semaphore {
 	return &semaphore{
-		bus:  make(chan byte, 8),
-		lock: new(sync.Mutex),
+		bus:           make(chan byte, 8),
+		lock:          new(sync.Mutex),
+		timeoutResult: timeoutResult,
 	}
 }
 
@@ -38,10 +40,10 @@ func (s *semaphore) acquire(timeout time.Duration) bool {
 			if x == 0 {
 				runtime.Gosched()
 			} else {
-				return true
+				return x < 0xff
 			}
 		case <-time.After(timeout):
-			return false
+			return s.timeoutResult
 		}
 	}
 }
@@ -53,5 +55,15 @@ func (s *semaphore) notifyAll() {
 	s.lock.Unlock()
 	for ; size > 0; size-- {
 		s.bus <- 1
+	}
+}
+
+func (s *semaphore) clearAll() {
+	var size int32
+	s.lock.Lock()
+	size = s.observer
+	s.lock.Unlock()
+	for ; size > 0; size-- {
+		s.bus <- 0xff
 	}
 }

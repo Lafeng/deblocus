@@ -63,3 +63,18 @@ func CatchException(e interface{}) bool {
 	}
 	return false
 }
+
+func ErrorOf(e interface{}) (err error, ie bool) {
+	if e == nil {
+		return nil, false
+	} else {
+		ie = true
+	}
+	switch e.(type) {
+	case error:
+		err = e.(error)
+	default:
+		err = &Exception{msg: fmt.Sprintf("%v", e)}
+	}
+	return
+}

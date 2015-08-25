@@ -54,6 +54,21 @@ func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
+func nvl(v interface{}, def interface{}) interface{} {
+	if v == nil {
+		return def
+	}
+	return v
+}
+
+func SubstringBefore(str, sep string) string {
+	if p := strings.Index(str, sep); p > 0 {
+		return str[:p]
+	} else {
+		return str
+	}
+}
+
 func IsNotExist(file string) bool {
 	_, err := os.Stat(file)
 	return os.IsNotExist(err)
@@ -131,7 +146,7 @@ type D5Params struct {
 
 func (d *D5Params) RemoteName() string {
 	if d.provider != NULL {
-		return d.provider + "@" + d.d5sAddrStr
+		return d.provider + "~" + d.d5sAddrStr
 	} else {
 		return d.d5sAddrStr
 	}
