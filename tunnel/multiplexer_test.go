@@ -80,7 +80,7 @@ func startServer() {
 	ln, e := net.Listen("tcp", svrAddr)
 	ThrowErr(e)
 	defer ln.Close()
-	server = NewServerMultiplexer()
+	server = newServerMultiplexer()
 	for {
 		conn, e := ln.Accept()
 		ThrowErr(e)
@@ -89,7 +89,7 @@ func startServer() {
 }
 
 func startClient(size int) {
-	client = NewClientMultiplexer()
+	client = newClientMultiplexer()
 	for i := 0; i < size; i++ {
 		conn, e := net.Dial("tcp", svrAddr)
 		ThrowErr(e)
