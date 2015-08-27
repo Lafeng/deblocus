@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -23,13 +24,16 @@ const (
 	FRAME_ACTION_DATA
 	FRAME_ACTION_PING
 	FRAME_ACTION_PONG
+	FRAME_ACTION_TOKENS
+	FRAME_ACTION_TOKEN_REQUEST
+	FRAME_ACTION_TOKEN_REPLY
 	FRAME_ACTION_SLOWDOWN = 0xff
 )
 
 const (
 	WAITING_OPEN_TIMEOUT = GENERAL_SO_TIMEOUT * 2
 	FRAME_HEADER_LEN     = 5
-	FRAME_MAX_LEN        = 0xffff
+	FRAME_MAX_LEN        = 0xffff - FRAME_HEADER_LEN
 	MUX_PENDING_CLOSE    = -1
 	MUX_CLOSED           = -2
 )
@@ -41,11 +45,25 @@ const (
 	ERR_UNKNOWN      = 0x0
 )
 
+// --------------------
+// event_handler
+// --------------------
+type event byte
+
+var (
+	evt_tokens = event(1)
+)
+
+type event_handler func(e event, msg ...interface{})
+
 var (
 	SID_SEQ uint32
 	seqLock sync.Locker = new(sync.Mutex)
 )
 
+// --------------------
+// idler
+// --------------------
 type idler struct {
 	enabled  bool
 	waiting  bool
@@ -154,28 +172,36 @@ type multiplexer struct {
 	isClient bool
 	pool     *ConnPool
 	router   *egressRouter
-	mode     string
+	role     string
 	status   int
+	pingCnt  int32 // received ping count
 }
 
-func NewClientMultiplexer() *multiplexer {
+func newServerMultiplexer() *multiplexer {
 	m := &multiplexer{
-		isClient: true,
+		isClient: false,
 		pool:     NewConnPool(),
-		mode:     "CLT",
+		role:     "SVR",
 	}
 	m.router = newEgressRouter(m)
 	return m
 }
 
-func NewServerMultiplexer() *multiplexer {
-	m := &multiplexer{mode: "SVR"}
+func newClientMultiplexer() *multiplexer {
+	m := &multiplexer{
+		isClient: true,
+		pool:     NewConnPool(),
+		role:     "CLT",
+	}
 	m.router = newEgressRouter(m)
 	return m
 }
 
 // destroy each listener of all pooled tun, and destroy egress queues
 func (p *multiplexer) destroy() {
+	if p.status < 0 {
+		return
+	}
 	defer func() {
 		if !ex.CatchException(recover()) {
 			p.status = MUX_CLOSED
@@ -185,6 +211,8 @@ func (p *multiplexer) destroy() {
 	p.status = MUX_PENDING_CLOSE
 	p.router.destroy() // destroy queue
 	p.pool.destroy()
+	p.router = nil
+	p.pool = nil
 }
 
 func (p *multiplexer) HandleRequest(prot string, client net.Conn, target string) {
@@ -200,34 +228,34 @@ func (p *multiplexer) HandleRequest(prot string, client net.Conn, target string)
 }
 
 func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
-	p.router.cleanOfTun(tun)
-	if p.isClient {
+	if p.router != nil {
+		p.router.cleanOfTun(tun)
+	}
+	if p.pool != nil {
 		p.pool.Remove(tun)
 	}
-	if handler != nil && p.status >= 0 {
-		handler(evt_dt_closed, tun)
-	}
+	SafeClose(tun)
 }
 
 // TODO notify peer to slow down when queue increased too fast
 func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
-	if p.isClient {
-		tun.priority = &TSPriority{0, 1e9}
-		p.pool.Push(tun)
-	}
+	tun.priority = &TSPriority{0, 1e9}
+	p.pool.Push(tun)
 	defer p.onTunDisconnected(tun, handler)
-	tun.SetSockOpt(1, 1, 0)
+	tun.SetSockOpt(1, 0, 0)
 	var (
-		header     = make([]byte, FRAME_HEADER_LEN)
-		router     = p.router
-		idle       = NewIdler(interval, p.isClient)
-		lastActive = time.Now().Unix()
-		nr         int
-		er         error
-		now        int64
-		frm        *frame
-		key        string
+		header = make([]byte, FRAME_HEADER_LEN)
+		router = p.router
+		idle   = NewIdler(interval, p.isClient)
+		nr     int
+		er     error
+		frm    *frame
+		key    string
 	)
+	if !p.isClient {
+		// first ping frame will let client to be aware of using a valid token.
+		idle.ping(tun)
+	}
 	for {
 		idle.newRound(tun)
 		nr, er = io.ReadFull(tun, header)
@@ -244,9 +272,13 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 					continue
 				}
 			case ERR_PING_TIMEOUT:
-				log.Errorln("Peer was unresponsive then close", tun.identifier)
+				if log.V(2) {
+					log.Warningln("Peer was unresponsive then close", tun.identifier)
+				}
 			default:
-				log.Errorln("Read tunnel", tun.identifier, er)
+				if log.V(2) {
+					log.Warningln("Read tunnel", tun.identifier, er)
+				}
 			}
 			return // error, abandon tunnel
 		}
@@ -288,34 +320,30 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 			} else {
 				if log.V(4) {
 					if frm.action == FRAME_ACTION_OPEN_Y {
-						log.Infoln(p.mode, "recv OPEN_Y", frm)
+						log.Infoln(p.role, "recv OPEN_Y", frm)
 					} else {
-						log.Infoln(p.mode, "recv OPEN_N", frm)
+						log.Infoln(p.role, "recv OPEN_N", frm)
 					}
 				}
 				edge.ready <- frm.action
 				close(edge.ready)
 			}
 		case FRAME_ACTION_PING:
-			if idle.pong(tun) != nil {
+			if idle.pong(tun) == nil {
+				atomic.AddInt32(&p.pingCnt, 1)
+			} else { // reply pong failed
 				return
 			}
 		case FRAME_ACTION_PONG:
 			if !idle.verify() {
 				log.Warningln("Incorrect action_pong received")
 			}
+		case FRAME_ACTION_TOKENS:
+			handler(evt_tokens, frm.data)
 		default:
-			log.Errorln(p.mode, "Unrecognized", frm)
+			log.Errorln(p.role, "Unrecognized", frm)
 		}
-
-		// prevent frequently calling, especially in high-speed transmitting.
-		if now = time.Now().Unix(); (now-lastActive) > 2 && handler != nil {
-			lastActive = now
-			handler(evt_st_active, now)
-		}
-		if p.isClient {
-			tun.Update()
-		}
+		tun.Update()
 	}
 }
 
@@ -408,6 +436,32 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 			return
 		}
 	}
+}
+
+func (p *multiplexer) bestSend(data []byte, action_desc string) bool {
+	var buf = make([]byte, FRAME_HEADER_LEN+len(data))
+	_frame(buf, FRAME_ACTION_TOKENS, 0, data)
+	var tun *Conn
+	for i := 1; i <= 3; i++ {
+		if p.status < 0 /* MUX_CLOSED */ || p.pool == nil {
+			if log.V(4) {
+				log.Warningln("abandon sending data of", action_desc)
+			}
+			break
+		}
+		tun = p.pool.Select()
+		if tun != nil {
+			if tunWrite1(tun, buf) == nil {
+				return true
+			}
+		} else {
+			time.Sleep(time.Millisecond * 200 * time.Duration(i))
+		}
+	}
+	if log.V(3) {
+		log.Warningln("failed to send data of", action_desc)
+	}
+	return false
 }
 
 func tunWrite1(tun *Conn, buf []byte) (err error) {

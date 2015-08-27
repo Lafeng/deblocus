@@ -16,7 +16,7 @@ var cnt1 int32
 var cnt2 int32
 
 func Test_sema(t *testing.T) {
-	s := NewSemaphore()
+	s := NewSemaphore(false)
 	for i := 0; i < acquirer; i++ {
 		go acquire(s, i, t)
 	}
@@ -31,7 +31,7 @@ func Test_sema(t *testing.T) {
 }
 
 func Test_sema2(t *testing.T) {
-	s := NewSemaphore()
+	s := NewSemaphore(false)
 	cnt1 = 0
 	for i := 0; i < acquirer; i++ {
 		go acquire(s, i, t)
@@ -48,7 +48,7 @@ func Test_sema2(t *testing.T) {
 }
 
 func Test_sema_timeout(t *testing.T) {
-	s := NewSemaphore()
+	s := NewSemaphore(false)
 	for i := 0; i < acquirer; i++ {
 		go acquire(s, i, t)
 	}

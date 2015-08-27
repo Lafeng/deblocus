@@ -235,7 +235,7 @@ func (q *equeue) sendLoop() {
 					edge.closed |= TCP_CLOSE_W
 					tun := edge.tun
 					// may be a broken tun
-					if (tun == nil || tun.LocalAddr() == nil) && edge.mux.isClient {
+					if tun == nil || tun.LocalAddr() == nil {
 						tun = edge.mux.pool.Select()
 					}
 					if tun != nil {

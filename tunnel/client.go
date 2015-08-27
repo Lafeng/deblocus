@@ -11,150 +11,164 @@ import (
 )
 
 const (
-	RETRY_INTERVAL = time.Second * 5
-	REST_INTERVAL  = RETRY_INTERVAL
+	DT_PING_INTERVAL = 90
+	RETRY_INTERVAL   = time.Second * 5
+	REST_INTERVAL    = RETRY_INTERVAL
+)
+
+const (
+	CLT_CLOSED  int32 = -1
+	CLT_WORKING int32 = 0
+	CLT_PENDING int32 = 1
 )
 
 type Client struct {
-	sigTun      *signalTunnel
 	mux         *multiplexer
 	token       []byte
 	nego        *d5CNegotiation
 	tp          *tunParams
 	lock        sync.Locker
 	dtCnt       int32
-	State       int32 // -1:aborted 0:working 1:requesting token
-	waitTK      *sync.Cond
-	pendingSema *semaphore
+	State       int32
+	restarting  int32
+	round       int32
+	pendingConn *semaphore
+	pendingTK   *semaphore
 }
-
-type event byte
-
-var (
-	evt_st_closed = event(0)
-	evt_st_ready  = event(1)
-	evt_st_msg    = event(4)
-	evt_st_active = event(5)
-	evt_dt_closed = event(2)
-	evt_dt_ready  = event(3)
-)
-
-type event_handler func(e event, msg ...interface{})
 
 func NewClient(d5p *D5Params, dhKeys *DHKeyPair) *Client {
 	clt := &Client{
 		lock:        new(sync.Mutex),
-		nego:        new(d5CNegotiation),
-		pendingSema: NewSemaphore(),
+		nego:        &d5CNegotiation{D5Params: d5p, dhKeys: dhKeys},
+		State:       CLT_PENDING,
+		pendingConn: NewSemaphore(true), // unestablished connection
+		pendingTK:   NewSemaphore(true), // waiting tokens
 	}
-	clt.waitTK = sync.NewCond(clt.lock)
-	// set parameters
-	clt.nego.D5Params = d5p
-	clt.nego.dhKeys = dhKeys
 	return clt
 }
 
-func (c *Client) StartSigTun(again bool) {
-	defer func() {
-		if err := recover(); err != nil {
-			c.eventHandler(evt_st_closed, true)
-		} else {
-			c.eventHandler(evt_st_ready, c.sigTun.tun.identifier)
+func (c *Client) initialNegotiation() (tun *Conn) {
+	var tp = new(tunParams)
+	var err error
+	tun, err = c.nego.negotiate(tp)
+	if err != nil {
+		log.Errorf("Failed to connect %s, Retry after %s\n", c.nego.RemoteName(), RETRY_INTERVAL)
+		return nil
+	}
+	c.token = tp.token
+	tp.token = nil
+	c.tp = tp
+
+	log.Infoln("Login to the gateway", c.nego.RemoteName(), "successfully")
+	return tun
+}
+
+// start first negotiation
+// start n-1 data tun
+func (c *Client) restart() (tun *Conn, rn int32) {
+	if atomic.CompareAndSwapInt32(&c.restarting, 0, 1) {
+		// discard old conn retrying
+		c.pendingConn.clearAll()
+		// discard requests are waiting for tokens
+		c.pendingTK.clearAll()
+		// release mux
+		if c.mux != nil {
+			c.mux.destroy()
 		}
-	}()
-	if again {
-		/*
-			if c.mux != nil {
-				c.mux.destroy()
-				if c.mux.status == MUX_CLOSED {
-					c.mux = nil
+		c.mux = newClientMultiplexer()
+		// try negotiating connection infinitely until success
+		for i := 0; tun == nil; i++ {
+			if i > 0 {
+				time.Sleep(RETRY_INTERVAL)
+			}
+			tun = c.initialNegotiation()
+		}
+		atomic.CompareAndSwapInt32(&c.restarting, 1, 0)
+		atomic.CompareAndSwapInt32(&c.State, CLT_PENDING, CLT_WORKING)
+		rn = atomic.AddInt32(&c.round, 1)
+		for j := c.tp.tunQty; j > 1; j-- {
+			go c.StartTun(false)
+		}
+	}
+	return
+}
+
+func (c *Client) StartTun(mustRestart bool) {
+	var (
+		wait bool
+		tun  *Conn
+		rn   = atomic.LoadInt32(&c.round)
+	)
+	for {
+		if wait {
+			time.Sleep(RETRY_INTERVAL)
+		}
+		if rn < atomic.LoadInt32(&c.round) {
+			return
+		}
+		if mustRestart {
+			mustRestart = false
+			if atomic.SwapInt32(&c.State, CLT_PENDING) >= CLT_WORKING {
+				tun, rn = c.restart()
+				if tun == nil {
+					return
+				}
+			} else {
+				return
+			}
+		}
+		if atomic.LoadInt32(&c.State) == CLT_WORKING {
+			// negotiation conn executed here firstly will not be null
+			// otherwise must be null then create new one.
+			if tun == nil {
+				var err error
+				tun, err = c.createDataTun()
+				if err != nil {
+					if DEBUG {
+						ex.CatchException(err)
+					}
+					log.Errorf("Failed to connect %s. Reconnect after %s\n", err, RETRY_INTERVAL)
+					wait = true
+					continue
 				}
 			}
-		*/
-		time.Sleep(RETRY_INTERVAL)
-	}
-	stConn, tp := c.nego.negotiate()
-	stConn.identifier = c.nego.RemoteName()
-	c.tp, c.token = tp, tp.token
-	c.sigTun = NewSignalTunnel(stConn, tp.stInterval)
-	go c.sigTun.start(c.eventHandler)
-}
 
-// when sigTun is ready
-func (c *Client) startMultiplexer() {
-	if c.mux == nil {
-		c.mux = NewClientMultiplexer()
-		for i := c.tp.tunQty; i > 0; i-- {
-			go c.startDataTun(false)
-		}
-	} else {
-		c.pendingSema.notifyAll()
-	}
-}
-
-func (c *Client) startDataTun(again bool) {
-	var connected bool
-	defer func() {
-		if connected {
-			atomic.AddInt32(&c.dtCnt, -1)
-		}
-		if err := recover(); err != nil {
-			log.Errorf("DTun failed to connect(%s). Retry after %s\n", err, RETRY_INTERVAL)
-			c.eventHandler(evt_dt_closed, true)
-			if DEBUG {
-				ex.CatchException(err)
-			}
-		}
-	}()
-	if again {
-		time.Sleep(RETRY_INTERVAL)
-	}
-	for {
-		if atomic.LoadInt32(&c.State) == 0 {
-			conn := c.createDataTun()
-			connected = true
 			if log.V(1) {
-				log.Infof("DTun(%s) is established\n", conn.sign())
+				log.Infof("Tun=%s is established\n", tun.sign())
 			}
 			atomic.AddInt32(&c.dtCnt, 1)
-			c.mux.Listen(conn, c.eventHandler, c.tp.dtInterval)
-			log.Errorf("DTun(%s) was disconnected. Reconnect after %s\n", conn.sign(), RETRY_INTERVAL)
-			break
-		} else {
-			c.pendingSema.acquire(RETRY_INTERVAL)
-		}
-	}
-}
+			c.mux.Listen(tun, c.eventHandler, c.tp.dtInterval)
+			dtcnt := atomic.AddInt32(&c.dtCnt, -1)
 
-func (c *Client) eventHandler(e event, msg ...interface{}) {
-	var mlen = len(msg)
-	switch e {
-	case evt_st_closed:
-		atomic.StoreInt32(&c.State, -1)
-		c.clearTokens()
-		log.Errorf("Lost connection of gateway %s. Reconnect after %s\n", c.nego.RemoteName(), RETRY_INTERVAL)
-		go c.StartSigTun(mlen > 0)
-	case evt_st_ready:
-		atomic.StoreInt32(&c.State, 0)
-		log.Infoln("Tunnel negotiated with gateway", msg[0], "successfully")
-		go c.startMultiplexer()
-	case evt_dt_closed:
-		go c.startDataTun(mlen > 0)
-	case evt_st_msg:
-		if mlen == 1 {
-			go c.commandHandler(msg[0].(byte), nil)
-		} else {
-			go c.commandHandler(msg[0].(byte), msg[1].([]byte))
+			log.Errorf("Tun=%s was disconnected, Reconnect after %s\n", tun.sign(), RETRY_INTERVAL)
+
+			if atomic.LoadInt32(&c.mux.pingCnt) <= 0 { // dirty tokens: used abandoned tokens
+				c.clearTokens()
+			}
+
+			if dtcnt <= 0 { // restart: all connections were disconnected
+				log.Errorf("Connections %s were lost\n", tun.identifier)
+				go c.StartTun(true)
+				return
+			} else { // reconnect
+				// waiting and don't use old tun
+				wait = true
+				tun = nil
+			}
+		} else { // can't create tun and waiting for release
+			if !c.pendingConn.acquire(RETRY_INTERVAL) {
+				return
+			}
 		}
-	case evt_st_active:
-		c.sigTun.active(msg[0].(int64))
 	}
 }
 
 func (c *Client) ClientServe(conn net.Conn) {
 	var done bool
 	defer func() {
-		ex.CatchException(recover())
+		if e := recover(); e != nil {
+			log.Warningln(e)
+		}
 		if !done {
 			SafeClose(conn)
 		}
@@ -187,9 +201,17 @@ func (c *Client) ClientServe(conn net.Conn) {
 
 }
 
-func (t *Client) createDataTun() *Conn {
+// must catch exceptions and return
+func (t *Client) createDataTun() (c *Conn, err error) {
+	defer func() {
+		if e, y := ex.ErrorOf(recover()); y {
+			err = e
+		}
+	}()
 	conn, err := net.DialTimeout("tcp", t.nego.d5sAddr.String(), GENERAL_SO_TIMEOUT)
-	ThrowErr(err)
+	if err != nil {
+		return nil, err
+	}
 	buf := make([]byte, DMLEN2)
 	token := t.getToken()
 	copy(buf, token)
@@ -199,9 +221,16 @@ func (t *Client) createDataTun() *Conn {
 	cipher := t.tp.cipherFactory.NewCipher(token)
 	_, err = conn.Write(buf)
 	ThrowErr(err)
-	c := NewConn(conn.(*net.TCPConn), cipher)
+	c = NewConn(conn.(*net.TCPConn), cipher)
 	c.identifier = t.nego.RemoteName()
-	return c
+	return c, nil
+}
+
+func (c *Client) eventHandler(e event, msg ...interface{}) {
+	switch e {
+	case evt_tokens:
+		go c.saveTokens(msg[0].([]byte))
+	}
 }
 
 func (t *Client) Stats() string {
@@ -211,37 +240,52 @@ func (t *Client) Stats() string {
 
 func (c *Client) getToken() []byte {
 	c.lock.Lock()
-	defer func() {
-		c.lock.Unlock()
-		tlen := len(c.token) / TKSZ
-		if tlen <= TOKENS_FLOOR && atomic.LoadInt32(&c.State) == 0 {
-			atomic.AddInt32(&c.State, 1)
-			if log.V(4) {
-				log.Infof("Request new tokens, pool=%d\n", tlen)
-			}
-			c.sigTun.postCommand(TOKEN_REQUEST, nil)
-		}
-	}()
+	defer c.lock.Unlock()
+
+	var tlen = len(c.token) / TKSZ
+	if tlen <= TOKENS_FLOOR {
+		c.requireTokens()
+	}
 	for len(c.token) < TKSZ {
 		log.Warningln("waiting for token. May be the requests are coming too fast.")
-		c.waitTK.Wait()
-		if atomic.LoadInt32(&c.State) < 0 {
-			panic("Abandon the request beacause the tunSession was lost.")
+		if !c.pendingTK.acquire(RETRY_INTERVAL * 2) { // discarded request
+			panic("Aborted")
+		}
+		if atomic.LoadInt32(&c.State) < CLT_WORKING {
+			panic("Abandon the request by shutdown.")
 		}
 	}
-	token := c.token[:TKSZ]
+	var token = c.token[:TKSZ]
 	c.token = c.token[TKSZ:]
-
 	return token
 }
 
-func (c *Client) putTokens(tokens []byte) {
+// async request
+func (c *Client) requireTokens() {
+	// non-working state can't require anything
+	if atomic.CompareAndSwapInt32(&c.State, CLT_WORKING, CLT_PENDING) {
+		if log.V(3) {
+			log.Infof("Request new tokens, pool=%d\n", len(c.token)/TKSZ)
+		}
+		go c.mux.bestSend([]byte{FRAME_ACTION_TOKEN_REQUEST}, "requireTokens")
+	}
+}
+
+func (c *Client) saveTokens(data []byte) {
+	var tokens []byte
+	switch data[0] {
+	case FRAME_ACTION_TOKEN_REQUEST:
+		log.Warningf("unexpected token request")
+		return
+	case FRAME_ACTION_TOKEN_REPLY:
+		tokens = data[1:]
+	}
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.token = append(c.token, tokens...)
-	atomic.StoreInt32(&c.State, 0)
-	c.waitTK.Broadcast()
-	if log.V(4) {
+	atomic.CompareAndSwapInt32(&c.State, CLT_PENDING, CLT_WORKING)
+	c.pendingTK.notifyAll()
+	if log.V(3) {
 		log.Infof("Recv tokens=%d pool=%d\n", len(tokens)/TKSZ, len(c.token)/TKSZ)
 	}
 }
@@ -250,13 +294,4 @@ func (c *Client) clearTokens() {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	c.token = nil
-}
-
-func (c *Client) commandHandler(cmd byte, args []byte) {
-	switch cmd {
-	case TOKEN_REPLY:
-		c.putTokens(args)
-	default:
-		log.Warningf("Unrecognized command=%x packet=[% x]\n", cmd, args)
-	}
 }
