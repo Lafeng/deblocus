@@ -291,19 +291,21 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 
 		switch frm.action {
 		case FRAME_ACTION_CLOSE_W:
-			if edge := router.getRegistered(key); edge != nil {
+			if edge, _ := router.getRegistered(key); edge != nil {
 				edge.closed |= TCP_CLOSE_W
 				edge.deliver(frm)
 			}
 		case FRAME_ACTION_CLOSE_R:
-			if edge := router.getRegistered(key); edge != nil {
+			if edge, _ := router.getRegistered(key); edge != nil {
 				edge.closed |= TCP_CLOSE_R
 				closeR(edge.conn)
 			}
 		case FRAME_ACTION_DATA:
-			edge := router.getRegistered(key)
+			edge, pre := router.getRegistered(key)
 			if edge != nil {
 				edge.deliver(frm)
+			} else if pre {
+				router.preDeliver(key, frm)
 			} else {
 				if log.V(2) {
 					log.Warningln("peer send data to an unexisted socket.", key, frm)
@@ -317,7 +319,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 		case FRAME_ACTION_OPEN:
 			go p.connectToDest(frm, key, tun)
 		case FRAME_ACTION_OPEN_N, FRAME_ACTION_OPEN_Y:
-			edge := router.getRegistered(key)
+			edge, _ := router.getRegistered(key)
 			if edge != nil {
 				if log.V(4) {
 					if frm.action == FRAME_ACTION_OPEN_Y {
@@ -369,6 +371,9 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		err     error
 		target  = string(frm.data)
 	)
+	if FAST_OPEN {
+		p.router.preRegister(key)
+	}
 	dstConn, err = net.DialTimeout("tcp", target, GENERAL_SO_TIMEOUT)
 	frm.length = 0
 	if err != nil {

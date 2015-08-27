@@ -66,6 +66,7 @@ type egressRouter struct {
 	lock            *sync.RWMutex
 	mux             *multiplexer
 	registry        map[string]*edgeConn
+	preRegistry     map[string]*list.List
 	cleanerTicker   *time.Ticker
 	stopCleanerChan chan bool
 }
@@ -78,22 +79,40 @@ func newEgressRouter(mux *multiplexer) *egressRouter {
 		cleanerTicker:   time.NewTicker(TICKER_INTERVAL),
 		stopCleanerChan: make(chan bool, 1),
 	}
+	if !mux.isClient {
+		r.preRegistry = make(map[string]*list.List)
+	}
 	go r.cleanTask()
 	return r
 }
 
-func (r *egressRouter) getRegistered(key string) *edgeConn {
+func (r *egressRouter) preRegister(key string) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.preRegistry[key] = list.New()
+}
+
+func (r *egressRouter) preDeliver(key string, f *frame) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	if buffer := r.preRegistry[key]; buffer != nil {
+		buffer.PushBack(f)
+	}
+}
+
+func (r *egressRouter) getRegistered(key string) (e *edgeConn, preRegistered bool) {
 	r.lock.RLock()
-	var e = r.registry[key]
+	e = r.registry[key]
+	_, preRegistered = r.preRegistry[key]
 	r.lock.RUnlock()
 	if e != nil && e.closed >= TCP_CLOSED {
 		// clean when getting
 		r.lock.Lock()
 		delete(r.registry, key)
 		r.lock.Unlock()
-		return nil
+		return nil, false
 	}
-	return e
+	return
 }
 
 func (r *egressRouter) clean() {
@@ -121,6 +140,11 @@ func (r *egressRouter) register(key, destination string, tun *Conn, conn net.Con
 			edge.initEqueue()
 		}
 		r.registry[key] = edge
+	}
+	var buffer = r.preRegistry[key]
+	if buffer != nil {
+		delete(r.preRegistry, key)
+		edge.queue._push_all(buffer)
 	}
 	return edge
 }
@@ -206,6 +230,20 @@ func (q *equeue) _push(frm *frame) {
 	// push
 	if q.buffer != nil {
 		q.buffer.PushBack(frm)
+	} // else the queue was exited
+}
+
+func (q *equeue) _push_all(buffer *list.List) {
+	q.lock.Lock()
+	defer q.cond.Signal()
+	defer q.lock.Unlock()
+	// push
+	if _list := q.buffer; _list != nil {
+		for i, e := buffer.Len(), buffer.Front(); i > 0; i, e = i-1, e.Next() {
+			f := e.Value.(*frame)
+			f.conn = q.edge
+			_list.PushBack(f)
+		}
 	} // else the queue was exited
 }
 
