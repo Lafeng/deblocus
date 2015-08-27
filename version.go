@@ -31,7 +31,7 @@ func init() {
 }
 
 func versionString() string {
-	return fmt.Sprintf("%s version: %d.%d.%04d%s\n", app_name, ver_major, ver_minor, ver_build, build_flag)
+	return fmt.Sprintf("%s version: v%d.%d.%04d%s\n", app_name, ver_major, ver_minor, ver_build, build_flag)
 }
 
 type CArg struct {
