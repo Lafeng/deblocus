@@ -25,6 +25,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"sort"
 )
 
 const (
@@ -256,8 +257,13 @@ func Generate_d5sFile(file string, d5sConf *D5ServConf) (e error) {
 	}
 	desc := getImportableDesc(d5sConf)
 	f.WriteString("#\n# deblocus server configuration\n#\n\n")
-	for k, d := range desc {
-		defaultVal := d.sType.Tag.Get("importable")
+	sk := make([]string, 0, len(desc))
+	for k := range desc {
+		sk = append(sk, k)
+	}
+	sort.Strings(sk)
+	for _, k := range sk {
+		defaultVal := desc[k].sType.Tag.Get("importable")
 		f.WriteString(fmt.Sprintf("%-16s   %s\n", k, defaultVal))
 	}
 	f.WriteString("\n### Please take good care of this secret file during the server life cycle.\n")
