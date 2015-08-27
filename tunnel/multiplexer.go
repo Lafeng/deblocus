@@ -33,7 +33,7 @@ const (
 const (
 	WAITING_OPEN_TIMEOUT = GENERAL_SO_TIMEOUT * 2
 	FRAME_HEADER_LEN     = 5
-	FRAME_MAX_LEN        = 0xffff
+	FRAME_MAX_LEN        = 0xffff - FRAME_HEADER_LEN
 	MUX_PENDING_CLOSE    = -1
 	MUX_CLOSED           = -2
 )
@@ -242,7 +242,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 	tun.priority = &TSPriority{0, 1e9}
 	p.pool.Push(tun)
 	defer p.onTunDisconnected(tun, handler)
-	tun.SetSockOpt(1, 1, 0)
+	tun.SetSockOpt(1, 0, 0)
 	var (
 		header = make([]byte, FRAME_HEADER_LEN)
 		router = p.router

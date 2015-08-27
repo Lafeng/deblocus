@@ -166,7 +166,9 @@ func (c *Client) StartTun(mustRestart bool) {
 func (c *Client) ClientServe(conn net.Conn) {
 	var done bool
 	defer func() {
-		ex.CatchException(recover())
+		if e := recover(); e != nil {
+			log.Warningln(e)
+		}
 		if !done {
 			SafeClose(conn)
 		}
