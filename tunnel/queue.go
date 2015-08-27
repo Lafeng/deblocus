@@ -141,8 +141,7 @@ func (r *egressRouter) register(key, destination string, tun *Conn, conn net.Con
 		}
 		r.registry[key] = edge
 	}
-	var buffer = r.preRegistry[key]
-	if buffer != nil {
+	if buffer := r.preRegistry[key]; buffer != nil {
 		delete(r.preRegistry, key)
 		edge.queue._push_all(buffer)
 	}

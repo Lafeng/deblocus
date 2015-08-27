@@ -32,7 +32,8 @@ const (
 )
 
 const (
-	FAST_OPEN = true
+	FAST_OPEN              = true
+	FAST_OPEN_BUF_MAX_SIZE = 1 << 13 // 8k
 )
 
 const (
@@ -317,6 +318,9 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 				}
 			}
 		case FRAME_ACTION_OPEN:
+			if FAST_OPEN {
+				p.router.preRegister(key)
+			}
 			go p.connectToDest(frm, key, tun)
 		case FRAME_ACTION_OPEN_N, FRAME_ACTION_OPEN_Y:
 			edge, _ := router.getRegistered(key)
@@ -371,9 +375,6 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		err     error
 		target  = string(frm.data)
 	)
-	if FAST_OPEN {
-		p.router.preRegister(key)
-	}
 	dstConn, err = net.DialTimeout("tcp", target, GENERAL_SO_TIMEOUT)
 	frm.length = 0
 	if err != nil {
@@ -436,8 +437,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 	}
 
 	var (
-		tn         int           // total
-		tmax       int = 1 << 13 // 8k
+		tn         int // total
 		nr         int
 		er         error
 		_fast_open = FAST_OPEN && p.isClient
@@ -454,20 +454,19 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 					return
 				}
 			} else {
-				if tn >= tmax {
+				if tn >= FAST_OPEN_BUF_MAX_SIZE { // must waiting for signal
 					select {
 					case code = <-edge.ready:
 					case <-time.After(WAITING_OPEN_TIMEOUT):
 						log.Errorf("waiting open-signal sid=%d timeout for %s\n", sid, edge.dest)
 					}
-					// timeout or received open signal
-					switch code {
-					case FRAME_ACTION_OPEN_Y:
+					// timeout or open-signal received
+					if code == FRAME_ACTION_OPEN_Y {
 						_fast_open = false // read forever
-					default:
+					} else {
 						return
 					}
-				} // else  read once
+				} // else could read again
 			}
 		}
 
