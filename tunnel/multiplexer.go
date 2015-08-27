@@ -7,6 +7,7 @@ import (
 	log "github.com/spance/deblocus/golang/glog"
 	"io"
 	"net"
+	"reflect"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -28,6 +29,10 @@ const (
 	FRAME_ACTION_TOKEN_REQUEST
 	FRAME_ACTION_TOKEN_REPLY
 	FRAME_ACTION_SLOWDOWN = 0xff
+)
+
+const (
+	FAST_OPEN = true
 )
 
 const (
@@ -297,7 +302,9 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 			}
 		case FRAME_ACTION_DATA:
 			edge := router.getRegistered(key)
-			if edge == nil {
+			if edge != nil {
+				edge.deliver(frm)
+			} else {
 				if log.V(2) {
 					log.Warningln("peer send data to an unexisted socket.", key, frm)
 				}
@@ -306,18 +313,12 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 				if tunWrite1(tun, header) != nil {
 					return
 				}
-			} else {
-				edge.deliver(frm)
 			}
 		case FRAME_ACTION_OPEN:
 			go p.connectToDest(frm, key, tun)
 		case FRAME_ACTION_OPEN_N, FRAME_ACTION_OPEN_Y:
 			edge := router.getRegistered(key)
-			if edge == nil {
-				if log.V(2) {
-					log.Warningln("peer send OPENx to an unexisted socket.", key, frm)
-				}
-			} else {
+			if edge != nil {
 				if log.V(4) {
 					if frm.action == FRAME_ACTION_OPEN_Y {
 						log.Infoln(p.role, "recv OPEN_Y", frm)
@@ -327,6 +328,10 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 				}
 				edge.ready <- frm.action
 				close(edge.ready)
+			} else {
+				if log.V(2) {
+					log.Warningln("peer send OPENx to an unexisted socket.", key, frm)
+				}
 			}
 		case FRAME_ACTION_PING:
 			if idle.pong(tun) == nil {
@@ -388,8 +393,6 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 	var (
 		buf  = make([]byte, FRAME_MAX_LEN)
-		nr   int
-		er   error
 		code byte
 		src  = edge.conn
 	)
@@ -412,22 +415,62 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 			SafeClose(tun)
 			return
 		}
-		select {
-		case code = <-edge.ready:
-			edge.initEqueue() // client delayed starting queue
-		case <-time.After(WAITING_OPEN_TIMEOUT):
-			log.Errorf("waiting open-signal(sid=%d) timeout for %s\n", sid, edge.dest)
-		}
-		if code != FRAME_ACTION_OPEN_Y {
-			return
+		if FAST_OPEN {
+			edge.initEqueue()
+		} else {
+			select {
+			case code = <-edge.ready:
+				edge.initEqueue() // client delayed starting queue
+			case <-time.After(WAITING_OPEN_TIMEOUT):
+				log.Errorf("waiting open-signal(sid=%d) timeout for %s\n", sid, edge.dest)
+			}
+			if code != FRAME_ACTION_OPEN_Y {
+				return
+			}
 		}
 	}
+
+	var (
+		tn         int           // total
+		tmax       int = 1 << 13 // 8k
+		nr         int
+		er         error
+		_fast_open = FAST_OPEN && p.isClient
+	)
 	for {
+		if _fast_open {
+			v, y := reflect.ValueOf(edge.ready).TryRecv()
+			if y {
+				code = v.Interface().(byte)
+				switch code {
+				case FRAME_ACTION_OPEN_Y:
+					_fast_open = false // read forever
+				case FRAME_ACTION_OPEN_N:
+					return
+				}
+			} else {
+				if tn >= tmax {
+					select {
+					case code = <-edge.ready:
+					case <-time.After(WAITING_OPEN_TIMEOUT):
+						log.Errorf("waiting open-signal sid=%d timeout for %s\n", sid, edge.dest)
+					}
+					// timeout or received open signal
+					switch code {
+					case FRAME_ACTION_OPEN_Y:
+						_fast_open = false // read forever
+					default:
+						return
+					}
+				} // else  read once
+			}
+		}
+
 		nr, er = src.Read(buf[FRAME_HEADER_LEN:])
 		if nr > 0 {
+			tn += nr
 			_frame(buf, FRAME_ACTION_DATA, sid, uint16(nr))
-			nr += FRAME_HEADER_LEN
-			if tunWrite1(tun, buf[:nr]) != nil {
+			if tunWrite1(tun, buf[:nr+FRAME_HEADER_LEN]) != nil {
 				SafeClose(tun)
 				return
 			}
