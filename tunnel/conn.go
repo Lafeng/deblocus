@@ -6,9 +6,7 @@ import (
 	"hash"
 	"net"
 	"sync"
-	//"syscall"
 	"time"
-	//"unsafe"
 )
 
 type Conn struct {
@@ -98,20 +96,6 @@ func (c *Conn) sign() string {
 func IdentifierOf(con net.Conn) string {
 	return con.LocalAddr().String() + con.RemoteAddr().String()
 }
-
-/*
-func netFd_of_TCPConn(c net.Conn) syscall.Handle {
-	if t, y := c.(*net.TCPConn); y {
-		var p = *(*uintptr)(unsafe.Pointer(t)) // value of tcpconn.field0 == pointer == *netFd
-		p += uintptr(16)                       // sizeof fdMutex struct: /src/net/fd_mutex.go
-		fd := *(*syscall.Handle)(unsafe.Pointer(p))
-		n, err := syscall.Getsockname(fd)
-		fmt.Println(n, err)
-		return fd
-	}
-	return syscall.InvalidHandle
-}
-*/
 
 type hashedConn struct {
 	*Conn

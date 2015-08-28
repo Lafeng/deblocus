@@ -100,6 +100,12 @@ func (r *egressRouter) preDeliver(key string, f *frame) {
 	}
 }
 
+func (r *egressRouter) removePreRegistered(key string) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	delete(r.preRegistry, key)
+}
+
 func (r *egressRouter) getRegistered(key string) (e *edgeConn, preRegistered bool) {
 	r.lock.RLock()
 	e = r.registry[key]

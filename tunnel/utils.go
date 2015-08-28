@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -14,22 +13,18 @@ import (
 	"github.com/spance/deblocus/exception"
 	log "github.com/spance/deblocus/golang/glog"
 	"io"
-	"math/rand"
 	"net"
 	"os"
 	"os/user"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
-	"syscall"
-	"time"
-	"sort"
 )
 
 const (
-	Bye                  = syscall.Signal(0xfffb8e)
 	SER_KEY_TYPE         = "deblocus/SERVER-PRIVATEKEY"
 	USER_CREDENTIAL_TYPE = "deblocus/CLIENT-CREDENTIAL"
 	WORD_d5p             = "D5P"
@@ -38,7 +33,6 @@ const (
 )
 
 var (
-	ZERO_TIME               = time.Time{}
 	FILE_NOT_FOUND          = exception.NewW("File not found")
 	FILE_EXISTS             = exception.NewW("File is already exists")
 	INVALID_D5P_FRAGMENT    = exception.NewW("Invalid d5p fragment")
@@ -50,66 +44,6 @@ var (
 	CONF_MISS               = exception.NewW("Missed config")
 	CONF_ERROR              = exception.NewW("Error config")
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
-func nvl(v interface{}, def interface{}) interface{} {
-	if v == nil {
-		return def
-	}
-	return v
-}
-
-func SubstringBefore(str, sep string) string {
-	if p := strings.Index(str, sep); p > 0 {
-		return str[:p]
-	} else {
-		return str
-	}
-}
-
-func IsNotExist(file string) bool {
-	_, err := os.Stat(file)
-	return os.IsNotExist(err)
-}
-
-func i64HumanSize(size int64) string {
-	var i = 0
-	for ; i < 4; i++ {
-		if size < 1024 {
-			break
-		}
-		size = size >> 10
-	}
-	return strconv.FormatInt(size, 10) + string(SIZE_UNIT[i])
-}
-
-func randomRange(min, max int64) (n int64) {
-	for n < min || n >= max {
-		n = rand.Int63n(max)
-	}
-	return n
-}
-
-func dumpHex(title string, byteArray []byte) {
-	fmt.Println("---DUMP-BEGIN-->", title)
-	fmt.Print(hex.Dump(byteArray))
-	fmt.Println("---DUMP-END-->", title)
-}
-
-func ipAddr(addr net.Addr) string {
-	switch addr.(type) {
-	case *net.TCPAddr:
-		return addr.(*net.TCPAddr).IP.String()
-	case *net.UDPAddr:
-		return addr.(*net.UDPAddr).IP.String()
-	case *net.IPAddr:
-		return addr.(*net.IPAddr).IP.String()
-	}
-	return addr.String()
-}
 
 // client
 type D5ClientConf struct {

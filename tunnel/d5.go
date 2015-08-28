@@ -3,8 +3,6 @@ package tunnel
 import (
 	"bufio"
 	"bytes"
-	"crypto/rand"
-	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -66,53 +64,6 @@ var (
 	INCONSISTENT_HASH    = exception.NewW("Inconsistent hash")
 	INCOMPATIBLE_VERSION = exception.NewW("Incompatible version")
 )
-
-func ThrowErr(e interface{}) {
-	if e != nil {
-		panic(e)
-	}
-}
-
-func ThrowIf(condition bool, e interface{}) {
-	if condition {
-		panic(e)
-	}
-}
-
-func SafeClose(conn net.Conn) {
-	defer func() {
-		_ = recover()
-	}()
-	if conn != nil {
-		conn.Close()
-	}
-}
-
-func closeR(conn net.Conn) {
-	defer func() { _ = recover() }()
-	if t, y := conn.(*net.TCPConn); y {
-		t.CloseRead()
-	} else {
-		conn.Close()
-	}
-}
-
-func closeW(conn net.Conn) {
-	defer func() { _ = recover() }()
-	if t, y := conn.(*net.TCPConn); y {
-		t.CloseWrite()
-	} else {
-		conn.Close()
-	}
-}
-
-// make lenght=alen array, and header padding with randLen random
-func randArray(aLen int, randLen int) []byte {
-	array := make([]byte, aLen)
-	//rand.Seed(time.Now().UnixNano())
-	io.ReadAtLeast(rand.Reader, array, randLen)
-	return array
-}
 
 // read by the first segment indicated the following segment length
 // len_inByte: first segment length in byte
@@ -301,23 +252,6 @@ func httpProxyHandshake(conn *pushbackInputStream) (req_prot uint, target string
 		}
 	}
 	return
-}
-
-func hash20(byteArray []byte) []byte {
-	sha := sha1.New()
-	sha.Write(byteArray)
-	return sha.Sum(nil)
-}
-
-func setSoTimeout(conn net.Conn) {
-	e := conn.SetDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
-	ThrowErr(e)
-}
-
-func ito4b(val uint32) []byte {
-	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, val)
-	return buf
 }
 
 func d5Sub(a byte) byte {

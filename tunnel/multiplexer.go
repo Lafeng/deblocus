@@ -37,7 +37,7 @@ const (
 )
 
 const (
-	WAITING_OPEN_TIMEOUT = GENERAL_SO_TIMEOUT * 2
+	WAITING_OPEN_TIMEOUT = GENERAL_SO_TIMEOUT * 3
 	FRAME_HEADER_LEN     = 5
 	FRAME_MAX_LEN        = 0xffff - FRAME_HEADER_LEN
 	MUX_PENDING_CLOSE    = -1
@@ -248,7 +248,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 	tun.priority = &TSPriority{0, 1e9}
 	p.pool.Push(tun)
 	defer p.onTunDisconnected(tun, handler)
-	tun.SetSockOpt(1, 0, 0)
+	tun.SetSockOpt(1, 0, 1)
 	var (
 		header = make([]byte, FRAME_HEADER_LEN)
 		router = p.router
@@ -319,7 +319,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 			}
 		case FRAME_ACTION_OPEN:
 			if FAST_OPEN {
-				p.router.preRegister(key)
+				router.preRegister(key)
 			}
 			go p.connectToDest(frm, key, tun)
 		case FRAME_ACTION_OPEN_N, FRAME_ACTION_OPEN_Y:
@@ -378,6 +378,7 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 	dstConn, err = net.DialTimeout("tcp", target, GENERAL_SO_TIMEOUT)
 	frm.length = 0
 	if err != nil {
+		p.router.removePreRegistered(key)
 		log.Errorf("Cannot connect to [%s] for %s error: %s\n", target, key, err)
 		frm.action = FRAME_ACTION_OPEN_N
 		tunWrite2(tun, frm)
