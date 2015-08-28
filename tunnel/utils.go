@@ -155,7 +155,7 @@ func (d *D5Params) RemoteName() string {
 
 // without sPub field
 func NewD5Params(uri string) (*D5Params, error) {
-	re := regexp.MustCompile("d5://(\\w+):(\\w+)@([.:\\w]+)#(\\w+)")
+	re := regexp.MustCompile("d5://(\\w+):(\\w+)@([.:a-zA-Z0-9-]+)#(\\w+)")
 	ma := re.FindStringSubmatch(uri)
 	if len(ma) != 5 {
 		return nil, INVALID_D5PARAMS
