@@ -2,8 +2,8 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [spance/deblocus](https://github.com/spance/deblocus).
 
-## 0.9.2400-beta 15/8/28
-implement fast-open feature
+## 0.9.2410-beta 15/8/28
+implement and improve fast-open feature
 
 ## 0.9.2390-beta 15/8/25
 update tunnel structure

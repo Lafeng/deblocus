@@ -254,41 +254,45 @@ func (q *equeue) _push_all(buffer *list.List) {
 
 func (q *equeue) sendLoop() {
 	for {
+		var buffer *list.List
 		q.lock.Lock()
 		for q.buffer.Len() <= 0 {
 			q.cond.Wait()
 		}
-		item := q.buffer.Front()
-		q.buffer.Remove(item)
+		buffer = q.buffer
+		q.buffer = list.New()
 		q.lock.Unlock()
-		// send
-		var frm *frame = item.Value.(*frame)
-		switch frm.action {
-		case FRAME_ACTION_CLOSE:
-			q._close(true, CLOSED_FORCE)
-			return
-		case FRAME_ACTION_CLOSE_W:
-			q._close(false, CLOSED_WRITE)
-			return
-		default:
-			werr := sendFrame(frm)
-			if werr {
-				edge := q.edge
-				if edge.closed&TCP_CLOSE_W == 0 { // only positively closed can notify peer
-					edge.closed |= TCP_CLOSE_W
-					tun := edge.tun
-					// may be a broken tun
-					if tun == nil || tun.LocalAddr() == nil {
-						tun = edge.mux.pool.Select()
-					}
-					if tun != nil {
-						frm.length = 0
-						frm.action = FRAME_ACTION_CLOSE_R
-						tunWrite2(tun, frm)
-					}
-				}
-				q._close(true, CLOSED_BY_ERR)
+
+		for item := buffer.Front(); item != nil; item = item.Next() {
+			// send
+			var frm *frame = item.Value.(*frame)
+			switch frm.action {
+			case FRAME_ACTION_CLOSE:
+				q._close(true, CLOSED_FORCE)
 				return
+			case FRAME_ACTION_CLOSE_W:
+				q._close(false, CLOSED_WRITE)
+				return
+			default:
+				werr := sendFrame(frm)
+				if werr {
+					edge := q.edge
+					if edge.closed&TCP_CLOSE_W == 0 { // only positively closed can notify peer
+						edge.closed |= TCP_CLOSE_W
+						tun := edge.tun
+						// may be a broken tun
+						if tun == nil || tun.LocalAddr() == nil {
+							tun = edge.mux.pool.Select()
+						}
+						if tun != nil {
+							frm.length = 0
+							frm.action = FRAME_ACTION_CLOSE_R
+							tunWrite2(tun, frm)
+						}
+					}
+					q._close(true, CLOSED_BY_ERR)
+					return
+				}
 			}
 		}
 	}
