@@ -320,7 +320,7 @@ type FieldDescriptor struct {
 
 type ImportableFieldDesc map[string]*FieldDescriptor
 
-// extract importabe-field descriptor into map from a struct instance
+// extract importable-field descriptor into map from a struct instance
 // the actual parameter must be a pointer
 func getImportableDesc(instance interface{}) ImportableFieldDesc {
 	var desc = make(ImportableFieldDesc)
@@ -377,6 +377,9 @@ func parseD5ConfFile(path string, desc ImportableFieldDesc, kParse keyParser) {
 		text := strings.TrimSpace(string(l))
 		if len(text) < 1 || text[0] == '#' {
 			continue
+		}
+		if cut := strings.Index(text, " #"); cut != -1 {
+			text = text[:cut]
 		}
 		words := strings.Fields(text)
 		if len(words) < 2 {
