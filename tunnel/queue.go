@@ -142,9 +142,7 @@ func (r *egressRouter) register(key, destination string, tun *Conn, conn net.Con
 	if edge == nil {
 		edge = newEdgeConn(r.mux, key, destination, tun, conn)
 		edge.positive = positive
-		if !positive { // in server
-			edge.initEqueue()
-		}
+		edge.initEqueue()
 		r.registry[key] = edge
 	}
 	if buffer := r.preRegistry[key]; buffer != nil {

@@ -318,9 +318,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 				}
 			}
 		case FRAME_ACTION_OPEN:
-			if FAST_OPEN {
-				router.preRegister(key)
-			}
+			router.preRegister(key)
 			go p.connectToDest(frm, key, tun)
 		case FRAME_ACTION_OPEN_N, FRAME_ACTION_OPEN_Y:
 			edge, _ := router.getRegistered(key)
@@ -415,25 +413,11 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 			SafeClose(src)
 		}
 	}()
-	if edge.positive { // for client:
-		// new connection must send OPEN first.
+	if edge.positive { // for client
 		_len := _frame(buf, FRAME_ACTION_OPEN, sid, []byte(edge.dest))
 		if tunWrite1(tun, buf[:_len]) != nil {
 			SafeClose(tun)
 			return
-		}
-		if FAST_OPEN {
-			edge.initEqueue()
-		} else {
-			select {
-			case code = <-edge.ready:
-				edge.initEqueue() // client delayed starting queue
-			case <-time.After(WAITING_OPEN_TIMEOUT):
-				log.Errorf("waiting open-signal(sid=%d) timeout for %s\n", sid, edge.dest)
-			}
-			if code != FRAME_ACTION_OPEN_Y {
-				return
-			}
 		}
 	}
 
@@ -441,7 +425,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		tn         int // total
 		nr         int
 		er         error
-		_fast_open = FAST_OPEN && p.isClient
+		_fast_open = /* FAST_OPEN && */ p.isClient
 	)
 	for {
 		if _fast_open {
