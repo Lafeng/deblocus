@@ -347,6 +347,7 @@ func parseD5ConfFile(path string, desc ImportableFieldDesc, kParse keyParser) {
 		buf    = new(bytes.Buffer)
 		r      = bufio.NewReader(file)
 		kB, kE bool
+		commentRegexp = regexp.MustCompile("\\s+#")
 	)
 	for {
 		l, _, e := r.ReadLine()
@@ -378,7 +379,8 @@ func parseD5ConfFile(path string, desc ImportableFieldDesc, kParse keyParser) {
 		if len(text) < 1 || text[0] == '#' {
 			continue
 		}
-		text = regexp.MustCompile("\\s+#").Split(text, 2)[0]
+		pos := commentRegexp.FindStringIndex(text)[0]
+		text = text[:pos]
 		words := strings.Fields(text)
 		if len(words) < 2 {
 			panic(UNRECOGNIZED_SYMBOLS.Apply(words))
