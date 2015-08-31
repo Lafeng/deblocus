@@ -320,7 +320,7 @@ type FieldDescriptor struct {
 
 type ImportableFieldDesc map[string]*FieldDescriptor
 
-// extract importabe-field descriptor into map from a struct instance
+// extract importable-field descriptor into map from a struct instance
 // the actual parameter must be a pointer
 func getImportableDesc(instance interface{}) ImportableFieldDesc {
 	var desc = make(ImportableFieldDesc)
@@ -347,6 +347,7 @@ func parseD5ConfFile(path string, desc ImportableFieldDesc, kParse keyParser) {
 		buf    = new(bytes.Buffer)
 		r      = bufio.NewReader(file)
 		kB, kE bool
+		commentRegexp = regexp.MustCompile("\\s+#")
 	)
 	for {
 		l, _, e := r.ReadLine()
@@ -378,6 +379,8 @@ func parseD5ConfFile(path string, desc ImportableFieldDesc, kParse keyParser) {
 		if len(text) < 1 || text[0] == '#' {
 			continue
 		}
+		pos := commentRegexp.FindStringIndex(text)[0]
+		text = text[:pos]
 		words := strings.Fields(text)
 		if len(words) < 2 {
 			panic(UNRECOGNIZED_SYMBOLS.Apply(words))
