@@ -378,10 +378,7 @@ func parseD5ConfFile(path string, desc ImportableFieldDesc, kParse keyParser) {
 		if len(text) < 1 || text[0] == '#' {
 			continue
 		}
-		if cut := strings.Index(text, "\t#"); cut != -1 {
-			text = text[:cut]
-		}
-		text = strings.TrimSpace(text)
+		text = regexp.MustCompile("\\s+#").Split(text, 2)[0]
 		words := strings.Fields(text)
 		if len(words) < 2 {
 			panic(UNRECOGNIZED_SYMBOLS.Apply(words))
