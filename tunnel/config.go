@@ -102,9 +102,6 @@ func NewD5Params(uri string) (*D5Params, error) {
 	if e != nil {
 		return nil, D5SER_UNREACHABLE.Apply(e)
 	}
-	if log.V(2) {
-		log.Infof("D5Params: %q\n", ma[1:])
-	}
 	return &D5Params{
 		d5sAddrStr: ma[3],
 		d5sAddr:    d5sAddr,

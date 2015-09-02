@@ -5,7 +5,7 @@
 [![Issues](https://img.shields.io/github/issues/spance/deblocus.svg)](https://github.com/spance/deblocus/issues)
 [![Comment-on-Github.Party](https://img.shields.io/badge/Comment%20on-Github.Party-yellow.svg)](https://github.party/item?id=46)
 
-Current version is v0.9.2420-beta
+Current version is v0.9.2450-beta
 
 ```
       ___         ___         ___         ___  ___         ___         ___         ___     

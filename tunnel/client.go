@@ -55,9 +55,9 @@ func (c *Client) initialNegotiation() (tun *Conn) {
 		log.Errorf("Failed to connect %s, Retry after %s\n", c.nego.RemoteName(), RETRY_INTERVAL)
 		return nil
 	}
-	c.token = tp.token
+	c.token, c.tp = tp.token, tp
 	tp.token = nil
-	c.tp = tp
+	tun.identifier = c.nego.RemoteName()
 
 	log.Infoln("Login to the gateway", c.nego.RemoteName(), "successfully")
 	return tun
