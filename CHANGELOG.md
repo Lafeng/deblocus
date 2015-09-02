@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [spance/deblocus](https://github.com/spance/deblocus).
 
+## 0.9.2451-beta 15/9/2
+add cwd for detecting config
+
 ## 0.9.2450-beta 15/9/2
 fix missing identifier of tunnel, that will caused incorret socket not found error.
 
