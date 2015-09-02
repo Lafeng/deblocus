@@ -11,7 +11,6 @@ import (
 	"github.com/kardianos/osext"
 	"github.com/spance/deblocus/auth"
 	"github.com/spance/deblocus/exception"
-	log "github.com/spance/deblocus/golang/glog"
 	"io"
 	"net"
 	"os"
@@ -341,9 +340,9 @@ func parseD5ConfFile(path string, desc ImportableFieldDesc, kParse keyParser) {
 	ThrowErr(e)
 	defer file.Close()
 	var (
-		buf    = new(bytes.Buffer)
-		r      = bufio.NewReader(file)
-		kB, kE bool
+		buf           = new(bytes.Buffer)
+		r             = bufio.NewReader(file)
+		kB, kE        bool
 		commentRegexp = regexp.MustCompile("\\s+#")
 	)
 	for {
@@ -430,7 +429,10 @@ func DetectFile(isServ bool) (string, bool) {
 	} else {
 		name = "deblocus.d5c"
 	}
-	for _, f := range []string{filepath.Join(p, name), filepath.Join(homeDir, name), filepath.Join("/etc/deblocus", name)} {
+	for _, f := range []string{name, // cwd
+		filepath.Join(p, name),                 // bin
+		filepath.Join(homeDir, name),           // home
+		filepath.Join("/etc/deblocus", name)} { // /etc/deblocus
 		if !IsNotExist(f) {
 			return f, true
 		}
