@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	app_name    = "deblocus"
-	project_url = "https://github.com/Lafeng/delocus"
-	ver_major   = uint8(0)
-	ver_minor   = uint8(9)
-	ver_build   = 10*uint16(245) + uint16(1)
+	app_name           = "deblocus"
+	project_url        = "https://github.com/Lafeng/delocus"
+	ver_major   uint8  = 0
+	ver_minor   uint8  = 9
+	ver_build   uint16 = 10*246 + 0
 )
 
 var build_flag string // -ldflags "-X main.build_flag=-beta"

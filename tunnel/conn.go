@@ -58,6 +58,9 @@ func (c *Conn) CloseWrite() {
 	}
 }
 
+// bool: disableDeadline
+// int8: minutes of KeepAlivePeriod, zero to disable
+// bool: noDelay
 func (c *Conn) SetSockOpt(disableDeadline, keepAlive, noDelay int8) {
 	if disableDeadline > 0 {
 		c.Conn.SetDeadline(ZERO_TIME)
@@ -66,7 +69,7 @@ func (c *Conn) SetSockOpt(disableDeadline, keepAlive, noDelay int8) {
 		if keepAlive >= 0 {
 			t.SetKeepAlive(keepAlive > 0)
 			if keepAlive > 0 {
-				t.SetKeepAlivePeriod(time.Second * 90)
+				t.SetKeepAlivePeriod(time.Minute * time.Duration(keepAlive))
 			}
 		}
 		if noDelay >= 0 {

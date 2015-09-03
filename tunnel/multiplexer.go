@@ -248,7 +248,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 	tun.priority = &TSPriority{0, 1e9}
 	p.pool.Push(tun)
 	defer p.onTunDisconnected(tun, handler)
-	tun.SetSockOpt(1, 0, 1)
+	tun.SetSockOpt(1, 2, 1)
 	var (
 		header = make([]byte, FRAME_HEADER_LEN)
 		router = p.router
