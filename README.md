@@ -1,8 +1,8 @@
 # deblocus
 
-[![Build Status](https://travis-ci.org/spance/deblocus.svg?branch=master)](https://travis-ci.org/spance/deblocus)
+[![Build Status](https://travis-ci.org/Lafeng/deblocus.svg?branch=master)](https://travis-ci.org/Lafeng/deblocus)
 [![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)
-[![Issues](https://img.shields.io/github/issues/spance/deblocus.svg)](https://github.com/spance/deblocus/issues)
+[![Issues](https://img.shields.io/github/issues/Lafeng/deblocus.svg)](https://github.com/Lafeng/deblocus/issues)
 [![Comment-on-Github.Party](https://img.shields.io/badge/Comment%20on-Github.Party-yellow.svg)](https://github.party/item?id=46)
 
 Current version is v0.9.2451-beta
@@ -46,7 +46,7 @@ What does it mean?
 
 ## Usage
 
-Download [Binaries](https://github.com/spance/deblocus/releases) or Compile from source, and should read [Wiki](https://github.com/spance/deblocus/wiki) at first.
+Download [Binaries](https://github.com/Lafeng/deblocus/releases) or Compile from source, and should read [Wiki](https://github.com/Lafeng/deblocus/wiki) at first.
 
 ### GUI Manager
 
@@ -74,4 +74,4 @@ Download [deblocusMonitor](https://deblocus.codeplex.com/releases).
 
 ## 使用
 
-详见 [Wiki](https://github.com/spance/deblocus/wiki)，直接下载可从项目Releases.
+详见 [Wiki](https://github.com/Lafeng/deblocus/wiki)，直接下载可从项目Releases.
