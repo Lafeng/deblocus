@@ -2,7 +2,7 @@ package exception
 
 import (
 	"fmt"
-	log "github.com/spance/deblocus/golang/glog"
+	log "github.com/Lafeng/deblocus/golang/glog"
 	"runtime"
 )
 
