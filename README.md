@@ -69,8 +69,9 @@ Download [deblocusMonitor](https://deblocus.codeplex.com/releases).
 
 ## 介绍
 
-建立与远端网关的加密通道，实现接入远端网络，在本地提供安全高效的局部代理服务。
+建立与远端网关的加密通道，为本地应用提供安全高效的局部代理(Socks5/Http)服务。
 
+可以满足在企业家庭校园内网、公共Wifi、通信窃听拦截等不可靠链路上实现高保密及高隐私的通信需要。
 
 ## 使用
 
