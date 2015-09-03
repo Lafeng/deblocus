@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.9.2460-beta 15/9/3
+enable tcp keepalive
+
 ## 0.9.2451-beta 15/9/2
 add cwd for detecting config
 
