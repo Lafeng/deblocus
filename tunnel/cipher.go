@@ -10,7 +10,7 @@ import (
 	"crypto/sha1"
 	"encoding/binary"
 	"github.com/monnand/dhkx"
-	"github.com/spance/deblocus/exception"
+	"github.com/Lafeng/deblocus/exception"
 )
 
 var (

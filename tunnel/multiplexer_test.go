@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
-	log "github.com/spance/deblocus/golang/glog"
+	log "github.com/Lafeng/deblocus/golang/glog"
 	"io"
 	"net"
 	"reflect"

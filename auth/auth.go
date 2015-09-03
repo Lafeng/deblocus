@@ -2,7 +2,7 @@ package auth
 
 import (
 	"bufio"
-	"github.com/spance/deblocus/exception"
+	"github.com/Lafeng/deblocus/exception"
 	"os"
 	"strings"
 )

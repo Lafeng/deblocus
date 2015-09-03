@@ -3,9 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	ex "github.com/spance/deblocus/exception"
-	log "github.com/spance/deblocus/golang/glog"
-	t "github.com/spance/deblocus/tunnel"
+	ex "github.com/Lafeng/deblocus/exception"
+	log "github.com/Lafeng/deblocus/golang/glog"
+	t "github.com/Lafeng/deblocus/tunnel"
 	"math/rand"
 	"net"
 	"os"

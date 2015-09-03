@@ -3,8 +3,8 @@ package tunnel
 import (
 	"encoding/binary"
 	"fmt"
-	ex "github.com/spance/deblocus/exception"
-	log "github.com/spance/deblocus/golang/glog"
+	ex "github.com/Lafeng/deblocus/exception"
+	log "github.com/Lafeng/deblocus/golang/glog"
 	"io"
 	"net"
 	"reflect"

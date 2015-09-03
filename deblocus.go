@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	log "github.com/spance/deblocus/golang/glog"
-	t "github.com/spance/deblocus/tunnel"
+	log "github.com/Lafeng/deblocus/golang/glog"
+	t "github.com/Lafeng/deblocus/tunnel"
 	"os"
 	"os/signal"
 	"syscall"
