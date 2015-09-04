@@ -4,6 +4,7 @@ import (
 	log "github.com/Lafeng/deblocus/golang/glog"
 	"sort"
 	"sync"
+	"sync/atomic"
 )
 
 type TSPriority struct {
@@ -61,6 +62,8 @@ func (h *ConnPool) Remove(c *Conn) bool {
 }
 
 func (h *ConnPool) Len() int {
+	h.lock.Lock()
+	defer h.lock.Unlock()
 	return h.pool.Len()
 }
 
@@ -75,7 +78,7 @@ func (h *ConnPool) Select() *Conn {
 		log.Infoln("selected tun", h.pool[0].LocalAddr())
 	}
 	selected := h.pool[0]
-	selected.priority.rank -= 1
+	atomic.AddInt64(&selected.priority.rank, -1)
 	return selected
 }
 

@@ -6,6 +6,7 @@ import (
 	"hash"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -79,17 +80,20 @@ func (c *Conn) SetSockOpt(disableDeadline, keepAlive, noDelay int8) {
 }
 
 func (c *Conn) Update() {
-	n := time.Now().UnixNano()
-	if d := n - c.priority.last; d < 1e9 {
+	var rk, t int64 = 0, time.Now().UnixNano()
+	if d := t - c.priority.last; d < 1e9 {
 		if d <= 0 {
-			c.priority.rank -= 1e9
+			rk = 1e9
 		} else {
-			c.priority.rank -= 1e9 / d
+			rk = 1e9 / d
 		}
-	} else {
-		c.priority.rank = 1e9
 	}
-	c.priority.last = n
+	if rk > 0 {
+		atomic.AddInt64(&c.priority.rank, -rk)
+	} else {
+		atomic.StoreInt64(&c.priority.rank, 1e9)
+	}
+	c.priority.last = t
 }
 
 func (c *Conn) sign() string {

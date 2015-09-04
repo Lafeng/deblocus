@@ -4,35 +4,63 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"flag"
 	"fmt"
 	log "github.com/Lafeng/deblocus/golang/glog"
 	"io"
 	"net"
+	"os"
 	"reflect"
 	"runtime"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 )
 
 var (
-	cltAddr = "127.0.0.1:34567"
-	svrAddr = "127.0.0.2:34568"
-	dstAddr = "127.0.0.3:34569"
+	cltAddr = "127.0.0.1:"
+	svrAddr = "127.0.0.2:"
+	dstAddr = "127.0.0.3:"
 	client  *multiplexer
 	server  *multiplexer
 )
 
 func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
+	flag.Int("vv", 0, "vv")
+	var fs = flag.NewFlagSet("deblocus", flag.ErrorHandling(0xffff))
+	var null, _ = os.Open(os.DevNull)
+	defer null.Close()
+	fs.SetOutput(null)
+	var v int
+	fs.IntVar(&v, "vv", 0, "log verbose")
+	var deblocusArgs []string
+	deblocusArgs = append(deblocusArgs, os.Args[1:]...)
+	fs.Parse(deblocusArgs)
+
 	log.Set_output(true, "")
-	log.Set_Verbose(1)
+	log.Set_Verbose(v)
+	cltAddr += strconv.FormatInt(randomRange(1, 1<<13)+3e4, 10)
+	svrAddr += strconv.FormatInt(randomRange(1, 1<<13)+3e4, 10)
+	dstAddr += strconv.FormatInt(randomRange(1, 1<<13)+3e4, 10)
+	fmt.Println("=== deblocus TEST ===")
+	printArgLine("logV", v)
+	printArgLine("cltAddr", cltAddr)
+	printArgLine("svrAddr", svrAddr)
+	printArgLine("dstAddr", dstAddr)
+	fmt.Println("\n")
+}
+
+func printArgLine(name string, val interface{}) {
+	fmt.Printf("%11s = %v\n", name, val)
 }
 
 func startEmulation() {
 	if client != nil {
 		return
 	}
+	client = newClientMultiplexer()
 	go startDestSvr()
 	go startServer()
 	rest(1) // waiting for server listen
@@ -64,12 +92,15 @@ func startDestSvr() {
 		go func(conn net.Conn) {
 			defer conn.Close()
 			for {
+				conn.SetReadDeadline(time.Now().Add(time.Second * 10))
 				buf, e := ReadFullByLen(2, conn)
-				if e != nil || len(buf) == 0 || (len(buf) == 1 && buf[0] == 0) {
-					conn.Close()
+				nr := len(buf)
+				if e != nil || nr == 0 || (nr == 1 && buf[0] == 0) {
 					break
 				} else {
-					conn.Write(buf)
+					nw, e := conn.Write(buf)
+					ThrowErr(e)
+					ThrowIf(nw != nr, fmt.Sprintf("nr=%d nw=%d", nr, nw))
 				}
 			}
 		}(dconn)
@@ -89,7 +120,6 @@ func startServer() {
 }
 
 func startClient(size int) {
-	client = newClientMultiplexer()
 	for i := 0; i < size; i++ {
 		conn, e := net.Dial("tcp", svrAddr)
 		ThrowErr(e)
@@ -117,6 +147,7 @@ func randomBuffer(buf []byte) (n uint16) {
 		io.ReadFull(rand.Reader, nb)
 		n = binary.BigEndian.Uint16(nb)
 	}
+	binary.BigEndian.PutUint16(buf, n-2)
 	return
 }
 
@@ -148,7 +179,6 @@ func TestSingleRequest(t *testing.T) {
 	buf1 := make([]byte, 0xffff)
 	for i := 0; i < 10; i++ {
 		n := randomBuffer(buf0)
-		binary.BigEndian.PutUint16(buf0, n-2)
 		nw, e := conn.Write(buf0[:n])
 		ThrowErr(e)
 		nr, e := io.ReadFull(conn, buf1[:n-2])
@@ -173,23 +203,36 @@ func TestConcurrency(t *testing.T) {
 			defer wg.Done()
 			conn, e := net.Dial("tcp", cltAddr)
 			ThrowErr(e)
+			if log.V(2) {
+				fmt.Printf("\tthread=%d/ start\n", j)
+			}
+			defer conn.Close()
 			buf0 := make([]byte, 0xffff)
 			buf1 := make([]byte, 0xffff)
-			for i := 0; i < 99; i++ {
+			for k := 0; k < 99; k++ {
 				n := randomBuffer(buf0)
-				binary.BigEndian.PutUint16(buf0, n-2)
 				nw, e := conn.Write(buf0[:n])
 				ThrowErr(e)
+				ThrowIf(nw != int(n), fmt.Sprintf("nr=%d nw=%d", n, nw))
+				conn.SetReadDeadline(time.Now().Add(time.Second * 4))
 				nr, e := io.ReadFull(conn, buf1[:n-2])
-				ThrowErr(e)
-				if log.V(3) {
-					fmt.Printf("\tthread=%d send=%d recv=%d\n", j, nw, nr)
+				if e != nil {
+					if ne, y := e.(net.Error); y && ne.Timeout() {
+						continue
+					} else {
+						ThrowErr(e)
+					}
+				}
+				if log.V(2) {
+					fmt.Printf("\tthread=%d/%d send=%d recv=%d\n", j, k, nw, nr)
 				}
 				if !bytes.Equal(buf0[2:n], buf1[:nr]) {
-					t.Errorf("thread=%d sent != recv. nw=%d nr=%d\n", j, nw, nr)
+					t.Errorf("thread=%d/ sent != recv. nw=%d nr=%d\n", j, nw, nr)
 				}
 			}
-			conn.Close()
+			if log.V(2) {
+				fmt.Printf("\tthread=%d/ done\n", j)
+			}
 		}(i)
 	}
 	wg.Wait()

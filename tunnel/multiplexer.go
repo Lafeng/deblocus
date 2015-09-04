@@ -293,12 +293,12 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 		switch frm.action {
 		case FRAME_ACTION_CLOSE_W:
 			if edge, _ := router.getRegistered(key); edge != nil {
-				edge.closed |= TCP_CLOSE_W
+				edge.bitwiseCompareAndSet(TCP_CLOSE_W)
 				edge.deliver(frm)
 			}
 		case FRAME_ACTION_CLOSE_R:
 			if edge, _ := router.getRegistered(key); edge != nil {
-				edge.closed |= TCP_CLOSE_R
+				edge.bitwiseCompareAndSet(TCP_CLOSE_R)
 				closeR(edge.conn)
 			}
 		case FRAME_ACTION_DATA:
@@ -402,10 +402,9 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		src  = edge.conn
 	)
 	defer func() {
-		if edge.closed&TCP_CLOSE_R == 0 { // only positively
+		if edge.bitwiseCompareAndSet(TCP_CLOSE_R) { // only positively
 			_frame(buf, FRAME_ACTION_CLOSE_W, sid, nil)
 			tunWrite1(tun, buf[:FRAME_HEADER_LEN]) // tell peer to closeW
-			edge.closed |= TCP_CLOSE_R
 		}
 		if code == FRAME_ACTION_OPEN_Y {
 			closeR(src)

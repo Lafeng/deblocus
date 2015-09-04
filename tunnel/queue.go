@@ -7,13 +7,14 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const (
-	TCP_CLOSE_R uint8 = 1
-	TCP_CLOSE_W uint8 = 1 << 1
-	TCP_CLOSED        = TCP_CLOSE_R | TCP_CLOSE_W
+	TCP_CLOSE_R uint32 = 1
+	TCP_CLOSE_W uint32 = 1 << 1
+	TCP_CLOSED  uint32 = TCP_CLOSE_R | TCP_CLOSE_W
 )
 const (
 	// close code
@@ -35,7 +36,7 @@ type edgeConn struct {
 	dest     string
 	queue    *equeue
 	positive bool // positively open
-	closed   uint8
+	closed   uint32
 }
 
 func newEdgeConn(mux *multiplexer, key, dest string, tun *Conn, conn net.Conn) *edgeConn {
@@ -57,6 +58,20 @@ func (e *edgeConn) deliver(frm *frame) {
 		frm.conn = e
 		e.queue._push(frm)
 	}
+}
+
+// greater than or equals b
+func (e *edgeConn) closed_gte(b uint32) bool {
+	return atomic.LoadUint32(&e.closed) >= b
+}
+
+// read and check the mask bit, if not set then set with mask
+func (e *edgeConn) bitwiseCompareAndSet(mask uint32) bool {
+	c := atomic.LoadUint32(&e.closed)
+	if c&mask == 0 {
+		return atomic.CompareAndSwapUint32(&e.closed, c, c|mask)
+	}
+	return false
 }
 
 // ------------------------------
@@ -111,7 +126,7 @@ func (r *egressRouter) getRegistered(key string) (e *edgeConn, preRegistered boo
 	e = r.registry[key]
 	_, preRegistered = r.preRegistry[key]
 	r.lock.RUnlock()
-	if e != nil && e.closed >= TCP_CLOSED {
+	if e != nil && e.closed_gte(TCP_CLOSED) {
 		// clean when getting
 		r.lock.Lock()
 		delete(r.registry, key)
@@ -129,7 +144,7 @@ func (r *egressRouter) clean() {
 	defer r.lock.Unlock()
 	for k, e := range r.registry {
 		// call conn.LocalAddr will give rise to checking fd.
-		if e == nil || e.closed >= TCP_CLOSED || e.conn.LocalAddr() == nil {
+		if e == nil || e.closed_gte(TCP_CLOSED) || e.conn.LocalAddr() == nil {
 			delete(r.registry, k)
 		}
 	}
@@ -275,8 +290,7 @@ func (q *equeue) sendLoop() {
 				werr := sendFrame(frm)
 				if werr {
 					edge := q.edge
-					if edge.closed&TCP_CLOSE_W == 0 { // only positively closed can notify peer
-						edge.closed |= TCP_CLOSE_W
+					if edge.bitwiseCompareAndSet(TCP_CLOSE_W) { // only positively closed can notify peer
 						tun := edge.tun
 						// may be a broken tun
 						if tun == nil || tun.LocalAddr() == nil {
@@ -314,7 +328,7 @@ func (q *equeue) _close(force bool, close_code uint) {
 	q.buffer.Init()
 	q.buffer = nil
 	if force {
-		e.closed = TCP_CLOSE_R | TCP_CLOSE_W
+		atomic.StoreUint32(&e.closed, TCP_CLOSED)
 		SafeClose(e.conn)
 	} else {
 		closeW(e.conn)

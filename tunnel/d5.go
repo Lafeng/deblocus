@@ -69,7 +69,7 @@ var (
 // len_inByte: first segment length in byte
 func ReadFullByLen(len_inByte int, reader io.Reader) (buf []byte, err error) {
 	lb := make([]byte, len_inByte)
-	_, err = reader.Read(lb)
+	_, err = io.ReadFull(reader, lb)
 	if err != nil {
 		return
 	}
