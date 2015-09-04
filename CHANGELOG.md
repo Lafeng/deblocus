@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.9.2470-beta 15/9/4
+fix some potential issues of data race
+- update to atomic opearations of edgeConn.closed
+- update multiplexer test and fix endless io waiting if lost
+- update semaphore excluding race test
+
 ## 0.9.2460-beta 15/9/3
 enable tcp keepalive
 
