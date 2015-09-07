@@ -154,7 +154,7 @@ func (s *S5Step1) parseSocks5Request() string {
 		host = net.IP(buf[:net.IPv4len]).String()
 		ofs = net.IPv4len
 	case IPV6:
-		host = net.IP(buf[:net.IPv6len]).String()
+		host = "[" + net.IP(buf[:net.IPv6len]).String() + "]"
 		ofs = net.IPv6len
 	case DOMAIN:
 		dlen := int(buf[0])
