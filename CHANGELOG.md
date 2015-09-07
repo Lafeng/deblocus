@@ -2,6 +2,10 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.9.2500-beta 15/9/7
+fix http tunnel handshaking error that was caused by a redundant LF in version string
+update rest interval in sema test
+
 ## 0.9.2470-beta 15/9/4
 fix some potential issues of data race
 - update to atomic opearations of edgeConn.closed
