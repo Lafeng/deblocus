@@ -11,7 +11,7 @@ import (
 
 const (
 	acquirer = 66
-	tmo      = time.Second * 2
+	tmo      = time.Second
 )
 
 var cnt1 int32
@@ -79,5 +79,5 @@ func acquire(s *semaphore, id int, t *testing.T) {
 }
 
 func _sleep() {
-	time.Sleep(time.Millisecond * 600)
+	time.Sleep(time.Millisecond * 200)
 }

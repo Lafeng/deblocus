@@ -31,7 +31,7 @@ func init() {
 }
 
 func versionString() string {
-	return fmt.Sprintf("%s version: v%d.%d.%04d%s\n", app_name, ver_major, ver_minor, ver_build, build_flag)
+	return fmt.Sprintf("%s version: v%d.%d.%04d%s", app_name, ver_major, ver_minor, ver_build, build_flag)
 }
 
 type CArg struct {
@@ -43,7 +43,7 @@ type CArg struct {
 func showUsage() {
 	fmt.Printf("Usage: %s [-OPTION=VALUE]...\n", filepath.Base(os.Args[0]))
 	fmt.Printf("%s project: <%s>\n", app_name, project_url)
-	fmt.Println(versionString())
+	fmt.Println(versionString() + "\n")
 
 	var group = map[string][]*CArg{}
 	var common = "Common"

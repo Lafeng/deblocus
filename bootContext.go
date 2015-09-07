@@ -174,7 +174,7 @@ func (context *bootContext) startClient() {
 	}()
 	var conf = t.Parse_d5cFile(context.config)
 	context.setLogVerbose(conf.Verbose)
-	log.Info(versionString())
+	log.Infoln(versionString())
 	log.Infoln("Socks5/Http is working at", conf.ListenAddr)
 
 	mgr := NewClientMgr(conf)
@@ -202,7 +202,7 @@ func (context *bootContext) startServer() {
 	}()
 	var conf = t.Parse_d5sFile(context.config)
 	context.setLogVerbose(conf.Verbose)
-	log.Info(versionString())
+	log.Infoln(versionString())
 	log.Infoln("Server is listening on", conf.ListenAddr)
 
 	ln, err := net.ListenTCP("tcp", conf.ListenAddr)

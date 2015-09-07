@@ -36,7 +36,7 @@ const (
 	IDENTITY_SEP        = "\x00"
 	CRLF                = "\r\n"
 	HTTP_PROXY_VER_LINE = "HTTP/1.1 200 Connection established"
-	HTTP_PROXY_AGENT    = "Proxy-Agent: deblocus"
+	HTTP_PROXY_AGENT    = "Proxy-Agent: "
 )
 
 var (
