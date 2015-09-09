@@ -54,7 +54,7 @@ This tool is useful to manage deblocus process and can minimize to tray.
 
 ![deblocusMonitor.png](https://i.imgur.com/pdBpKN6m.png)
 
-Download [deblocusMonitor](https://deblocus.codeplex.com/releases).
+Download [deblocusMonitor](https://github.com/Lafeng/deblocus/releases).
 
 ## Acknowledgements
 
@@ -62,7 +62,7 @@ Download [deblocusMonitor](https://deblocus.codeplex.com/releases).
 
 ## Code License:
 
-[MIT License](https://github.com/tvvocold/deblocus/blob/master/LICENSE)
+[MIT License](https://github.com/Lafeng/deblocus/blob/master/LICENSE)
 
 
 # deblocus
