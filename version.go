@@ -15,7 +15,7 @@ const (
 	project_url        = "https://github.com/Lafeng/delocus"
 	ver_major   uint8  = 0
 	ver_minor   uint8  = 9
-	ver_build   uint16 = 2500
+	ver_build   uint16 = 2520
 )
 
 var build_flag string // -ldflags "-X main.build_flag=-beta"
