@@ -9,7 +9,6 @@ import (
 	"net"
 	"reflect"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -39,7 +38,7 @@ const (
 const (
 	WAITING_OPEN_TIMEOUT = GENERAL_SO_TIMEOUT * 3
 	FRAME_HEADER_LEN     = 5
-	FRAME_MAX_LEN        = 0xffff - FRAME_HEADER_LEN
+	FRAME_MAX_LEN        = 0xffff
 	MUX_PENDING_CLOSE    = -1
 	MUX_CLOSED           = -2
 )
@@ -62,10 +61,9 @@ var (
 
 type event_handler func(e event, msg ...interface{})
 
-var (
-	SID_SEQ uint32
-	seqLock sync.Locker = new(sync.Mutex)
-)
+var sid_seq uint32
+
+const sid_max uint32 = 0xffff
 
 // --------------------
 // idler
@@ -222,7 +220,7 @@ func (p *multiplexer) destroy() {
 }
 
 func (p *multiplexer) HandleRequest(prot string, client net.Conn, target string) {
-	sid := _nextSID()
+	sid := next_sid()
 	if log.V(1) {
 		log.Infof("%s->[%s] from=%s sid=%d\n", prot, target, ipAddr(client.RemoteAddr()), sid)
 	}
@@ -527,14 +525,16 @@ func tunWrite2(tun *Conn, frm *frame) (err error) {
 	return nil
 }
 
-func _nextSID() uint16 {
-	seqLock.Lock()
-	defer seqLock.Unlock()
-	SID_SEQ += 1
-	if SID_SEQ > 0xffff {
-		SID_SEQ = 1
+// range: [1, sid_max)
+func next_sid() uint16 {
+	for {
+		if sid := atomic.AddUint32(&sid_seq, 1); sid < sid_max {
+			return uint16(sid)
+		}
+		if atomic.CompareAndSwapUint32(&sid_seq, sid_max, 1) {
+			return 1
+		}
 	}
-	return uint16(SID_SEQ)
 }
 
 func _parseFrameHeader(header []byte) *frame {

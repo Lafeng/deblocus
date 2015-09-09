@@ -60,10 +60,16 @@ func i64HumanSize(size int64) string {
 }
 
 func randomRange(min, max int64) (n int64) {
-	for n < min || n >= max {
+	for ; n < min; n %= max {
 		n = rand.Int63n(max)
 	}
 	return n
+}
+
+func randomHalving(n int64) int64 {
+	var h, q = n >> 1, n >> 2
+	n = randomRange(q, n)
+	return h - n
 }
 
 func dumpHex(title string, byteArray []byte) {

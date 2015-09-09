@@ -9,20 +9,46 @@ import (
 	"crypto/rsa"
 	"crypto/sha1"
 	"encoding/binary"
-	"github.com/monnand/dhkx"
 	"github.com/Lafeng/deblocus/exception"
+	"github.com/monnand/dhkx"
 )
 
 var (
 	UNSUPPORTED_CIPHER = exception.NewW("Unsupported cipher")
 )
 
-type cipherBuilder func(k, iv []byte) *Cipher
+type cipherBuilder func(k, iv []byte) *XORCipherKit
 
 type cipherDecr struct {
 	keyLen  int
 	builder cipherBuilder
 }
+
+type cipherKit interface {
+	encrypt(dst, src []byte)
+	decrypt(dst, src []byte)
+}
+
+type XORCipherKit struct {
+	enc cipher.Stream
+	dec cipher.Stream
+}
+
+func (c *XORCipherKit) encrypt(dst, src []byte) {
+	c.enc.XORKeyStream(dst, src)
+}
+
+func (c *XORCipherKit) decrypt(dst, src []byte) {
+	c.dec.XORKeyStream(dst, src)
+}
+
+type NullCipherKit byte
+
+func (c *NullCipherKit) encrypt(dst, src []byte) {}
+
+func (c *NullCipherKit) decrypt(dst, src []byte) {}
+
+var nullCipherKit = new(NullCipherKit)
 
 var availableCiphers = map[string]*cipherDecr{
 	"RC4":       &cipherDecr{16, newRC4},
@@ -30,13 +56,13 @@ var availableCiphers = map[string]*cipherDecr{
 	"AES256CFB": &cipherDecr{32, newAES_CFB},
 }
 
-func newRC4(key, iv []byte) *Cipher {
+func newRC4(key, iv []byte) *XORCipherKit {
 	ec, _ := rc4.NewCipher(key)
 	dc := *ec
-	return &Cipher{ec, &dc}
+	return &XORCipherKit{ec, &dc}
 }
 
-func newAES_CFB(key, iv []byte) *Cipher {
+func newAES_CFB(key, iv []byte) *XORCipherKit {
 	block, _ := aes.NewCipher(key)
 	if iv == nil {
 		iv = key[:aes.BlockSize]
@@ -45,20 +71,7 @@ func newAES_CFB(key, iv []byte) *Cipher {
 	}
 	ec := cipher.NewCFBEncrypter(block, iv)
 	dc := cipher.NewCFBDecrypter(block, iv)
-	return &Cipher{ec, dc}
-}
-
-type Cipher struct {
-	enc cipher.Stream
-	dec cipher.Stream
-}
-
-func (c *Cipher) encrypt(dst, src []byte) {
-	c.enc.XORKeyStream(dst, src)
-}
-
-func (c *Cipher) decrypt(dst, src []byte) {
-	c.dec.XORKeyStream(dst, src)
+	return &XORCipherKit{ec, dc}
 }
 
 type CipherFactory struct {
@@ -66,7 +79,7 @@ type CipherFactory struct {
 	builder cipherBuilder
 }
 
-func (c *CipherFactory) NewCipher(iv []byte) *Cipher {
+func (c *CipherFactory) NewCipher(iv []byte) *XORCipherKit {
 	return c.builder(c.key, iv)
 }
 

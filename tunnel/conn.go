@@ -12,13 +12,13 @@ import (
 
 type Conn struct {
 	net.Conn
-	cipher     *Cipher
+	cipher     cipherKit
 	identifier string
 	wlock      sync.Locker
 	priority   *TSPriority
 }
 
-func NewConn(conn *net.TCPConn, cipher *Cipher) *Conn {
+func NewConn(conn *net.TCPConn, cipher cipherKit) *Conn {
 	return &Conn{
 		Conn:   conn,
 		cipher: cipher,
@@ -28,7 +28,7 @@ func NewConn(conn *net.TCPConn, cipher *Cipher) *Conn {
 
 func (c *Conn) Read(b []byte) (int, error) {
 	n, err := c.Conn.Read(b)
-	if n > 0 && c.cipher != nil {
+	if n > 0 {
 		c.cipher.decrypt(b[:n], b[:n])
 	}
 	return n, err
@@ -37,9 +37,7 @@ func (c *Conn) Read(b []byte) (int, error) {
 func (c *Conn) Write(b []byte) (int, error) {
 	c.wlock.Lock()
 	defer c.wlock.Unlock()
-	if c.cipher != nil {
-		c.cipher.encrypt(b, b)
-	}
+	c.cipher.encrypt(b, b)
 	return c.Conn.Write(b)
 }
 
@@ -70,7 +68,9 @@ func (c *Conn) SetSockOpt(disableDeadline, keepAlive, noDelay int8) {
 		if keepAlive >= 0 {
 			t.SetKeepAlive(keepAlive > 0)
 			if keepAlive > 0 {
-				t.SetKeepAlivePeriod(time.Minute * time.Duration(keepAlive))
+				period := int64(time.Minute) * int64(keepAlive)
+				period += int64(period)
+				t.SetKeepAlivePeriod(time.Duration(period))
 			}
 		}
 		if noDelay >= 0 {
@@ -112,7 +112,7 @@ type hashedConn struct {
 
 func NewConnWithHash(conn *net.TCPConn) *hashedConn {
 	return &hashedConn{
-		Conn:  &Conn{Conn: conn, wlock: new(sync.Mutex)},
+		Conn:  NewConn(conn, nullCipherKit),
 		rHash: sha1.New(),
 		wHash: sha1.New(),
 	}
