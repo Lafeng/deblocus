@@ -1,0 +1,16 @@
+{
+    "package": {
+        "name": "deblocus", // Bintray package name
+        "repo": "deblocus", // Bintray repository name
+        "subject": "fd74a05d0b" // Bintray subject (user or organization)
+    },
+    "version": {
+        "name": "dev",
+        "gpgSign": true
+    },
+    "files":
+        [
+        {"includePattern": "bin/(.*\.tgz)", "uploadPattern": "$1"}
+        ],
+    "publish": true
+}
