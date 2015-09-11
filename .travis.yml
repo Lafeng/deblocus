@@ -1,6 +1,6 @@
 language: go
 go:
-  - 1.5.1
+  - tip
 env:
   global:
     - TARGET_ARCH=amd64
@@ -14,9 +14,14 @@ before_deploy:
   - export SHORT_COMMIT=`echo $TRAVIS_COMMIT | head -c 7`
   - export OUTPUT=$TRAVIS_BUILD_DIR/bin/deblocus_${TRAVIS_BUILD_NUMBER}_${SHORT_COMMIT}_
   - mkdir -p $TRAVIS_BUILD_DIR/bin
-  - sh -c "$BUILD && tar cvaf $OUTPUT$GOOS-$GOARCH.tgz deblocus$EXT && rm deblocus$EXT""
+  - sh -c "$BUILD && tar cvaf $OUTPUT$GOOS-$GOARCH.tgz deblocus$EXT && rm deblocus$EXT"
 deploy:
   on: dev
+  provider: bintray
+  file: ".bintray.json"
+  user: "fd74a05d0b"
+  key:
+    secure: LOXx4DT1OrE6PPnEujd0YLYxigN96AcyyeqZ0NOE8adRmu3k7bEVIiGgkvMstiZNmf6gz2e8mYU+JV83g10KeVM1/WRpeKcCPTuA97/37r1q9Nq+DmyavcrqkeJpvWEG1CsWzZe2jEijikEIRqkgIK6+5oxYyC+lMsA83U99mVU=
 after_deploy:
   - cd $TRAVIS_BUILD_DIR/bin
   - "for file in *; do curl -H \"X-Auth: `echo -n $file$token | sha1sum | head -c 40`\" -T $file $url; done"
