@@ -1,15 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
 	"encoding/csv"
 	"fmt"
-	"io"
+	//	"io"
 	"os"
 	"strconv"
-	"strings"
 )
 
 const (
@@ -35,96 +35,187 @@ func main() {
 		fmt.Println("Please change cwd to be same as", self_name)
 		os.Exit(1)
 	}
-	rw, e := convertTo10bit()
-	if e != nil {
-		fmt.Println(e)
-		os.Exit(1)
-	}
-	writeFile(rw)
+	p := new(parser)
+	p.init()
+	defer p.free()
+	p.parse()
 }
 
-func convertTo10bit() (rw *bytes.Buffer, e error) {
-	defer func() {
-		ex := recover()
-		if ex != nil {
-			e = fmt.Errorf("%v", ex)
-		}
-	}()
-	csvfile, e := os.Open(geo_file)
+type parser struct {
+	srcFile, dstFile *os.File
+	dstEntryBuf      *bytes.Buffer
+	dstEntry         *zlib.Writer
+	h8Cnt            int
+	lastH16          uint16
+	latestLf         bool
+}
+
+func (p *parser) init() {
+	var e error
+	p.srcFile, e = os.Open(geo_file)
 	throwIf(e != nil, "open %s %v", geo_file, e)
-	defer csvfile.Close()
-	rw = new(bytes.Buffer)
-	rw.Grow(0xffff)
-	r := csv.NewReader(csvfile)
-	buf := make([]byte, 10)
-	for {
-		fields, e := r.Read()
-		if e == io.EOF {
-			break
-		} else {
-			throwIf(e != nil, "Read %s %v", csvfile, e)
-		}
-		start, e := strconv.ParseUint(fields[2], 10, 32)
-		throwIf(e != nil, "ParseUint %s %v", fields[2], e)
-		binary.BigEndian.PutUint32(buf, uint32(start))
-		end, e := strconv.ParseUint(fields[3], 10, 32)
-		throwIf(e != nil, "ParseUint %s %v", fields[3], e)
-		binary.BigEndian.PutUint32(buf[4:], uint32(end))
-		copy(buf[8:], []byte(fields[4]))
-		n, e := rw.Write(buf)
-		throwIf(n != 10 || e != nil, "Write memory %v", e)
-	}
-	return
+	p.dstFile, e = os.OpenFile(db_file, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0666)
+	throwIf(e != nil, "OpenFile %s %v", db_file, e)
+	p.dstEntryBuf = new(bytes.Buffer)
+	p.dstEntry = zlib.NewWriter(p.dstEntryBuf)
 }
 
-var header = `package geo
+func (p *parser) free() {
+	if p.srcFile != nil {
+		p.srcFile.Close()
+	}
+	if p.dstFile != nil {
+		p.dstFile.Close()
+	}
+}
 
-import (
-	"github.com/alecthomas/gobundle"
-)
+func (p *parser) parse() {
+	var (
+		rr  = newRecordReader(p.srcFile)
+		rw  = new(bytes.Buffer)
+		buf = make([]byte, 6)
+	)
+	for rr.hasNext() {
+		v := rr.get()
+		var h16 uint16
 
-var DbBundle *gobundle.Bundle = gobundle.NewBuilder("geo").Compressed().UncompressOnInit().Add(
-	"ranges.db", []byte{
-`
+		_start, _end := v.start, minUint32(v.start|0xffff, v.end)
+		for _end <= v.end {
+			h16 = uint16(_start >> 16)
+			binary.BigEndian.PutUint16(buf, uint16(_start))
+			binary.BigEndian.PutUint16(buf[2:], uint16(_end))
+			copy(buf[4:], []byte(v.county))
+			n, e := rw.Write(buf)
+			throwIf(n != 6 || e != nil, "Write memory %v", e)
 
-var footer = `	},
-).Build()`
-
-func writeFile(r io.Reader) {
-	dbfile, e := os.OpenFile(db_file, os.O_CREATE|os.O_RDWR, 0666)
-	throwIf(e != nil, "OpenFile %v %v", dbfile, e)
-	defer dbfile.Close()
-	trw := new(bytes.Buffer)
-	z := zlib.NewWriter(trw)
-	_, e = io.Copy(z, r)
-	z.Flush()
-	z.Close()
-	r = nil
-	throwIf(e != nil, "copy memory %v", e)
-
-	dbfile.WriteString(header)
-	throwIf(e != nil, "Write dbfile %v", e)
-	line := make([]byte, 12)
-	for i, max := 0, trw.Len(); i < max; {
-		n, e := trw.Read(line)
-		i += n
-		if n > 0 {
-			literal := fmt.Sprintf(" % x", line[:n])
-			literal = strings.Replace(literal, " ", ", 0x", -1)
-			literal = "\t\t" + literal[2:] + ",\n" // skip leading ,+space
-			dbfile.WriteString(literal)
+			_start = ((_start >> 16) + 1) << 16
+			if _end&0xffff == 0xffff { // this range cross over net/16
+				p.write16Segment(rw.Bytes(), h16)
+				rw.Reset()
+			}
+			_end = _start + (_end & 0xffff)
 		}
-		if e == io.EOF {
-			break
-		} else {
-			throwIf(e != nil, "Read memory %v", e)
+		if rr.next_h16_gt(h16) {
+			p.write16Segment(rw.Bytes(), h16)
+			rw.Reset()
 		}
 	}
-	dbfile.WriteString(footer)
-	throwIf(e != nil, "Write dbfile %v", e)
+	p.writeEnd()
+}
+
+func (p *parser) write16Segment(data []byte, h16 uint16) {
+	if len(data) <= 0 {
+		return
+	}
+	label := make([]byte, 4)
+	binary.BigEndian.PutUint16(label, uint16(len(data)))
+	binary.BigEndian.PutUint16(label[2:], h16)
+	p.dstEntry.Write(label)
+	p.dstEntry.Write(data)
+}
+
+func (p *parser) writeEnd() {
+	// zlib flush, close
+	p.dstEntry.Flush()
+	p.dstEntry.Close()
+	// bufed file
+	dst := bufio.NewWriter(p.dstFile)
+	dst.WriteString(header)
+	dst.WriteString(strconv.QuoteToASCII(string(p.dstEntryBuf.Bytes())))
+	dst.WriteString(footer)
+	dst.Flush()
 }
 
 func IsNotExist(file string) bool {
 	_, err := os.Stat(file)
 	return os.IsNotExist(err)
 }
+
+func parseUint32(v string) uint32 {
+	i, e := strconv.ParseUint(v, 10, 32)
+	throwIf(e != nil, "ParseUint %s %v", v, e)
+	return uint32(i)
+}
+
+func minUint32(a, b uint32) uint32 {
+	if a < b {
+		return a
+	} else {
+		return b
+	}
+}
+
+type record struct {
+	start, end uint32
+	county     string
+}
+
+type recordReader struct {
+	f        *os.File
+	rd       *csv.Reader
+	tmp      *record
+	markRead bool
+}
+
+func newRecordReader(f *os.File) *recordReader {
+	return &recordReader{
+		f:  f,
+		rd: csv.NewReader(f),
+	}
+}
+
+func (r *recordReader) hasNext() bool {
+	if r.markRead {
+		r.markRead = false
+		return r.tmp != nil
+	}
+	fields, _ := r.rd.Read()
+	if fields != nil {
+		r.tmp = &record{
+			start:  parseUint32(fields[2]),
+			end:    parseUint32(fields[3]),
+			county: fields[4],
+		}
+		return true
+	}
+	return false
+}
+
+func (r *recordReader) get() (rd *record) {
+	rd = r.tmp
+	r.tmp = nil
+	r.hasNext()
+	r.markRead = true
+	return
+}
+
+func (r *recordReader) next_h16_gt(h16 uint16) bool {
+	return r.tmp == nil || uint16(r.tmp.start>>16) > h16
+}
+
+var header = `package geo
+
+import (
+	"bytes"
+	"compress/zlib"
+	"io"
+)
+
+func buildGeoDB() []byte{
+	var db = []byte(
+`
+
+var footer = `)
+	return decompress(db)
+}
+
+func decompress(b []byte) []byte {
+	r := bytes.NewReader(b)
+	zr , e := zlib.NewReader(r)
+	if e != nil {
+		panic(e)
+	}
+	w := new(bytes.Buffer)
+	io.Copy(w, zr)
+	return w.Bytes()
+}`
