@@ -311,7 +311,6 @@ type keyParser func([]byte)
 type FieldDescriptor struct {
 	sType  *reflect.StructField
 	fValue *reflect.Value
-	parent *FieldDescriptor
 }
 
 type ImportableFieldDesc map[string]*FieldDescriptor

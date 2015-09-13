@@ -72,7 +72,7 @@ func (c *bootContext) setLogVerbose(level int) {
 	}
 }
 
-func (c *bootContext) csc_process(output string) {
+func (c *bootContext) icc_process(output string) {
 	defer func() {
 		if e := recover(); e != nil {
 			fmt.Println(e)

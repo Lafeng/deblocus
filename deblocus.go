@@ -62,7 +62,7 @@ func main() {
 	}
 
 	if context.icc {
-		context.csc_process(output)
+		context.icc_process(output)
 		return
 	}
 
