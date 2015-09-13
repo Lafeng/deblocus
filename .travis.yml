@@ -18,7 +18,7 @@ before_deploy:
 deploy:
   on: dev
   provider: script
-  script: $HOME/gopath/src/github.com/Lafeng/deblocus/deploy.sh
+  script: $HOME/gopath/src/github.com/Lafeng/deblocus/static/deploy.sh
   on:
     branch: dev
 after_deploy:
