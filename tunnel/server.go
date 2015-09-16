@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	ex "github.com/Lafeng/deblocus/exception"
+	"github.com/Lafeng/deblocus/geo"
 	log "github.com/Lafeng/deblocus/golang/glog"
 	"math/rand"
 	"net"
@@ -46,6 +47,9 @@ func NewSession(tun *Conn, cf *CipherFactory, n *d5SNegotiation) *Session {
 	}
 	s.uid = SubstringBefore(n.clientIdentity, IDENTITY_SEP)
 	s.cid = SubstringBefore(s.identifyConn(tun), ":")
+	if n.Server.filter != nil {
+		s.mux.filter = n.Server.filter
+	}
 	return s
 }
 
@@ -207,12 +211,15 @@ type Server struct {
 	*D5ServConf
 	dhKeys     *DHKeyPair
 	sessionMgr *SessionMgr
+	filter     Filterable
 }
 
 func NewServer(d5s *D5ServConf, dhKeys *DHKeyPair) *Server {
-	return &Server{
-		d5s, dhKeys, NewSessionMgr(),
+	s := &Server{d5s, dhKeys, NewSessionMgr(), nil}
+	if len(d5s.TargetDeny) == 2 {
+		s.filter, _ = geo.NewGeoIPFilter(d5s.TargetDeny)
 	}
+	return s
 }
 
 func (t *Server) TunnelServe(conn *net.TCPConn) {
@@ -237,4 +244,8 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 
 func (t *Server) Stats() string {
 	return ""
+}
+
+type Filterable interface {
+	Filter(host string) bool
 }

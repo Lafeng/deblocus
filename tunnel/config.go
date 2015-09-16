@@ -128,6 +128,7 @@ type D5ServConf struct {
 	Algo       string `importable:"AES128CFB"`
 	ServerName string `importable:"SERVER_NAME"`
 	Verbose    int    `importable:"1"`
+	TargetDeny string `importable:`
 	AuthSys    auth.AuthSys
 	RSAKeys    *RSAKeyPair
 	ListenAddr *net.TCPAddr
@@ -159,6 +160,12 @@ func (d *D5ServConf) validate() error {
 	}
 	if d.RSAKeys == nil {
 		return CONF_MISS.Apply("ServerPrivateKey")
+	}
+	if len(d.TargetDeny) > 0 {
+		d.TargetDeny = strings.TrimSpace(d.TargetDeny)
+		if !regexp.MustCompile("[A-Z]{2}").MatchString(d.TargetDeny) {
+			return CONF_ERROR.Apply("TargetDeny must be ISO3166-1 uppercase 2-letter Country Code")
+		}
 	}
 	return nil
 }

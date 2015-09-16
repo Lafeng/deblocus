@@ -179,6 +179,7 @@ type multiplexer struct {
 	role     string
 	status   int
 	pingCnt  int32 // received ping count
+	filter   Filterable
 }
 
 func newServerMultiplexer() *multiplexer {
@@ -370,14 +371,24 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		dstConn net.Conn
 		err     error
 		target  = string(frm.data)
+		denied  = false
 	)
-	dstConn, err = net.DialTimeout("tcp", target, GENERAL_SO_TIMEOUT)
+	if p.filter != nil {
+		denied = p.filter.Filter(target)
+	}
+	if !denied {
+		dstConn, err = net.DialTimeout("tcp", target, GENERAL_SO_TIMEOUT)
+	}
 	frm.length = 0
-	if err != nil {
+	if err != nil || denied {
 		p.router.removePreRegistered(key)
-		log.Errorf("Cannot connect to [%s] for %s error: %s\n", target, key, err)
 		frm.action = FRAME_ACTION_OPEN_N
 		tunWrite2(tun, frm)
+		if denied {
+			log.Errorf("Denied connect to [%s] for %s\n", target, key)
+		} else {
+			log.Errorf("Cannot connect to [%s] for %s error: %s\n", target, key, err)
+		}
 	} else {
 		if log.V(1) {
 			log.Infoln("OPEN", target, "for", key)
