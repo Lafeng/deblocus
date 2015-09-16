@@ -437,6 +437,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 	)
 	for {
 		if _fast_open {
+			src.SetReadDeadline(time.Now().Add(time.Second))
 			v, y := reflect.ValueOf(edge.ready).TryRecv()
 			if y {
 				code = v.Interface().(byte)
@@ -456,6 +457,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 					// timeout or open-signal received
 					if code == FRAME_ACTION_OPEN_Y {
 						_fast_open = false // read forever
+						src.SetReadDeadline(ZERO_TIME)
 					} else {
 						return
 					}
@@ -472,7 +474,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 				return
 			}
 		}
-		if er != nil {
+		if er != nil && !(_fast_open && IsTimeout(er)) {
 			return
 		}
 	}

@@ -129,6 +129,13 @@ func closeW(conn net.Conn) {
 	}
 }
 
+func IsTimeout(e error) bool {
+	if err, y := e.(net.Error); y {
+		return err.Timeout()
+	}
+	return false
+}
+
 func setSoTimeout(conn net.Conn) {
 	e := conn.SetDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
 	ThrowErr(e)

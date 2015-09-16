@@ -98,7 +98,7 @@ func NewGeoIPFilter(keyword string) (f *GeoIPFilter, e error) {
 }
 
 func (f *GeoIPFilter) Filter(host string) bool {
-	ipAddr, e := net.ResolveIPAddr("ip4", host)
+	ipAddr, e := net.ResolveTCPAddr("tcp4", host)
 	if e != nil {
 		return false
 	}
