@@ -78,14 +78,14 @@ func NewGeoIPFilter(keyword string) (f *GeoIPFilter, e error) {
 		return nil, fmt.Errorf("filter keyword must be 2-byte country_iso_code")
 	}
 	var db = buildGeoDB()
-	var size = len(db) / 6
+	var size = len(db) / 7
 	entries := make(entrySet, size)
 	for i := 0; i < size; i++ {
-		j := i * 6
+		j := i * 7
 		entries[i] = &entry{
 			data:    binary.BigEndian.Uint32(db[j : j+4]),
 			len:     uint32(db[j+4]),
-			nexthop: string(db[j+5 : j+6]),
+			nexthop: string(db[j+5 : j+7]),
 		}
 	}
 	f = new(GeoIPFilter)

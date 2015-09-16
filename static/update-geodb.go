@@ -71,7 +71,7 @@ func (p *parser) free() {
 
 func (p *parser) parseAndWrite() {
 	var (
-		buf = make([]byte, 6)
+		buf = make([]byte, 7)
 	)
 	reader := new(geo.GeoLite2Reader)
 	var lineReader = func(fields []string) {
