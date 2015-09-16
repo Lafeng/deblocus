@@ -88,6 +88,7 @@ func NewGeoIPFilter(keyword string) (f *GeoIPFilter, e error) {
 			nexthop: string(db[j+5 : j+6]),
 		}
 	}
+	f = new(GeoLite2Reader)
 	f.keyword = strings.ToUpper(keyword)
 	f.tab = buildRoutingTable(entries)
 	if log.V(1) {
