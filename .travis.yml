@@ -4,23 +4,16 @@ go:
 env:
   global:
     - TARGET_ARCH=amd64
-    - BUILD="go build -ldflags '-X main.build_flag=-dev' ."
   matrix:
     - TARGET_OS=linux
     - TARGET_OS=darwin
     - TARGET_OS=windows EXT=.exe
 before_deploy:
   - export GOARCH=$TARGET_ARCH GOOS=$TARGET_OS
-  - export SHORT_COMMIT=`echo $TRAVIS_COMMIT | head -c 7`
-  - export OUTPUT=$TRAVIS_BUILD_DIR/bin/deblocus_${TRAVIS_BUILD_NUMBER}_${SHORT_COMMIT}_
-  - mkdir -p $TRAVIS_BUILD_DIR/bin
-  - sh -c "$BUILD && tar cvaf $OUTPUT$GOOS-$GOARCH.tgz deblocus$EXT && rm deblocus$EXT"
+  - bash static/deploy.sh
 deploy:
   on: dev
   provider: script
   script: $HOME/gopath/src/github.com/Lafeng/deblocus/static/deploy.sh
   on:
     branch: dev
-after_deploy:
-  - cd $TRAVIS_BUILD_DIR/bin
-  - "for file in *; do curl -H \"X-Auth: `echo -n $file$token | sha1sum | head -c 40`\" -T $file $url; done"
