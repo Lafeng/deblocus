@@ -37,6 +37,7 @@ const (
 
 const (
 	WAITING_OPEN_TIMEOUT = GENERAL_SO_TIMEOUT * 3
+	READ_TMO_IN_FASTOPEN = time.Millisecond * 1500
 	FRAME_HEADER_LEN     = 5
 	FRAME_MAX_LEN        = 0xffff
 	MUX_PENDING_CLOSE    = -1
@@ -437,7 +438,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 	)
 	for {
 		if _fast_open {
-			src.SetReadDeadline(time.Now().Add(time.Second))
+			src.SetReadDeadline(time.Now().Add(READ_TMO_IN_FASTOPEN))
 			v, y := reflect.ValueOf(edge.ready).TryRecv()
 			if y {
 				code = v.Interface().(byte)
@@ -447,7 +448,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 				case FRAME_ACTION_OPEN_N:
 					return
 				}
-			} else {
+			} else { // ready-chan was not ready
 				if tn >= FAST_OPEN_BUF_MAX_SIZE { // must waiting for signal
 					select {
 					case code = <-edge.ready:
@@ -457,11 +458,13 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 					// timeout or open-signal received
 					if code == FRAME_ACTION_OPEN_Y {
 						_fast_open = false // read forever
-						src.SetReadDeadline(ZERO_TIME)
 					} else {
 						return
 					}
-				} // else could read again
+				}
+			}
+			if !_fast_open { // fastopen finished
+				src.SetReadDeadline(ZERO_TIME)
 			}
 		}
 
@@ -474,6 +477,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 				return
 			}
 		}
+		// timeout to recheck open signal
 		if er != nil && !(_fast_open && IsTimeout(er)) {
 			return
 		}
