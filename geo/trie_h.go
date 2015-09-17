@@ -9,31 +9,32 @@
 package geo
 
 const (
-	NOPRE   int    = -1 /* an empty prefix pointer */
+	NOPRE   int32  = -1 /* an empty prefix pointer */
 	ADRSIZE        = 32
-	uzero   uint32 = 0
+	U32ZERO uint32 = 0
+	MASK32  uint32 = 0xffffffff
 )
 
 type entry struct {
-	data    uint32      /* the routing entry */
-	len     uint32      /* and its length */
-	pre     int         /* this auxiliary variable is used in the */
-	nexthop interface{} /* the corresponding next-hop */
+	data    uint32 /* the routing entry */
+	pre     int32  /* this auxiliary variable is used in the */
+	nexthop uint16 /* the corresponding next-hop */
+	len     uint8  /* and its length */
 } /* construction of the final data structure */
 
 /* base vector */
 type base_t struct {
-	str     uint32      /* the routing entry */
-	len     uint32      /* and its length */
-	pre     int         /* pointer to prefix table, -1 if no prefix */
-	nexthop interface{} /* pointer to next-hop table */
+	str     uint32 /* the routing entry */
+	pre     int32  /* pointer to prefix table, -1 if no prefix */
+	nexthop uint16 /* pointer to next-hop table */
+	len     uint8  /* and its length */
 }
 
 /* prefix vector */
 type pre_t struct {
-	len     uint32      /* the length of the prefix */
-	pre     int         /* pointer to prefix, -1 if no prefix */
-	nexthop interface{} /* pointer to nexthop table */
+	pre     int32  /* pointer to prefix, -1 if no prefix */
+	nexthop uint16 /* pointer to nexthop table */
+	len     uint8  /* the length of the prefix */
 }
 
 /* The complete routing table data structure consists of
@@ -52,7 +53,7 @@ func isprefix(prev, next *entry) bool {
 	return prev != nil &&
 		// (s.len == 0 || /* EXTRACT() can't handle 0 bits */
 		(prev.len <= next.len &&
-			EXTRACT(0, prev.len, prev.data) == EXTRACT(0, prev.len, next.data))
+			EXTRACT8(0, prev.len, prev.data) == EXTRACT8(0, prev.len, next.data))
 }
 
 // sort entrySet
@@ -102,6 +103,10 @@ func GETADR(node uint32) uint32 {
 
 /* extract n bits from str starting at position p */
 func EXTRACT(p, n, str uint32) uint32 {
+	return str << p >> (32 - n)
+}
+
+func EXTRACT8(p uint32, n uint8, str uint32) uint32 {
 	return str << p >> (32 - n)
 }
 

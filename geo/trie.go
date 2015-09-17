@@ -6,7 +6,7 @@ https://raw.githubusercontent.com/kbandla/lctrie/master/docs/paper.pdf
 */
 
 import (
-	"reflect"
+	//	"reflect"
 	"sort"
 )
 
@@ -60,7 +60,7 @@ func buildRoutingTable(entries entrySet) *routingTable {
 			ptemp.pre = entries[i].pre
 			/* Update 'pre' for all entries that have this prefix */
 			for j := i + 1; j < size && isprefix(entries[i], entries[j]); j++ {
-				entries[j].pre = int(nprefs)
+				entries[j].pre = int32(nprefs)
 			}
 			// if UseNexthopCompression then
 			// ptemp.nexthop = sort.SearchInts(nexthop, entries[i].nexthop)
@@ -87,17 +87,17 @@ func buildRoutingTable(entries entrySet) *routingTable {
 	base := make([]base_t, nbases)
 	pre := make([]pre_t, nprefs)
 
-	for i := uzero; i < nextfree; i++ {
+	for i := U32ZERO; i < nextfree; i++ {
 		trie[i] = t[i]
 	}
 	t = nil //free(t)
 
-	for i := uzero; i < nbases; i++ {
+	for i := U32ZERO; i < nbases; i++ {
 		base[i] = *b[i]
 	}
 	b = nil //free(b)
 
-	for i := uzero; i < nprefs; i++ {
+	for i := U32ZERO; i < nprefs; i++ {
 		pre[i] = *p[i]
 	}
 	p = nil //free(p)
@@ -111,7 +111,7 @@ func buildRoutingTable(entries entrySet) *routingTable {
 }
 
 /* Return a nexthop or 0 if not found */
-func (t *routingTable) Find(s uint32) (interface{}, bool) {
+func (t *routingTable) Find(s uint32) (uint16, bool) {
 	var pos, branch, adr, node, bitmask uint32
 	/* Traverse the trie */
 	node = t.trie[0]
@@ -128,7 +128,7 @@ func (t *routingTable) Find(s uint32) (interface{}, bool) {
 
 	/* Was this a hit? */
 	bitmask = t.base[adr].str ^ s
-	if EXTRACT(0, t.base[adr].len, bitmask) == 0 {
+	if EXTRACT8(0, t.base[adr].len, bitmask) == 0 {
 		// if UseNexthopCompression then
 		// t->nexthop[t->base[adr].nexthop];
 		return t.base[adr].nexthop, true
@@ -138,7 +138,7 @@ func (t *routingTable) Find(s uint32) (interface{}, bool) {
 	 */
 	preadr := t.base[adr].pre
 	for preadr != NOPRE {
-		if EXTRACT(0, t.pre[preadr].len, bitmask) == 0 {
+		if EXTRACT8(0, t.pre[preadr].len, bitmask) == 0 {
 			// if UseNexthopCompression then
 			// t->nexthop[t->pre[preadr].nexthop];
 			return t.pre[preadr].nexthop, true
@@ -146,7 +146,7 @@ func (t *routingTable) Find(s uint32) (interface{}, bool) {
 		preadr = t.pre[preadr].pre
 	}
 
-	return nil, false /* Not found */
+	return 0, false /* Not found */
 }
 
 /*
@@ -188,7 +188,7 @@ func buildTrie(base []*base_t, pre []*pre_t, prefix, first, n, pos uint32, nextf
 					var prep = base[p-1].pre
 					var _len uint32
 					for prep != NOPRE && match1 == 0 {
-						_len = pre[prep].len
+						_len = uint32(pre[prep].len)
 						if _len > newprefix && EXTRACT(newprefix, _len-newprefix, base[p-1].str) == EXTRACT(32-branch, _len-newprefix, bitpat) {
 							match1 = _len
 						} else {
@@ -202,7 +202,7 @@ func buildTrie(base []*base_t, pre []*pre_t, prefix, first, n, pos uint32, nextf
 					var prep = base[p].pre
 					var _len uint32
 					for prep != NOPRE && match2 == 0 {
-						_len = pre[prep].len
+						_len = uint32(pre[prep].len)
 						if _len > newprefix && EXTRACT(newprefix, _len-newprefix, base[p].str) == EXTRACT(32-branch, _len-newprefix, bitpat) {
 							match2 = _len
 						} else {
@@ -215,8 +215,8 @@ func buildTrie(base []*base_t, pre []*pre_t, prefix, first, n, pos uint32, nextf
 				} else {
 					buildTrie(base, pre, newprefix+branch, p, 1, adr+bitpat, nextfree, tree)
 				}
-			} else if k == 1 && base[p].len-newprefix < branch {
-				bits = branch - base[p].len + newprefix
+			} else if k == 1 && uint32(base[p].len)-newprefix < branch {
+				bits = branch - uint32(base[p].len) + newprefix
 				for i := bitpat; i < bitpat+(1<<bits); i++ {
 					buildTrie(base, pre, newprefix+branch, p, 1, adr+i, nextfree, tree)
 				}
@@ -289,6 +289,7 @@ func computeBranch(base []*base_t, prefix, first, n uint32) (branch, newprefix u
 	return
 }
 
+/*
 // for building compressed nexthop table
 func buildNexthopTable(entry entrySet) sort.Interface {
 	first := entry[0].nexthop
@@ -310,14 +311,14 @@ func buildIntNexthopTable(entries entrySet) sort.Interface {
 		nexttemp[i] = entries[i].nexthop.(int)
 	}
 	sort.Ints(nexttemp)
-	/* Remove duplicates */
+	// Remove duplicates
 	for i := 1; i < eLen; i++ {
 		if nexttemp[i-1] != nexttemp[i] {
 			nexttemp[count] = nexttemp[i]
 			count++
 		}
 	}
-	/* Move the elements to an array of proper size */
+	// Move the elements to an array of proper size
 	nexthop := make(sort.IntSlice, count)
 	copy(nexthop, nexttemp[:count])
 	return nexthop
@@ -332,15 +333,16 @@ func buildStringNexthopTable(entries entrySet) sort.Interface {
 		nexttemp[i] = entries[i].nexthop.(string)
 	}
 	sort.Strings(nexttemp)
-	/* Remove duplicates */
+	// Remove duplicates
 	for i := 1; i < eLen; i++ {
 		if nexttemp[i-1] != nexttemp[i] {
 			nexttemp[count] = nexttemp[i]
 			count++
 		}
 	}
-	/* Move the elements to an array of proper size */
+	// Move the elements to an array of proper size
 	nexthop := make(sort.StringSlice, count)
 	copy(nexthop, nexttemp[:count])
 	return nexthop
 }
+*/

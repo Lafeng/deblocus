@@ -12,11 +12,11 @@ import (
 	"bufio"
 	"bytes"
 	"compress/zlib"
-	"encoding/binary"
 	"fmt"
 	"github.com/Lafeng/deblocus/geo"
 	"os"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -41,66 +41,75 @@ func main() {
 		fmt.Println("Please change cwd to `deblocus/static`")
 		os.Exit(1)
 	}
-	p := new(parser)
-	p.init()
-	p.parseAndWrite()
+
+	dst := init_files()
+	defer func() {
+		dst.Close()
+		os.Rename(dst.Name(), db_file)
+	}()
+	dw := build()
+	dw.writeDone(dst)
+	fmt.Println("update done.")
 }
 
-type parser struct {
-	dstFile   *os.File
-	dstBuffer *bytes.Buffer
-	dstWriter *zlib.Writer
-	h8Cnt     int
-	lastH16   uint16
-	latestLf  bool
-}
-
-func (p *parser) init() {
-	var e error
-	p.dstFile, e = os.OpenFile(db_file, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0666)
+func init_files() *os.File {
+	throwIf(IsNotExist(geo.GEO2_IPV4_FILE), geo.GEO2_IPV4_FILE)
+	throwIf(IsNotExist(geo.GEO2_LOC_FILE), geo.GEO2_LOC_FILE)
+	dstFile, e := os.OpenFile(db_file+".tmp", os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0666)
 	throwIf(e != nil, "OpenFile %s %v", db_file, e)
-	p.dstBuffer = new(bytes.Buffer)
-	p.dstWriter = zlib.NewWriter(p.dstBuffer)
+	return dstFile
 }
 
-func (p *parser) free() {
-	if p.dstFile != nil {
-		p.dstFile.Close()
-	}
-}
-
-func (p *parser) parseAndWrite() {
-	var (
-		buf = make([]byte, 7)
-	)
+func build() *dbWriter {
 	reader := new(geo.GeoLite2Reader)
-	var lineReader = func(fields []string) {
-		// fields: cidr, id, ...
-		ip, mask := geo.ParseCIDR(fields[0])
-		id, _ := strconv.Atoi(fields[1])
-		code := reader.CountryCode[id]
-		binary.BigEndian.PutUint32(buf, ip)
-		buf[4] = uint8(mask)
-		copy(buf[5:], code)
-		p.dstWriter.Write(buf)
-	}
-	reader.Iter(lineReader)
-	p.writeToFile()
-	fmt.Println("Done.")
+	tab := reader.ReadToRoutingTable()
+	t, b, p := geo.Serialize(tab)
+	dw := newDbWriter()
+	dw.writeEntry(t)
+	dw.writeEntry(b)
+	dw.writeEntry(p)
+	return dw
 }
 
-func (p *parser) writeToFile() {
-	// zlib flush and close
-	p.dstWriter.Flush()
-	p.dstWriter.Close()
+type dbWriter struct {
+	entries []*bytes.Buffer
+	cnt     int
+}
 
-	defer p.dstFile.Close()
-	// buffered file
-	dst := bufio.NewWriter(p.dstFile)
-	dst.WriteString(header)
-	dst.WriteString(strconv.QuoteToASCII(string(p.dstBuffer.Bytes())))
-	dst.WriteString(footer)
-	dst.Flush()
+func newDbWriter() *dbWriter {
+	return &dbWriter{entries: make([]*bytes.Buffer, 0)}
+}
+
+func (dw *dbWriter) writeEntry(data []byte) {
+	buf := new(bytes.Buffer)
+	w := zlib.NewWriter(buf)
+	w.Write(data)
+	w.Flush()
+	w.Close()
+	dw.entries = append(dw.entries, buf)
+}
+
+func (dw *dbWriter) writeDone(fp *os.File) {
+	bufw := bufio.NewWriter(fp)
+	bufw.WriteString(header)
+	// return part of func signature
+	bufw.WriteByte('(')
+	fnSign := strings.Repeat("[]byte, ", len(dw.entries))
+	bufw.WriteString(fnSign[:len(fnSign)-2])
+	bufw.WriteString(") {\n")
+	var fnReturn = "return "
+	// each entry
+	for i, e := range dw.entries {
+		bufw.WriteString(fmt.Sprintf("var db%d = []byte(", i))
+		fnReturn += fmt.Sprintf("decompress(db%d), ", i)
+		bufw.WriteString(strconv.QuoteToASCII(string(e.Bytes())))
+		bufw.WriteString(")\n")
+	}
+	// func return
+	bufw.WriteString(fnReturn[:len(fnReturn)-2])
+	bufw.WriteString("\n}\n")
+	bufw.WriteString(footer)
+	bufw.Flush()
 }
 
 func IsNotExist(file string) bool {
@@ -116,13 +125,9 @@ import (
 	"io"
 )
 
-func buildGeoDB() []byte{
-	var db = []byte(
-`
+func buildGeoDB() `
 
-var footer = `)
-	return decompress(db)
-}
+var footer = `
 
 func decompress(b []byte) []byte {
 	r := bytes.NewReader(b)
