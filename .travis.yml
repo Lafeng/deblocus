@@ -10,9 +10,7 @@ env:
     - TARGET_OS=windows EXT=.exe
 before_deploy:
   - export GOARCH=$TARGET_ARCH GOOS=$TARGET_OS
-  - bash static/deploy.sh
 deploy:
-  on: dev
   provider: script
   script: $HOME/gopath/src/github.com/Lafeng/deblocus/static/deploy.sh
   on:
