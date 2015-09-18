@@ -3,7 +3,6 @@ package geo
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"runtime"
 	"unsafe"
@@ -32,16 +31,12 @@ var nets = []string{
 }
 
 // Begin testing of manual samples
-func Test_buildFromString(t *testing.T) {
+func TestBuildFromString(t *testing.T) {
 	var entries = make(entrySet, len(nets))
 	for i, v := range nets {
 		ip, mask := ParseCIDR(v)
 		ip = ip >> (32 - mask) << (32 - mask)
 		entries[i] = &entry{data: ip, len: uint8(mask), nexthop: uint16(i)}
-		//		if true {
-		if false {
-			fmt.Printf("%d %d %d\n", ip, mask, i)
-		}
 	}
 	t1 := time.Now()
 	tab = buildRoutingTable(entries)
@@ -49,7 +44,7 @@ func Test_buildFromString(t *testing.T) {
 	t.Logf("build table size=%d use=%dms", len(nets), tu)
 }
 
-func Test_manual_query(t *testing.T) {
+func TestManualQuery(t *testing.T) {
 	samples := `
 	1.1.1.1
 	1.1.2.3
@@ -70,31 +65,32 @@ func Test_manual_query(t *testing.T) {
 		}
 		b, e := RangeCIDR(nets[p])
 		if ip >= b && ip <= e {
-			t.Logf("found %15s by %s[%s, %s]", l, U16toS(p), IPv4Itoa(b), IPv4Itoa(e))
+			t.Logf("found %15s by [%s, %s]", l, IPv4Itoa(b), IPv4Itoa(e))
 		} else {
-			t.Logf("found %15s by %s[%s, %s]", l, U16toS(p), IPv4Itoa(b), IPv4Itoa(e))
+			t.Logf("found %15s by [%s, %s]", l, IPv4Itoa(b), IPv4Itoa(e))
 		}
 	}
 }
 
 // Begin testing of random samples
 // routing table from file
-func Test_buildFromFile(t *testing.T) {
-	tab = nil
+func TestBuildFromFile(t *testing.T) {
 	reader := new(GeoLite2Reader)
 	reader.RelativePath = "../static/"
 	entries, e := reader.ReadEntries()
 	if e != nil {
 		t.Fatal(e)
 	}
+	tab = nil
 	reader = nil
-	var ms1, ms2 = new(runtime.MemStats), new(runtime.MemStats)
+	var ms1, ms2 runtime.MemStats
 	runtime.GC()
-	runtime.ReadMemStats(ms1)
+	runtime.ReadMemStats(&ms1)
 	tab = buildRoutingTable(entries)
 	runtime.GC()
-	runtime.ReadMemStats(ms2)
-	t.Logf("tab trie=%d base=%d pre=%d", len(tab.trie), len(tab.base), len(tab.pre))
+	runtime.ReadMemStats(&ms2)
+	ne := len(entries) // holding the memory
+	t.Logf("tab entries=%d trie=%d base=%d pre=%d", ne, len(tab.trie), len(tab.base), len(tab.pre))
 	t.Logf("mem HeapAlloc=%dk HeapInuse=%dk HeapIdle=%dk HeapSys=%dk",
 		(int64(ms2.HeapAlloc)-int64(ms1.HeapAlloc))/1024,
 		(int64(ms2.HeapInuse)-int64(ms1.HeapInuse))/1024,
@@ -103,7 +99,7 @@ func Test_buildFromFile(t *testing.T) {
 	)
 }
 
-func Test_query_performance(t *testing.T) {
+func TestQueryPerformance(t *testing.T) {
 	samples := generateSamples()
 	var i, j int
 	t1 := time.Now()
@@ -117,26 +113,18 @@ func Test_query_performance(t *testing.T) {
 	t.Logf("querys=%d totalTime=%dms speed=%.2f per ms \n", all, totalTime, float64(all)/float64(totalTime))
 }
 
-func generateSamples() []uint32 {
-	samplesRaw := make([]byte, 4*samplesSize)
-	io.ReadFull(rand.Reader, samplesRaw)
-	samples := make([]uint32, samplesSize)
-	for i := 0; i < samplesSize; i++ {
-		samples[i] = binary.BigEndian.Uint32(samplesRaw[i*4 : i*4+4])
-	}
-	return samples
-}
-
 type referrence struct {
 	start, end []uint32
 	country    []string
 	size       int
 }
 
-func Test_correctness(t *testing.T) {
+func TestCorrectness(t *testing.T) {
+	// test Serialize and deserialize
 	_t, b, p := Serialize(tab)
-	tab = Deserialize(_t, b, p)
-	var ref = _buildReferrence(t)
+	tab = deserialize(_t, b, p)
+	//-------------------------------
+	var ref = buildReferrence(t)
 	var i, j int
 	for i = 0; i < loopCount>>2; i++ {
 		samples := generateSamples()
@@ -165,14 +153,24 @@ func Test_correctness(t *testing.T) {
 	t.Logf("Correctness testing count=%d", i*j)
 }
 
-func Test_alignment(t *testing.T) {
+func TestAlignment(t *testing.T) {
 	var e entry
 	var b base_t
 	var p pre_t
 	t.Logf("sizeof entry=%d base_t=%d pre_t=%d", unsafe.Sizeof(e), unsafe.Sizeof(b), unsafe.Sizeof(p))
 }
 
-func _buildReferrence(t *testing.T) *referrence {
+func generateSamples() []uint32 {
+	samplesRaw := make([]byte, 4*samplesSize)
+	io.ReadFull(rand.Reader, samplesRaw)
+	samples := make([]uint32, samplesSize)
+	for i := 0; i < samplesSize; i++ {
+		samples[i] = binary.BigEndian.Uint32(samplesRaw[i*4 : i*4+4])
+	}
+	return samples
+}
+
+func buildReferrence(t *testing.T) *referrence {
 	var (
 		start   = make([]uint32, 0, 0xffff)
 		end     = make([]uint32, 0, 0xffff)
@@ -185,7 +183,7 @@ func _buildReferrence(t *testing.T) *referrence {
 		id, _ := strconv.Atoi(fields[1])
 		code := reader.CountryCode[id]
 		s, e := RangeCIDR(fields[0])
-		if len(code) == 2 {
+		if len(code) == 2 { // skip empty country
 			i++
 			start = append(start, s)
 			end = append(end, e)

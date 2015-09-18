@@ -16,7 +16,6 @@ import (
 	"github.com/Lafeng/deblocus/geo"
 	"os"
 	"strconv"
-	"strings"
 )
 
 const (
@@ -45,11 +44,15 @@ func main() {
 	dst := init_files()
 	defer func() {
 		dst.Close()
-		os.Rename(dst.Name(), db_file)
+		if e := recover(); e == nil {
+			os.Rename(dst.Name(), db_file)
+		} else {
+			panic(e)
+		}
 	}()
 	dw := build()
 	dw.writeDone(dst)
-	fmt.Println("update done.")
+	fmt.Println("Update done.")
 }
 
 func init_files() *os.File {
@@ -73,35 +76,46 @@ func build() *dbWriter {
 
 type dbWriter struct {
 	entries []*bytes.Buffer
+	lens    []int
 	cnt     int
 }
 
 func newDbWriter() *dbWriter {
-	return &dbWriter{entries: make([]*bytes.Buffer, 0)}
+	return &dbWriter{
+		entries: make([]*bytes.Buffer, 0),
+		lens:    make([]int, 0),
+	}
 }
 
 func (dw *dbWriter) writeEntry(data []byte) {
+	_len := len(data)
+	dw.lens = append(dw.lens, _len)
 	buf := new(bytes.Buffer)
-	w := zlib.NewWriter(buf)
-	w.Write(data)
-	w.Flush()
-	w.Close()
-	dw.entries = append(dw.entries, buf)
+	if _len <= 0 {
+		dw.entries = append(dw.entries, buf)
+	} else {
+		w := zlib.NewWriter(buf)
+		w.Write(data)
+		w.Flush()
+		w.Close()
+		dw.entries = append(dw.entries, buf)
+	}
 }
 
 func (dw *dbWriter) writeDone(fp *os.File) {
 	bufw := bufio.NewWriter(fp)
 	bufw.WriteString(header)
-	// return part of func signature
-	bufw.WriteByte('(')
-	fnSign := strings.Repeat("[]byte, ", len(dw.entries))
-	bufw.WriteString(fnSign[:len(fnSign)-2])
-	bufw.WriteString(") {\n")
-	var fnReturn = "return "
+	// write lens
+	bufw.WriteString(fmt.Sprintf("\tvar lens = %#v\n", dw.lens))
+	fnReturn := "\treturn "
 	// each entry
 	for i, e := range dw.entries {
-		bufw.WriteString(fmt.Sprintf("var db%d = []byte(", i))
-		fnReturn += fmt.Sprintf("decompress(db%d), ", i)
+		if e.Len() > 0 {
+			fnReturn += fmt.Sprintf("decompress(db%d, lens[%d]), ", i, i)
+		} else {
+			fnReturn += fmt.Sprintf("db%d, ", i)
+		}
+		bufw.WriteString(fmt.Sprintf("\tvar db%d = []byte(", i))
 		bufw.WriteString(strconv.QuoteToASCII(string(e.Bytes())))
 		bufw.WriteString(")\n")
 	}
@@ -122,20 +136,35 @@ var header = `package geo
 import (
 	"bytes"
 	"compress/zlib"
+	"fmt"
 	"io"
 )
 
-func buildGeoDB() `
+func buildGeoDB() ([]byte, []byte, []byte) {
+`
 
 var footer = `
 
-func decompress(b []byte) []byte {
-	r := bytes.NewReader(b)
-	zr , e := zlib.NewReader(r)
+func decompress(b []byte, lens int) []byte {
+	zr, e := zlib.NewReader(bytes.NewReader(b))
 	if e != nil {
 		panic(e)
 	}
-	w := new(bytes.Buffer)
-	io.Copy(w, zr)
-	return w.Bytes()
-}`
+	var nw int
+	w := make([]byte, lens)
+	for nw < lens {
+		n, e := zr.Read(w[nw:])
+		nw += n
+		if e != nil {
+			if e == io.EOF {
+				break
+			}
+			panic(e)
+		}
+	}
+	if nw != lens {
+		panic(fmt.Errorf("expected len=%d but read len=%d", lens, nw))
+	}
+	return w
+}
+`

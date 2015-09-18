@@ -94,7 +94,7 @@ func (r *GeoLite2Reader) ReadToRoutingTable() *routingTable {
 
 type GeoIPFilter struct {
 	tab     *routingTable
-	keyword string
+	keyword uint16
 }
 
 func NewGeoIPFilter(keyword string) (f *GeoIPFilter, e error) {
@@ -102,8 +102,8 @@ func NewGeoIPFilter(keyword string) (f *GeoIPFilter, e error) {
 		return nil, fmt.Errorf("filter keyword must be 2-byte country_iso_code")
 	}
 	f = new(GeoIPFilter)
-	f.keyword = strings.ToUpper(keyword)
-	f.tab = Deserialize(buildGeoDB())
+	f.keyword = StoU16(strings.ToUpper(keyword))
+	f.tab = deserialize(buildGeoDB())
 	if log.V(1) {
 		log.Infoln("Init GeoIPFilter with target keyword", keyword)
 	}
@@ -119,7 +119,7 @@ func (f *GeoIPFilter) Filter(host string) bool {
 	// net.IP is 16-byte, ipv4.addr at 12-15
 	ip := binary.BigEndian.Uint32(ipAddr.IP[12:])
 	if nexthop, y := f.tab.Find(ip); y {
-		return U16toS(nexthop) == f.keyword
+		return nexthop == f.keyword
 	}
 	return false
 }
@@ -134,44 +134,40 @@ type slice struct {
 // then could make persistent data
 func Serialize(r *routingTable) (t, b, p []byte) {
 	tcnt, bcnt, pcnt := len(r.trie), len(r.base), len(r.pre)
-	bsize, psize := unsafe.Sizeof(base_t{}), unsafe.Sizeof(pre_t{})
-	t = convertToByteSlice(unsafe.Pointer(&r.trie), tcnt*4)
-	b = convertToByteSlice(unsafe.Pointer(&r.base), bcnt*int(bsize))
-	p = convertToByteSlice(unsafe.Pointer(&r.pre), pcnt*int(psize))
+	bsize, psize := int(unsafe.Sizeof(base_t{})), int(unsafe.Sizeof(pre_t{}))
+	t = *(*[]byte)(convertSlice(unsafe.Pointer(&r.trie), tcnt*4))
+	b = *(*[]byte)(convertSlice(unsafe.Pointer(&r.base), bcnt*bsize))
+	p = *(*[]byte)(convertSlice(unsafe.Pointer(&r.pre), pcnt*psize))
 	return
 }
 
 // Recover []byte to compact struct instance directly without copying
 // Time is money, yeah!
 // Memory is money, yeah!
-func Deserialize(t, b, p []byte) *routingTable {
+func deserialize(t, b, p []byte) *routingTable {
 	tcnt, bcnt, pcnt := len(t), len(b), len(p)
-	bsize, psize := unsafe.Sizeof(base_t{}), unsafe.Sizeof(pre_t{})
+	bsize, psize := int(unsafe.Sizeof(base_t{})), int(unsafe.Sizeof(pre_t{}))
 	verifyLen(tcnt, 4)
 	verifyLen(bcnt, bsize)
 	verifyLen(pcnt, psize)
 	return &routingTable{
-		trie: *(*[]uint32)(convertToUnsafePointer(t, tcnt/4)),
-		base: *(*[]base_t)(convertToUnsafePointer(b, bcnt/int(bsize))),
-		pre:  *(*[]pre_t)(convertToUnsafePointer(p, pcnt/int(psize))),
+		trie: *(*[]uint32)(convertSlice(unsafe.Pointer(&t), tcnt/4)),
+		base: *(*[]base_t)(convertSlice(unsafe.Pointer(&b), bcnt/bsize)),
+		pre:  *(*[]pre_t)(convertSlice(unsafe.Pointer(&p), pcnt/psize)),
 	}
 }
 
-func verifyLen(total int, unitLen uintptr) {
-	if total%int(unitLen) != 0 {
+func verifyLen(total int, unitLen int) {
+	if total%unitLen != 0 {
 		panic(fmt.Errorf("total.len=%d was not divisible by unit=%d", total, unitLen))
 	}
 }
 
-func convertToByteSlice(p unsafe.Pointer, _len int) []byte {
+// Invariant: count(oldSlice)*sizeof(oldUnit) == count(newSlice)*sizeof(newUnit)
+// Caution memory leak !!!
+func convertSlice(p unsafe.Pointer, newlen int) unsafe.Pointer {
 	slicePtr := (*slice)(p)
-	newSlice := slice{slicePtr.array, _len, _len}
-	return *(*[]byte)(unsafe.Pointer(&newSlice))
-}
-
-func convertToUnsafePointer(b []byte, _len int) unsafe.Pointer {
-	slicePtr := (*slice)(unsafe.Pointer(&b))
-	newSlice := slice{slicePtr.array, _len, _len}
+	newSlice := slice{slicePtr.array, newlen, newlen}
 	return unsafe.Pointer(&newSlice)
 }
 
@@ -216,10 +212,6 @@ func RangeCIDR(s string) (uint32, uint32) {
 	return ip_start, ip_end
 }
 
-func IPv4Itoa(ip uint32) string {
-	i, b := uint64(ip), 10
-	return strconv.FormatUint(i>>24, b) + "." +
-		strconv.FormatUint(i>>16&0xff, b) + "." +
-		strconv.FormatUint(i>>8&0xff, b) + "." +
-		strconv.FormatUint(i&0xff, b)
+func IPv4Itoa(i uint32) string {
+	return fmt.Sprintf("%d.%d.%d.%d", i>>24, i>>16&0xff, i>>8&0xff, i&0xff)
 }
