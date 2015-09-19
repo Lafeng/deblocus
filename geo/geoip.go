@@ -19,21 +19,19 @@ const (
 )
 
 type GeoLite2Reader struct {
-	ipv4fp       *os.File
-	locfp        *os.File
 	CountryCode  map[int]string
 	Count        int
 	RelativePath string
 }
 
 func (r *GeoLite2Reader) Iter(callback func(fields []string)) (e error) {
-	r.locfp, e = os.Open(r.RelativePath + GEO2_LOC_FILE)
+	locfp, e := os.Open(r.RelativePath + GEO2_LOC_FILE)
 	if e != nil {
 		return e
 	}
-	defer r.locfp.Close()
+	defer locfp.Close()
 	var countryCode = make(map[int]string)
-	for rd := csv.NewReader(r.locfp); ; {
+	for rd := csv.NewReader(locfp); ; {
 		row, e := rd.Read()
 		if e != nil {
 			break
@@ -44,12 +42,12 @@ func (r *GeoLite2Reader) Iter(callback func(fields []string)) (e error) {
 		}
 	}
 	r.CountryCode = countryCode
-	r.ipv4fp, e = os.Open(r.RelativePath + GEO2_IPV4_FILE)
+	ipv4fp, e := os.Open(r.RelativePath + GEO2_IPV4_FILE)
 	if e != nil {
 		return e
 	}
-	defer r.ipv4fp.Close()
-	rd := csv.NewReader(r.ipv4fp)
+	defer ipv4fp.Close()
+	rd := csv.NewReader(ipv4fp)
 	rd.Read() // skip first line
 	var (
 		i      = 0
@@ -57,18 +55,21 @@ func (r *GeoLite2Reader) Iter(callback func(fields []string)) (e error) {
 	)
 	for ; ; i++ {
 		fields, e = rd.Read()
-		if e != nil || fields == nil {
+		if e != nil {
 			if e == io.EOF {
 				e = nil
 			}
 			break
 		}
-		callback(fields)
+		if len(fields) > 0 {
+			callback(fields)
+		}
 	}
 	r.Count = i
 	return
 }
 
+// for testing, update-geodb
 func (r *GeoLite2Reader) ReadEntries() (entries entrySet, e error) {
 	entries = make(entrySet, 0, 0xffff*3)
 	var lineReader = func(fields []string) {
@@ -84,6 +85,7 @@ func (r *GeoLite2Reader) ReadEntries() (entries entrySet, e error) {
 	return
 }
 
+// for update-geodb
 func (r *GeoLite2Reader) ReadToRoutingTable() *routingTable {
 	entries, e := r.ReadEntries()
 	if e != nil {

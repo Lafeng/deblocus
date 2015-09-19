@@ -69,7 +69,7 @@ func (c *Conn) SetSockOpt(disableDeadline, keepAlive, noDelay int8) {
 			t.SetKeepAlive(keepAlive > 0)
 			if keepAlive > 0 {
 				period := int64(time.Minute) * int64(keepAlive)
-				period += int64(period)
+				period += randomHalving(period)
 				t.SetKeepAlivePeriod(time.Duration(period))
 			}
 		}
@@ -97,7 +97,7 @@ func (c *Conn) Update() {
 }
 
 func (c *Conn) sign() string {
-	return fmt.Sprintf("L%dR%d", c.LocalAddr().(*net.TCPAddr).Port, c.RemoteAddr().(*net.TCPAddr).Port)
+	return fmt.Sprintf("%s-L%d", SubstringBefore(c.identifier, "~"), c.LocalAddr().(*net.TCPAddr).Port)
 }
 
 func IdentifierOf(con net.Conn) string {

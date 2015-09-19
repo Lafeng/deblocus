@@ -15,19 +15,22 @@ import (
 
 const (
 	// frame action 8bit
-	FRAME_ACTION_CLOSE = iota
-	FRAME_ACTION_CLOSE_R
-	FRAME_ACTION_CLOSE_W
-	FRAME_ACTION_OPEN
-	FRAME_ACTION_OPEN_N
-	FRAME_ACTION_OPEN_Y
-	FRAME_ACTION_DATA
-	FRAME_ACTION_PING
-	FRAME_ACTION_PONG
-	FRAME_ACTION_TOKENS
-	FRAME_ACTION_TOKEN_REQUEST
-	FRAME_ACTION_TOKEN_REPLY
-	FRAME_ACTION_SLOWDOWN = 0xff
+	FRAME_ACTION_CLOSE         uint8 = 0x0
+	FRAME_ACTION_CLOSE_R             = 0x1
+	FRAME_ACTION_CLOSE_W             = 0x2
+	FRAME_ACTION_OPEN                = 0x10
+	FRAME_ACTION_OPEN_Y              = 0x11
+	FRAME_ACTION_OPEN_N              = 0x12
+	FRAME_ACTION_OPEN_DENIED         = 0x13
+	FRAME_ACTION_SLOWDOWN            = 0x20
+	FRAME_ACTION_DATA                = 0x21
+	FRAME_ACTION_PING                = 0x30
+	FRAME_ACTION_PONG                = 0x31
+	FRAME_ACTION_TOKENS              = 0x40
+	FRAME_ACTION_TOKEN_REQUEST       = 0x41
+	FRAME_ACTION_TOKEN_REPLY         = 0x42
+	FRAME_ACTION_DNS_REQUEST         = 0x51
+	FRAME_ACTION_DNS_REPLY           = 0x52
 )
 
 const (
@@ -36,7 +39,7 @@ const (
 )
 
 const (
-	WAITING_OPEN_TIMEOUT = GENERAL_SO_TIMEOUT * 3
+	WAITING_OPEN_TIMEOUT = time.Second * 30
 	READ_TMO_IN_FASTOPEN = time.Millisecond * 1500
 	FRAME_HEADER_LEN     = 5
 	FRAME_MAX_LEN        = 0xffff
@@ -51,28 +54,31 @@ const (
 	ERR_UNKNOWN      = 0x0
 )
 
-// --------------------
-// event_handler
-// --------------------
-type event byte
-
-var (
-	evt_tokens = event(1)
-)
-
-type event_handler func(e event, msg ...interface{})
-
+// [1, 0xfffe]
 var sid_seq uint32
 
 const sid_max uint32 = 0xffff
 
 // --------------------
+// event_handler
+// --------------------
+type event byte
+
+const (
+	evt_tokens = event(1)
+)
+
+type event_handler func(e event, msg ...interface{})
+
+// --------------------
 // idler
 // --------------------
 type idler struct {
-	enabled  bool
-	waiting  bool
-	interval time.Duration
+	enabled      bool
+	waiting      bool
+	interval     time.Duration
+	lastPing     int64
+	sRtt, devRtt int64
 }
 
 func NewIdler(interval int, isClient bool) *idler {
@@ -120,6 +126,7 @@ func (i *idler) consumeError(er error) uint {
 func (i *idler) ping(tun *Conn) error {
 	if i.enabled {
 		i.waiting = true
+		defer i.updateLast()
 		buf := make([]byte, FRAME_HEADER_LEN)
 		_frame(buf, FRAME_ACTION_PING, 0, nil)
 		return tunWrite1(tun, buf)
@@ -144,6 +151,31 @@ func (i *idler) verify() (r bool) {
 	return
 }
 
+func (i *idler) updateLast() {
+	i.lastPing = time.Now().UnixNano()
+}
+
+// ref: http://tools.ietf.org/html/rfc6298
+// return srtt, devrtt in millisecond
+func (i *idler) updateRtt() (int, int) {
+	rtt := time.Now().UnixNano() - i.lastPing
+	if i.devRtt != 0 {
+		// DevRTT = (1-beta)*DevRTT + beta*(|R'-SRTT|)
+		// simplify: devRtt with sign bit and β=0.5
+		i.devRtt = i.devRtt>>1 + (rtt-i.sRtt)>>1
+	} else {
+		i.devRtt = rtt >> 3
+	}
+	if i.sRtt > 0 {
+		// SRTT = (1-alpha)*SRTT + alpha*R'
+		// Let α=0.25 because of the low sampling rate
+		i.sRtt += (rtt - i.sRtt) >> 2
+	} else {
+		i.sRtt = rtt
+	}
+	return int(i.sRtt) / 1e6, int(i.devRtt) / 1e6
+}
+
 // --------------------
 // frame
 // --------------------
@@ -156,7 +188,7 @@ type frame struct {
 }
 
 func (f *frame) String() string {
-	return fmt.Sprintf("Frame{sid=%d act=%d len=%d}", f.sid, f.action, f.length)
+	return fmt.Sprintf("Frame{sid=%d act=%x len=%d}", f.sid, f.action, f.length)
 }
 
 func (f *frame) toNewBuffer() []byte {
@@ -320,21 +352,17 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 		case FRAME_ACTION_OPEN:
 			router.preRegister(key)
 			go p.connectToDest(frm, key, tun)
-		case FRAME_ACTION_OPEN_N, FRAME_ACTION_OPEN_Y:
+		case FRAME_ACTION_OPEN_N, FRAME_ACTION_OPEN_Y, FRAME_ACTION_OPEN_DENIED:
 			edge, _ := router.getRegistered(key)
 			if edge != nil {
 				if log.V(4) {
-					if frm.action == FRAME_ACTION_OPEN_Y {
-						log.Infoln(p.role, "recv OPEN_Y", frm)
-					} else {
-						log.Infoln(p.role, "recv OPEN_N", frm)
-					}
+					log.Infoln(p.role, "recv OPEN_x", frm)
 				}
 				edge.ready <- frm.action
 				close(edge.ready)
 			} else {
 				if log.V(2) {
-					log.Warningln("peer send OPENx to an unexisted socket.", key, frm)
+					log.Warningln("peer send OPEN_x to an unexisted socket.", key, frm)
 				}
 			}
 		case FRAME_ACTION_PING:
@@ -344,7 +372,18 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 				return
 			}
 		case FRAME_ACTION_PONG:
-			if !idle.verify() {
+			if idle.verify() {
+				if p.isClient && idle.lastPing > 0 {
+					sRtt, devRtt := idle.updateRtt()
+					if DEBUG {
+						log.Infof("sRtt=%d devRtt=%d", sRtt, devRtt)
+					}
+					if devRtt+(sRtt>>2) > sRtt {
+						// restart ???
+						log.Warningf("Unstable network sRtt=%d devRtt=%d", sRtt, devRtt)
+					}
+				}
+			} else {
 				log.Warningln("Incorrect action_pong received")
 			}
 		case FRAME_ACTION_TOKENS:
@@ -383,19 +422,20 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 	frm.length = 0
 	if err != nil || denied {
 		p.router.removePreRegistered(key)
-		frm.action = FRAME_ACTION_OPEN_N
-		tunWrite2(tun, frm)
 		if denied {
-			log.Errorf("Denied connect to [%s] for %s\n", target, key)
+			frm.action = FRAME_ACTION_OPEN_DENIED
+			log.Warningf("Denied request [%s] for %s\n", target, key)
 		} else {
-			log.Errorf("Cannot connect to [%s] for %s error: %s\n", target, key, err)
+			frm.action = FRAME_ACTION_OPEN_N
+			log.Warningf("Cannot connect to [%s] for %s error: %s\n", target, key, err)
 		}
+		tunWrite2(tun, frm)
 	} else {
+		edge := p.router.register(key, target, tun, dstConn, false) // write edge
 		if log.V(1) {
 			log.Infoln("OPEN", target, "for", key)
 		}
 		dstConn.SetReadDeadline(ZERO_TIME)
-		edge := p.router.register(key, target, tun, dstConn, false) // write edge
 		frm.action = FRAME_ACTION_OPEN_Y
 		if tunWrite2(tun, frm) == nil {
 			p.relay(edge, tun, frm.sid) // read edge
@@ -412,14 +452,23 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		src  = edge.conn
 	)
 	defer func() {
-		if edge.bitwiseCompareAndSet(TCP_CLOSE_R) { // only positively
+		// positively close then notify peer
+		if edge.bitwiseCompareAndSet(TCP_CLOSE_R) && code != FRAME_ACTION_OPEN_DENIED {
 			_frame(buf, FRAME_ACTION_CLOSE_W, sid, nil)
-			tunWrite1(tun, buf[:FRAME_HEADER_LEN]) // tell peer to closeW
+			go tunWrite1(tun, buf[:FRAME_HEADER_LEN]) // tell peer to closeW
 		}
 		if code == FRAME_ACTION_OPEN_Y {
 			closeR(src)
 		} else { // remote open failed
 			SafeClose(src)
+			if log.V(1) {
+				switch code {
+				case FRAME_ACTION_OPEN_N:
+					log.Infof("Remote open %s failed", edge.dest)
+				case FRAME_ACTION_OPEN_DENIED:
+					log.Infof("Request %s was denied by remote", edge.dest)
+				}
+			}
 		}
 	}()
 	if edge.positive { // for client
@@ -442,10 +491,9 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 			v, y := reflect.ValueOf(edge.ready).TryRecv()
 			if y {
 				code = v.Interface().(byte)
-				switch code {
-				case FRAME_ACTION_OPEN_Y:
-					_fast_open = false // read forever
-				case FRAME_ACTION_OPEN_N:
+				if code == FRAME_ACTION_OPEN_Y {
+					_fast_open = false // fastopen finished
+				} else {
 					return
 				}
 			} else { // ready-chan was not ready
@@ -457,13 +505,14 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 					}
 					// timeout or open-signal received
 					if code == FRAME_ACTION_OPEN_Y {
-						_fast_open = false // read forever
+						_fast_open = false // fastopen finished
 					} else {
 						return
 					}
 				}
 			}
 			if !_fast_open { // fastopen finished
+				// read forever
 				src.SetReadDeadline(ZERO_TIME)
 			}
 		}
@@ -490,9 +539,7 @@ func (p *multiplexer) bestSend(data []byte, action_desc string) bool {
 	var tun *Conn
 	for i := 1; i <= 3; i++ {
 		if p.status < 0 /* MUX_CLOSED */ || p.pool == nil {
-			if log.V(4) {
-				log.Warningln("abandon sending data of", action_desc)
-			}
+			log.Warningln("abandon sending data of", action_desc)
 			break
 		}
 		tun = p.pool.Select()
@@ -504,9 +551,7 @@ func (p *multiplexer) bestSend(data []byte, action_desc string) bool {
 			time.Sleep(time.Millisecond * 200 * time.Duration(i))
 		}
 	}
-	if log.V(3) {
-		log.Warningln("failed to send data of", action_desc)
-	}
+	log.Warningln("failed to send data of", action_desc)
 	return false
 }
 
