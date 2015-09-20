@@ -51,6 +51,7 @@ var nullCipherKit = new(NullCipherKit)
 
 var availableCiphers = map[string]*cipherDecr{
 	"AES128CFB": &cipherDecr{16, newAES_CFB},
+	"AES192CFB": &cipherDecr{24, newAES_CFB},
 	"AES256CFB": &cipherDecr{32, newAES_CFB},
 }
 
