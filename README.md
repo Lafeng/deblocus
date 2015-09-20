@@ -5,7 +5,7 @@
 [![Issues](https://img.shields.io/github/issues/Lafeng/deblocus.svg)](https://github.com/Lafeng/deblocus/issues)
 [![Comment-on-Github.Party](https://img.shields.io/badge/Comment%20on-Github.Party-yellow.svg)](https://github.party/item?id=46)
 
-Current version is v0.9.2520-beta
+Current version is v0.10.2630-beta
 
 ```
       ___         ___         ___         ___  ___         ___         ___         ___     
