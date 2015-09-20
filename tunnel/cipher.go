@@ -5,7 +5,6 @@ import (
 	"crypto/cipher"
 	"crypto/md5"
 	"crypto/rand"
-	"crypto/rc4"
 	"crypto/rsa"
 	"crypto/sha1"
 	"encoding/binary"
@@ -51,15 +50,8 @@ func (c *NullCipherKit) decrypt(dst, src []byte) {}
 var nullCipherKit = new(NullCipherKit)
 
 var availableCiphers = map[string]*cipherDecr{
-	"RC4":       &cipherDecr{16, newRC4},
 	"AES128CFB": &cipherDecr{16, newAES_CFB},
 	"AES256CFB": &cipherDecr{32, newAES_CFB},
-}
-
-func newRC4(key, iv []byte) *XORCipherKit {
-	ec, _ := rc4.NewCipher(key)
-	dc := *ec
-	return &XORCipherKit{ec, &dc}
 }
 
 func newAES_CFB(key, iv []byte) *XORCipherKit {

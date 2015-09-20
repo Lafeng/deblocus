@@ -334,7 +334,7 @@ func (nego *d5CNegotiation) finishDHExThenSetupCipher(conn *hashedConn) *CipherF
 		ThrowErr(err)
 	}
 	secret := takeSharedKey(nego.dhKeys, buf)
-	return NewCipherFactory(nego.algo, secret)
+	return NewCipherFactory(nego.cipher, secret)
 }
 
 func (nego *d5CNegotiation) validateAndGetTokens(sconn *hashedConn, t *tunParams) {
@@ -419,7 +419,7 @@ func (nego *d5SNegotiation) handshakeSession(hConn *hashedConn, buf []byte) (ses
 	}()
 	setSoTimeout(hConn)
 	var skey = nego.verifyThenDHExchange(hConn, buf[256:])
-	var cf = NewCipherFactory(nego.Algo, skey)
+	var cf = NewCipherFactory(nego.Cipher, skey)
 	hConn.cipher = cf.NewCipher(nil)
 	session = NewSession(hConn.Conn, cf, nego)
 	setSoTimeout(hConn)

@@ -216,8 +216,8 @@ type Server struct {
 
 func NewServer(d5s *D5ServConf, dhKeys *DHKeyPair) *Server {
 	s := &Server{d5s, dhKeys, NewSessionMgr(), nil}
-	if len(d5s.TargetDeny) == 2 {
-		s.filter, _ = geo.NewGeoIPFilter(d5s.TargetDeny)
+	if len(d5s.DenyDest) == 2 {
+		s.filter, _ = geo.NewGeoIPFilter(d5s.DenyDest)
 	}
 	return s
 }

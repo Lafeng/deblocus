@@ -169,7 +169,7 @@ func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
 
 func (context *bootContext) startClient() {
 	defer func() {
-		ex.CatchException(recover())
+		ex.CatchException(warning(recover()))
 		sigChan <- t.Bye
 	}()
 	var conf = t.Parse_d5cFile(context.config)
@@ -197,7 +197,7 @@ func (context *bootContext) startClient() {
 
 func (context *bootContext) startServer() {
 	defer func() {
-		ex.CatchException(recover())
+		ex.CatchException(warning(recover()))
 		sigChan <- t.Bye
 	}()
 	var conf = t.Parse_d5sFile(context.config)
@@ -222,4 +222,14 @@ func (context *bootContext) startServer() {
 			t.SafeClose(conn)
 		}
 	}
+}
+
+func warning(e interface{}) interface{} {
+	if err, y := e.(error); y {
+		// 0.9.x to 0.10.x config error
+		if strings.HasPrefix(err.Error(), "Unrecognized directives") {
+			log.Warningf("Please read %s/wiki to learn more.", project_url)
+		}
+	}
+	return e
 }

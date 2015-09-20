@@ -73,7 +73,7 @@ type D5Params struct {
 	d5sAddr    *net.TCPAddr
 	provider   string
 	sPub       *rsa.PublicKey
-	algo       string
+	cipher     string
 	user       string
 	pass       string
 }
@@ -104,7 +104,7 @@ func NewD5Params(uri string) (*D5Params, error) {
 	return &D5Params{
 		d5sAddrStr: ma[3],
 		d5sAddr:    d5sAddr,
-		algo:       ma[4],
+		cipher:     ma[4],
 		user:       ma[1],
 		pass:       ma[2],
 	}, nil
@@ -124,11 +124,11 @@ func IsValidHost(hostport string) (ok bool, err error) {
 // Server
 type D5ServConf struct {
 	Listen     string `importable:":9008"`
-	AuthTable  string `importable:"file:///PATH/YOUR_AUTH_FILE_PATH"`
-	Algo       string `importable:"AES128CFB"`
+	Auth       string `importable:"file://_USER_PASS_FILE_PATH_"`
+	Cipher     string `importable:"AES128CFB"`
 	ServerName string `importable:"SERVER_NAME"`
 	Verbose    int    `importable:"1"`
-	TargetDeny string `importable:`
+	DenyDest   string `importable:"OFF"`
 	AuthSys    auth.AuthSys
 	RSAKeys    *RSAKeyPair
 	ListenAddr *net.TCPAddr
@@ -143,17 +143,17 @@ func (d *D5ServConf) validate() error {
 		return LOCAL_BIND_ERROR.Apply(e)
 	}
 	d.ListenAddr = a
-	if len(d.AuthTable) < 1 {
-		return CONF_MISS.Apply("AuthTable")
+	if len(d.Auth) < 1 {
+		return CONF_MISS.Apply("Auth")
 	}
-	d.AuthSys, e = auth.GetAuthSysImpl(d.AuthTable)
+	d.AuthSys, e = auth.GetAuthSysImpl(d.Auth)
 	ThrowErr(e)
-	if len(d.Algo) < 1 {
-		return CONF_MISS.Apply("Algo")
+	if len(d.Cipher) < 1 {
+		return CONF_MISS.Apply("Cipher")
 	}
-	_, y := availableCiphers[d.Algo]
+	_, y := availableCiphers[d.Cipher]
 	if !y {
-		return UNSUPPORTED_CIPHER.Apply(d.Algo)
+		return UNSUPPORTED_CIPHER.Apply(d.Cipher)
 	}
 	if d.ServerName == NULL {
 		return CONF_ERROR.Apply("ServerName")
@@ -161,10 +161,11 @@ func (d *D5ServConf) validate() error {
 	if d.RSAKeys == nil {
 		return CONF_MISS.Apply("ServerPrivateKey")
 	}
-	if len(d.TargetDeny) > 0 {
-		d.TargetDeny = strings.TrimSpace(d.TargetDeny)
-		if !regexp.MustCompile("[A-Z]{2}").MatchString(d.TargetDeny) {
-			return CONF_ERROR.Apply("TargetDeny must be ISO3166-1 uppercase 2-letter Country Code")
+	if len(d.DenyDest) > 0 {
+		if d.DenyDest != "OFF" {
+			d.DenyDest = NULL
+		} else if !regexp.MustCompile("[A-Za-z]{2}").MatchString(d.DenyDest) {
+			return CONF_ERROR.Apply("DenyDest must be ISO3166-1 2-letter Country Code")
 		}
 	}
 	return nil
@@ -176,16 +177,13 @@ func (d *D5ServConf) Export_d5p(user *auth.User) string {
 	ThrowErr(e)
 	header := map[string]string{
 		WORD_provider: d.ServerName,
-		WORD_d5p:      fmt.Sprintf("d5://%s:%s@%s#%s", user.Name, user.Pass, d.Listen, d.Algo),
+		WORD_d5p:      fmt.Sprintf("d5://%s:%s@%s#%s", user.Name, user.Pass, d.Listen, d.Cipher),
 	}
 	keyByte := pem.EncodeToMemory(&pem.Block{
 		Type:    USER_CREDENTIAL_TYPE,
 		Headers: header,
 		Bytes:   keyBytes,
 	})
-	if strings.HasPrefix(d.Listen, ":") {
-		keyByte = append(keyByte, "\n# !!! Warning: You may need to complete server address manually.\n"...)
-	}
 	return string(keyByte)
 }
 
@@ -417,7 +415,7 @@ func DetectRunAsServ() bool {
 	p, e := osext.Executable()
 	ThrowErr(e)
 	p = filepath.Base(p)
-	return p[0] < 97
+	return p[0] == 0x44
 }
 
 func DetectFile(isServ bool) (string, bool) {

@@ -36,14 +36,14 @@ func main() {
 	var output, logDir string
 	var showVersion bool
 	flag.Usage = showUsage
-	flag.StringVar(&context.config, "config", "", "indicate Config if in nontypical path")
+	flag.StringVar(&context.config, "config", "", "indicate Config path if it in nontypical path")
 	flag.StringVar(&output, "o", "", "output file")
 	flag.BoolVar(&context.csc, "csc", false, "Server;;Create Server Config")
-	flag.BoolVar(&context.icc, "icc", false, "Server;;Issue Client Credential for user//-icc <Server public address> <User1> <User2>...")
+	flag.BoolVar(&context.icc, "icc", false, "Server;;Issue Client Credential for user//-icc <ServerAddress:Port> <User1> <User2>...")
 	flag.BoolVar(&context.isServ, "serv", false, "Server;;run as Server explicitly")
 	flag.BoolVar(&showVersion, "V", false, "show Version")
 	flag.StringVar(&context.verbosity, "v", "", "Verbose log level")
-	flag.StringVar(&logDir, "logdir", "", "if non-empty will write log into the Directory")
+	flag.StringVar(&logDir, "logdir", "", "write log into the directory")
 	flag.BoolVar(&context.debug, "debug", false, "debug")
 	flag.Parse()
 
