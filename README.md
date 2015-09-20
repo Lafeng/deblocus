@@ -35,6 +35,7 @@ Deblocus is a tunneling software that allows secure TCP connection through the s
 2. Client–server model with special protocol
 3. TCP multiplexing inside tunnel
 4. Fast Open over application layer (nearly 1-RTT responded)
+5. Filtering traffic to IPs in specified country with GeoLite2 data
 
 Explanations:
 
@@ -42,6 +43,7 @@ Explanations:
 2. You can share a server with friends.
 3. Massive short requests can be accelerated.
 4. Latency greatly reduced.
+5. You can know it when inappropriate proxy is used.
 
 ## Quickstart
 
@@ -57,6 +59,9 @@ Explanations:
 ## Acknowledgements
 
 Thanks to these projects: [qtunnel](https://github.com/getqujing/qtunnel), [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx) and [glog](https://github.com/golang/glog).
+
+This product includes GeoLite2 data created by MaxMind, available from
+<http://www.maxmind.com>.
 
 ## License
 
