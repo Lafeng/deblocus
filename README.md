@@ -32,9 +32,9 @@ Deblocus is a tunneling software that allows secure TCP connection through the s
 ## Features
 
 1. Traffic encrypted with dynamic session key
-2. Client–server model
+2. Client–server model with special protocol
 3. TCP multiplexing inside tunnel
-4. Fast Open (nearly 1-RTT responded)
+4. Fast Open over application layer (nearly 1-RTT responded)
 
 Explanations:
 
@@ -50,11 +50,9 @@ Explanations:
 
 ### Simple GUI for Windows
 
-This tool can minimize deblocus to tray.
+[DeblocusMonitor](https://github.com/Lafeng/deblocus/releases) can minimize deblocus to tray.
 
 ![deblocusMonitor.png](https://i.imgur.com/pdBpKN6m.png)
-
-Download [deblocusMonitor](https://github.com/Lafeng/deblocus/releases).
 
 ## Acknowledgements
 
