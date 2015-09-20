@@ -34,7 +34,7 @@ Deblocus is a tunneling software that allows secure TCP connection through the s
 1. Traffic encrypted with dynamic session key
 2. Client–server model with special protocol
 3. TCP multiplexing inside tunnel
-4. Fast Open over application layer (nearly 1-RTT responded)
+4. Fast Open over application layer (nearly 1-RTT connectivity overhead)
 5. Filtering traffic to IPs in specified country with GeoLite2 data
 
 Explanations:
