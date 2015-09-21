@@ -162,7 +162,7 @@ func (d *D5ServConf) validate() error {
 		return CONF_MISS.Apply("ServerPrivateKey")
 	}
 	if len(d.DenyDest) > 0 {
-		if d.DenyDest != "OFF" {
+		if d.DenyDest == "OFF" || d.DenyDest == "off" {
 			d.DenyDest = NULL
 		} else if !regexp.MustCompile("[A-Za-z]{2}").MatchString(d.DenyDest) {
 			return CONF_ERROR.Apply("DenyDest must be ISO3166-1 2-letter Country Code")
