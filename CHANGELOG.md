@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.10.2640-beta 15/9/20
+fix incorrect geo switch
+
 ## 0.10.2630-beta 15/9/20
 implement filtering dest network
 improve on multiplexer spec
