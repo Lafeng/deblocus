@@ -24,7 +24,7 @@ const (
 	IPV6               = byte(4)
 	SOCKS5_VER         = byte(5)
 	NULL               = ""
-	DMLEN1             = 384
+	DMLEN1             = 256
 	DMLEN2             = TKSZ + 2
 	GENERAL_SO_TIMEOUT = 10 * time.Second
 	TUN_PARAMS_LEN     = 32
@@ -301,18 +301,20 @@ func (nego *d5CNegotiation) negotiate(p *tunParams) (conn *Conn, err error) {
 }
 
 // send
-// obf~256 | idBlock(enc)~128 | dhPubLen~2 | dhPub~?
+// obf~256 | idBlockLen~2 | idBlock(enc)~? | dhPubLen~2 | dhPub~?
 func (nego *d5CNegotiation) requestAuthAndDHExchange(conn *hashedConn) {
 	// obfuscated header 256
 	obf := randArray(256, 256)
 	obf[0xff] = d5Sub(obf[0xd5])
 	// send identity using rsa
-	// identity must be less than 117byte in once encryption
 	identity := nego.user + IDENTITY_SEP + nego.pass
 	idBlock, err := RSAEncrypt([]byte(identity), nego.sPub)
 	ThrowErr(err)
 	buf := new(bytes.Buffer)
 	buf.Write(obf)
+	idBlockLen := uint16(len(idBlock))
+	binary.BigEndian.PutUint16(obf, idBlockLen)
+	buf.Write(obf[:2])
 	buf.Write(idBlock)
 	buf.Write(nego.dhKeys.pubLen)
 	buf.Write(nego.dhKeys.pub)
@@ -405,20 +407,20 @@ func (nego *d5SNegotiation) negotiate(hConn *hashedConn) (session *Session, err 
 	}
 	if nr == DMLEN1 &&
 		d5SumValid(buf[0xd5], buf[0xff]) {
-		return nego.handshakeSession(hConn, buf)
+		return nego.handshakeSession(hConn)
 	}
 	log.Warningf("Unrecognized Request from=%s len=%d\n", nego.clientAddr, nr)
 	return nil, NEGOTIATION_FAILED
 }
 
-func (nego *d5SNegotiation) handshakeSession(hConn *hashedConn, buf []byte) (session *Session, err error) {
+func (nego *d5SNegotiation) handshakeSession(hConn *hashedConn) (session *Session, err error) {
 	defer func() {
 		if e, y := exception.ErrorOf(recover()); y {
 			err = e
 		}
 	}()
 	setSoTimeout(hConn)
-	var skey = nego.verifyThenDHExchange(hConn, buf[256:])
+	var skey = nego.verifyThenDHExchange(hConn)
 	var cf = NewCipherFactory(nego.Cipher, skey)
 	hConn.cipher = cf.NewCipher(nil)
 	session = NewSession(hConn.Conn, cf, nego)
@@ -438,7 +440,9 @@ func (nego *d5SNegotiation) dataSession(hConn *hashedConn, buf []byte) (session 
 	return nil, VALIDATION_FAILED
 }
 
-func (nego *d5SNegotiation) verifyThenDHExchange(conn net.Conn, credBuf []byte) (key []byte) {
+func (nego *d5SNegotiation) verifyThenDHExchange(conn net.Conn) (key []byte) {
+	credBuf, err := ReadFullByLen(2, conn)
+	ThrowIf(err != nil, err)
 	userIdentity, err := RSADecrypt(credBuf, nego.RSAKeys.priv)
 	ThrowErr(err)
 	clientIdentity := string(userIdentity)
