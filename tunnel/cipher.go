@@ -98,7 +98,8 @@ func toSecretKey(secret []byte, size int) []byte {
 }
 
 // single block encrypt
-// OAEP: must be less than 86byte base on RSA1024-OAEP_sha1
+// RSA1024-OAEP_sha1: msg.length <= 86byte
+// RSA2048-OAEP_sha1: msg.length <= 214byte
 func RSAEncrypt(src []byte, pub *rsa.PublicKey) (enc []byte, err error) {
 	return rsa.EncryptOAEP(sha1.New(), rand.Reader, pub, src, nil)
 }
@@ -113,8 +114,8 @@ type RSAKeyPair struct {
 	pub  *rsa.PublicKey
 }
 
-func GenerateRSAKeyPair() *RSAKeyPair {
-	priv, _ := rsa.GenerateKey(rand.Reader, 1024)
+func GenerateRSAKeyPair(keyBits int) *RSAKeyPair {
+	priv, _ := rsa.GenerateKey(rand.Reader, keyBits)
 	return &RSAKeyPair{
 		priv: priv,
 		pub:  &priv.PublicKey,

@@ -57,7 +57,15 @@ func main() {
 	log.Set_output(true, logDir)
 
 	if context.csc {
-		t.Generate_d5sFile(output, nil)
+		var rsaParam string
+		switch flag.NArg() {
+		case 0:
+		case 1:
+			rsaParam = flag.Arg(0)
+		default:
+			fmt.Println("unknown args")
+		}
+		t.Generate_d5sFile(output, rsaParam)
 		return
 	}
 

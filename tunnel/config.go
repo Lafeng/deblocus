@@ -187,7 +187,7 @@ func (d *D5ServConf) Export_d5p(user *auth.User) string {
 	return string(keyByte)
 }
 
-func Generate_d5sFile(file string, d5sConf *D5ServConf) (e error) {
+func Generate_d5sFile(file string, rsaParam string) (e error) {
 	var f *os.File
 	if file == NULL {
 		f = os.Stdout
@@ -201,10 +201,16 @@ func Generate_d5sFile(file string, d5sConf *D5ServConf) (e error) {
 			f.Close()
 		}()
 	}
-	if d5sConf == nil {
-		d5sConf = new(D5ServConf)
-		d5sConf.RSAKeys = GenerateRSAKeyPair()
+	var rsaKeyBits int
+	switch rsaParam {
+	case "1024":
+		rsaKeyBits = 1024
+	default:
+		rsaKeyBits = 2048
 	}
+	d5sConf := new(D5ServConf)
+	d5sConf.RSAKeys = GenerateRSAKeyPair(rsaKeyBits)
+
 	desc := getImportableDesc(d5sConf)
 	f.WriteString("#\n# deblocus server configuration\n#\n\n")
 	sk := make([]string, 0, len(desc))
