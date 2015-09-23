@@ -44,7 +44,7 @@ var (
 	CONF_ERROR              = exception.NewW("Error config")
 )
 
-// client
+// client config definitions
 type D5ClientConf struct {
 	Listen     string `importable:":9009"`
 	Verbose    int    `importable:"1"`
@@ -70,7 +70,6 @@ func (c *D5ClientConf) validate() error {
 // d5p
 type D5Params struct {
 	d5sAddrStr string
-	d5sAddr    *net.TCPAddr
 	provider   string
 	sPub       *rsa.PublicKey
 	cipher     string
@@ -88,7 +87,7 @@ func (d *D5Params) RemoteName() string {
 
 // without sPub field
 func NewD5Params(uri string) (*D5Params, error) {
-	re := regexp.MustCompile("d5://(\\w+):(\\w+)@([.:a-zA-Z0-9-]+)#(\\w+)")
+	re := regexp.MustCompile("d5://(\\w+):([^@]+)@([.:a-zA-Z0-9-]+)#(\\w+)")
 	ma := re.FindStringSubmatch(uri)
 	if len(ma) != 5 {
 		return nil, INVALID_D5PARAMS
@@ -97,13 +96,12 @@ func NewD5Params(uri string) (*D5Params, error) {
 	if !y {
 		return nil, UNSUPPORTED_CIPHER.Apply(ma[4])
 	}
-	d5sAddr, e := net.ResolveTCPAddr("tcp", ma[3])
+	_, e := net.ResolveTCPAddr("tcp", ma[3])
 	if e != nil {
 		return nil, D5SER_UNREACHABLE.Apply(e)
 	}
 	return &D5Params{
 		d5sAddrStr: ma[3],
-		d5sAddr:    d5sAddr,
 		cipher:     ma[4],
 		user:       ma[1],
 		pass:       ma[2],
@@ -121,7 +119,7 @@ func IsValidHost(hostport string) (ok bool, err error) {
 	return
 }
 
-// Server
+// Server config definitions
 type D5ServConf struct {
 	Listen     string `importable:":9008"`
 	Auth       string `importable:"file://_USER_PASS_FILE_PATH_"`
@@ -172,7 +170,7 @@ func (d *D5ServConf) validate() error {
 }
 
 // PEMed text
-func (d *D5ServConf) Export_d5p(user *auth.User) string {
+func (d *D5ServConf) generateD5pForUser(user *auth.User) string {
 	keyBytes, e := x509.MarshalPKIXPublicKey(d.RSAKeys.pub)
 	ThrowErr(e)
 	header := map[string]string{
@@ -187,7 +185,7 @@ func (d *D5ServConf) Export_d5p(user *auth.User) string {
 	return string(keyByte)
 }
 
-func Generate_d5sFile(file string, rsaParam string) (e error) {
+func GenerateD5sTemplate(file string, rsaParam string) (e error) {
 	var f *os.File
 	if file == NULL {
 		f = os.Stdout
@@ -249,18 +247,29 @@ func CreateClientConfig(file string, d5s *D5ServConf, user string) (e error) {
 			f.Close()
 		}()
 	}
-	head := "#\n# deblocus client configuration\n#\n\nListen      :9009\nVerbose     1\n\n# client credential\n"
+
+	head := `
+# -----------------------------
+# deblocus client configuration
+# -----------------------------
+
+Listen      :9009
+Verbose     1
+
+# client credential
+`
 	f.WriteString(head)
-	e = CreateClientCredential(f, d5s, user)
+	CreateClientCredential(f, d5s, user)
 	return
 }
 
-func CreateClientCredential(f *os.File, d5s *D5ServConf, user string) (e error) {
+// throwing
+func CreateClientCredential(f *os.File, d5s *D5ServConf, user string) {
 	u, e := d5s.AuthSys.UserInfo(user)
 	if e != nil {
 		ThrowErr(e)
 	}
-	f.WriteString(d5s.Export_d5p(u))
+	f.WriteString(d5s.generateD5pForUser(u))
 	return
 }
 
@@ -428,7 +437,7 @@ func DetectRunAsServ() bool {
 	p, e := osext.Executable()
 	ThrowErr(e)
 	p = filepath.Base(p)
-	return p[len(p) - 1] == 'd'
+	return p[len(p)-1] == 'd'
 }
 
 func DetectFile(isServ bool) (string, bool) {

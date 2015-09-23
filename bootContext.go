@@ -42,11 +42,12 @@ func (c *bootContext) parse() {
 		var e bool
 		c.config, e = t.DetectFile(c.isServ)
 		if !e {
-			fmt.Println("No such file", c.config)
-			fmt.Println("Create/put config in typical path or indicate it explicitly.")
+			fmt.Fprintln(os.Stderr, "No such file", c.config)
+			fmt.Fprintln(os.Stderr, "Create/put config in typical path or indicate it explicitly.")
 			os.Exit(1)
 		}
 	}
+	// inject parameters into sub-packages
 	t.VERSION = version
 	t.VER_STRING = versionString()
 	t.DEBUG = c.debug
@@ -66,7 +67,7 @@ func (c *bootContext) setLogVerbose(level int) {
 		if len(vFlag) == 1 && vFlag[0] >= 48 && vFlag[0] <= 57 {
 			v = int(vFlag[0]) - 48
 		} else {
-			fmt.Println("Warning: invalid option -v=" + vFlag)
+			fmt.Fprintln(os.Stderr, "Warning: invalid option -v="+vFlag)
 		}
 	}
 	if v >= 0 {
@@ -76,27 +77,42 @@ func (c *bootContext) setLogVerbose(level int) {
 	}
 }
 
-func (c *bootContext) ccc_process(output string) {
+func (c *bootContext) cscHandler(output string) {
 	defer func() {
 		if e := recover(); e != nil {
-			fmt.Println(e)
+			fmt.Fprintln(os.Stderr, e)
 		}
 	}()
-	if flag.NArg() >= 2 {
+	// ./deblocus -csc [1024 or 2048]
+	var rsaParam string
+	switch flag.NArg() {
+	case 0:
+	case 1:
+		rsaParam = flag.Arg(0)
+	default:
+		fmt.Fprintln(os.Stderr, "Incorrect arguments")
+		return
+	}
+	t.GenerateD5sTemplate(output, rsaParam)
+}
+
+func (c *bootContext) cccHandler(output string) {
+	defer func() {
+		if e := recover(); e != nil {
+			fmt.Fprintln(os.Stderr, e)
+		}
+	}()
+	// ./deblocus -ccc SERV_ADDR:PORT USER
+	if flag.NArg() == 2 {
 		addr := flag.Arg(0)
 		if v, e := t.IsValidHost(addr); !v {
 			panic(e)
 		}
 		var d5sc = t.Parse_d5sFile(c.config)
 		d5sc.Listen = addr
-		for i, arg := range flag.Args() {
-			if i > 0 {
-				t.CreateClientConfig(output, d5sc, arg)
-			}
-		}
-		return
+		t.CreateClientConfig(output, d5sc, flag.Arg(1))
 	} else {
-		fmt.Println("Which user do you issue client credential for?")
+		fmt.Fprintln(os.Stderr, "Incorrect arguments")
 	}
 }
 

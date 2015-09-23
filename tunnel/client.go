@@ -213,7 +213,7 @@ func (t *Client) createDataTun() (c *Conn, err error) {
 			err = e
 		}
 	}()
-	conn, err := net.DialTimeout("tcp", t.nego.d5sAddr.String(), GENERAL_SO_TIMEOUT)
+	conn, err := net.DialTimeout("tcp", t.nego.d5sAddrStr, GENERAL_SO_TIMEOUT)
 	if err != nil {
 		return nil, err
 	}
