@@ -70,7 +70,7 @@ type CipherFactory struct {
 	builder cipherBuilder
 }
 
-func (c *CipherFactory) NewCipher(iv []byte) *XORCipherKit {
+func (c *CipherFactory) InitCipher(iv []byte) *XORCipherKit {
 	return c.builder(c.key, iv)
 }
 

@@ -38,7 +38,7 @@ type Session struct {
 	activeCnt     int32
 }
 
-func NewSession(tun *Conn, cf *CipherFactory, n *d5SNegotiation) *Session {
+func NewSession(tun *Conn, cf *CipherFactory, n *dbcSerNego) *Session {
 	s := &Session{
 		mux:           newServerMultiplexer(),
 		mgr:           n.sessionMgr,
@@ -46,7 +46,7 @@ func NewSession(tun *Conn, cf *CipherFactory, n *d5SNegotiation) *Session {
 		tokens:        make(map[string]bool),
 	}
 	s.uid = SubstringBefore(n.clientIdentity, IDENTITY_SEP)
-	s.cid = SubstringBefore(s.identifyConn(tun), ":")
+	s.cid = SubstringLastBefore(s.identifyConn(tun), ":")
 	if n.Server.filter != nil {
 		s.mux.filter = n.Server.filter
 	}
@@ -80,15 +80,18 @@ func (t *Session) tokensHandle(args []byte) {
 	}
 }
 
-func (t *Session) DataTunServe(fconn *Conn, buf []byte) {
+func (t *Session) DataTunServe(fconn *Conn, isNewSession bool) {
+	atomic.AddInt32(&t.activeCnt, 1)
 	defer func() {
-		var offline bool
+		var (
+			offline bool
+			err     = recover()
+		)
 		if atomic.AddInt32(&t.activeCnt, -1) <= 0 {
 			offline = true
 			t.mgr.clearTokens(t)
 			t.mux.destroy()
 		}
-		var err = recover()
 		if log.V(1) {
 			log.Infof("Tun=%s was disconnected. %v\n", fconn.identifier, nvl(err, NULL))
 			if offline {
@@ -99,13 +102,7 @@ func (t *Session) DataTunServe(fconn *Conn, buf []byte) {
 			ex.CatchException(err)
 		}
 	}()
-	atomic.AddInt32(&t.activeCnt, 1)
-
-	if buf != nil {
-		token := buf[:TKSZ]
-		fconn.cipher = t.cipherFactory.NewCipher(token)
-		buf = nil
-	} else { // first negotiation had initialized cipher, the buf will be null
+	if isNewSession {
 		log.Infof("Client=%s is online\n", t.cid)
 	}
 
@@ -223,18 +220,17 @@ func NewServer(d5s *D5ServConf, dhKey DHKE) *Server {
 }
 
 func (t *Server) TunnelServe(conn *net.TCPConn) {
-	fconn := NewConnWithHash(conn)
+	hConn := newHashedConn(conn)
 	defer func() {
-		fconn.FreeHash()
+		hConn.FreeHash()
 		ex.CatchException(recover())
 	}()
-	nego := &d5SNegotiation{Server: t}
-	session, err := nego.negotiate(fconn)
+	nego := &dbcSerNego{Server: t}
+	session, err := nego.negotiate(hConn)
 
-	if err == nil || err == DATATUN_SESSION { // dataTunnel
-		go session.DataTunServe(fconn.Conn, nego.tokenBuf)
+	if err == nil {
+		go session.DataTunServe(hConn.Conn, nego.isNewSession)
 	} else {
-		log.Warningln("Close abnormal connection from", conn.RemoteAddr(), err)
 		SafeClose(conn)
 		if session != nil {
 			t.sessionMgr.clearTokens(session)
@@ -246,6 +242,9 @@ func (t *Server) Stats() string {
 	return ""
 }
 
+//
+// filter interface ,eg. GeoFilter
+//
 type Filterable interface {
 	Filter(host string) bool
 }

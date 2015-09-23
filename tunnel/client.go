@@ -25,7 +25,7 @@ const (
 type Client struct {
 	mux         *multiplexer
 	token       []byte
-	nego        *d5CNegotiation
+	nego        *dbcCltNego
 	tp          *tunParams
 	lock        sync.Locker
 	dtCnt       int32
@@ -39,7 +39,7 @@ type Client struct {
 func NewClient(d5p *D5Params, dhKey DHKE) *Client {
 	clt := &Client{
 		lock:        new(sync.Mutex),
-		nego:        &d5CNegotiation{D5Params: d5p, dhKey: dhKey},
+		nego:        &dbcCltNego{D5Params: d5p, dhKey: dhKey},
 		State:       CLT_PENDING,
 		pendingConn: NewSemaphore(true), // unestablished connection
 		pendingTK:   NewSemaphore(true), // waiting tokens
@@ -175,13 +175,18 @@ func (c *Client) ClientServe(conn net.Conn) {
 	}()
 
 	pbConn := NewPushbackInputStream(conn)
-	switch detectProtocol(pbConn) {
+	proto, e := detectProtocol(pbConn)
+	if e != nil {
+		log.Warningln(e)
+		return
+	}
+	switch proto {
 	case REQ_PROT_SOCKS5:
-		s5 := S5Step1{conn: pbConn}
-		s5.Handshake()
-		if !s5.HandshakeAck() {
-			literalTarget := s5.parseSocks5Request()
-			if !s5.respondSocks5() {
+		s5 := s5Handler{conn: pbConn}
+		s5.handshake()
+		if !s5.handshakeResponse() {
+			literalTarget := s5.parseRequest()
+			if !s5.finalResponse() {
 				c.mux.HandleRequest("SOCKS5", conn, literalTarget)
 				done = true
 			}
@@ -218,7 +223,7 @@ func (t *Client) createDataTun() (c *Conn, err error) {
 	buf[TKSZ] = d5Sub(token[TKSZ-2])
 	buf[TKSZ+1] = d5Sub(token[TKSZ-1])
 
-	cipher := t.tp.cipherFactory.NewCipher(token)
+	cipher := t.tp.cipherFactory.InitCipher(token)
 	_, err = conn.Write(buf)
 	ThrowErr(err)
 	c = NewConn(conn.(*net.TCPConn), cipher)

@@ -43,6 +43,14 @@ func SubstringBefore(str, sep string) string {
 	}
 }
 
+func SubstringLastBefore(str, sep string) string {
+	if p := strings.LastIndex(str, sep); p > 0 {
+		return str[:p]
+	} else {
+		return str
+	}
+}
+
 func IsNotExist(file string) bool {
 	_, err := os.Stat(file)
 	return os.IsNotExist(err)
@@ -136,8 +144,13 @@ func IsTimeout(e error) bool {
 	return false
 }
 
-func setSoTimeout(conn net.Conn) {
-	e := conn.SetDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
+func setRTimeout(conn net.Conn) {
+	e := conn.SetReadDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
+	ThrowErr(e)
+}
+
+func setWTimeout(conn net.Conn) {
+	e := conn.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
 	ThrowErr(e)
 }
 

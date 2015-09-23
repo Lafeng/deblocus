@@ -18,7 +18,7 @@ type Conn struct {
 	priority   *TSPriority
 }
 
-func NewConn(conn *net.TCPConn, cipher cipherKit) *Conn {
+func NewConn(conn net.Conn, cipher cipherKit) *Conn {
 	return &Conn{
 		Conn:   conn,
 		cipher: cipher,
@@ -110,7 +110,7 @@ type hashedConn struct {
 	wHash hash.Hash
 }
 
-func NewConnWithHash(conn *net.TCPConn) *hashedConn {
+func newHashedConn(conn net.Conn) *hashedConn {
 	return &hashedConn{
 		Conn:  NewConn(conn, nullCipherKit),
 		rHash: sha1.New(),
@@ -140,14 +140,12 @@ func (c *hashedConn) FreeHash() {
 
 func (c *hashedConn) RHashSum() []byte {
 	hash := c.rHash.Sum(nil)
-	c.rHash.Reset()
 	c.rHash = nil
 	return hash
 }
 
 func (c *hashedConn) WHashSum() []byte {
 	hash := c.wHash.Sum(nil)
-	c.wHash.Reset()
 	c.wHash = nil
 	return hash
 }

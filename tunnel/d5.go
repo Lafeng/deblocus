@@ -65,8 +65,7 @@ var (
 	INCOMPATIBLE_VERSION = exception.NewW("Incompatible version")
 )
 
-// read by the first segment indicated the following segment length
-// len_inByte: first segment length in byte
+// len_inByte: first segment length of bytes, enum: 1,2,4
 func ReadFullByLen(len_inByte int, reader io.Reader) (buf []byte, err error) {
 	lb := make([]byte, len_inByte)
 	_, err = io.ReadFull(reader, lb)
@@ -85,26 +84,30 @@ func ReadFullByLen(len_inByte int, reader io.Reader) (buf []byte, err error) {
 	return
 }
 
-// socks5 protocol step1 on client side
-type S5Step1 struct {
-	conn   net.Conn
-	err    error
-	target []byte
+// socks5 protocol handler on client side
+type s5Handler struct {
+	conn net.Conn
+	err  error
 }
 
-func (s *S5Step1) Handshake() {
+// step1
+func (s *s5Handler) handshake() {
 	var buf = make([]byte, 2)
+	setRTimeout(s.conn)
 	_, err := io.ReadFull(s.conn, buf)
 	if err != nil {
 		s.err = INVALID_SOCKS5_HEADER.Apply(err)
 		return
 	}
+
 	ver, nmethods := buf[0], int(buf[1])
 	if ver != SOCKS5_VER || nmethods < 1 {
 		s.err = INVALID_SOCKS5_HEADER.Apply(fmt.Sprintf("[% x]", buf[:2]))
 		return
 	}
+
 	buf = make([]byte, nmethods+1) // consider method non-00
+	setRTimeout(s.conn)
 	n, err := io.ReadAtLeast(s.conn, buf, nmethods)
 	if err != nil || n != nmethods {
 		s.err = INVALID_SOCKS5_HEADER
@@ -112,32 +115,42 @@ func (s *S5Step1) Handshake() {
 	}
 }
 
-func (s *S5Step1) HandshakeAck() bool {
+// step1 response
+// return: True=Denied
+func (s *s5Handler) handshakeResponse() bool {
 	msg := []byte{5, 0}
 	if s.err != nil {
 		// handshake error feedback
-		log.Errorln(s.err)
+		log.Warningln(s.err)
 		if ex, y := s.err.(*exception.Exception); y {
 			msg[1] = byte(ex.Code())
 		} else {
 			msg[1] = 0xff
 		}
+		setWTimeout(s.conn)
 		s.conn.Write(msg)
-		s.conn.Close()
 		return true
 	}
+
 	// accept
+	setWTimeout(s.conn)
 	_, err := s.conn.Write(msg)
 	if err != nil {
-		log.Errorln(err)
-		s.conn.Close()
+		log.Warningln(err)
 		return true
 	}
 	return false
 }
 
-func (s *S5Step1) parseSocks5Request() string {
-	var buf = make([]byte, 262) // 4+(1+255)+2
+// step2
+func (s *s5Handler) parseRequest() string {
+	var (
+		buf  = make([]byte, 262) // 4+(1+255)+2
+		host string
+		ofs  int
+	)
+
+	setRTimeout(s.conn)
 	_, err := s.conn.Read(buf)
 	ThrowErr(err)
 	ver, cmd, atyp := buf[0], buf[1], buf[3]
@@ -145,10 +158,8 @@ func (s *S5Step1) parseSocks5Request() string {
 		s.err = INVALID_SOCKS5_REQUEST
 		return NULL
 	}
-	s.target = buf[3:]
+
 	buf = buf[4:]
-	var host string
-	var ofs int
 	switch atyp {
 	case IPV4:
 		host = net.IP(buf[:net.IPv4len]).String()
@@ -168,23 +179,26 @@ func (s *S5Step1) parseSocks5Request() string {
 	return host + ":" + strconv.Itoa(int(dst_port))
 }
 
-func (s *S5Step1) respondSocks5() bool {
-	var ack = []byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+// step2 response
+// return True=Denied
+func (s *s5Handler) finalResponse() bool {
+	var msg = []byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
 	if s.err != nil {
 		// handshake error feedback
 		if ex, y := s.err.(*exception.Exception); y {
-			ack[1] = byte(ex.Code())
+			msg[1] = byte(ex.Code())
 		} else {
-			ack[1] = 0x1
+			msg[1] = 0x1
 		}
-		s.conn.Write(ack)
-		s.conn.Close()
+		setWTimeout(s.conn)
+		s.conn.Write(msg)
 		return true
 	}
 	// accept
-	_, err := s.conn.Write(ack)
+	setWTimeout(s.conn)
+	_, err := s.conn.Write(msg)
 	if err != nil {
-		log.Infoln(err)
+		log.Warningln(err)
 		return true
 	}
 	return false
@@ -192,63 +206,80 @@ func (s *S5Step1) respondSocks5() bool {
 
 // http proxy
 
-func detectProtocol(pbconn *pushbackInputStream) int {
+func detectProtocol(pbconn *pushbackInputStream) (int, error) {
 	var b = make([]byte, 2)
+	setRTimeout(pbconn)
 	n, e := io.ReadFull(pbconn, b)
 	if n != 2 {
-		panic(io.ErrUnexpectedEOF.Error())
+		return 0, io.ErrUnexpectedEOF
 	}
 	if e != nil {
-		panic(e.Error())
+		return 0, e
 	}
+
 	defer pbconn.Unread(b)
 	var head = b[0]
-	// hex 0x41-0x5a=A-Z 0x61-0x7a=a-z
+
 	if head <= 5 {
-		return REQ_PROT_SOCKS5
+		return REQ_PROT_SOCKS5, nil
+		// hex 0x41-0x5a=A-Z 0x61-0x7a=a-z
 	} else if head >= 0x41 && head <= 0x7a {
-		return REQ_PROT_HTTP
+		return REQ_PROT_HTTP, nil
 	} else {
-		return REQ_PROT_UNKNOWN
+		return REQ_PROT_UNKNOWN, nil
 	}
 }
 
-func httpProxyHandshake(conn *pushbackInputStream) (req_prot uint, target string) {
+// throw errors
+func httpProxyHandshake(conn *pushbackInputStream) (proto uint, target string) {
 	reader := bufio.NewReader(conn)
+	setRTimeout(conn)
 	req, err := http.ReadRequest(reader)
 	if err != nil {
 		panic(err)
 	}
+	buf := new(bytes.Buffer)
+
 	// http tunnel, direct into tunnel
-	if req.Method == "CONNECT" { // respond OK then enter into tunnel
-		req_prot = REQ_PROT_HTTP_T
-		conn.WriteString(HTTP_PROXY_VER_LINE)
-		conn.WriteString(CRLF)
-		conn.WriteString(HTTP_PROXY_AGENT + "/" + VER_STRING)
-		conn.WriteString(CRLF + CRLF)
+	if req.Method == "CONNECT" {
+		proto = REQ_PROT_HTTP_T
 		target = req.Host
+
+		// response http header
+		buf.WriteString(HTTP_PROXY_VER_LINE)
+		buf.WriteString(CRLF)
+		buf.WriteString(HTTP_PROXY_AGENT + "/" + VER_STRING)
+		buf.WriteString(CRLF + CRLF)
+		setWTimeout(conn)
+		conn.Write(buf.Bytes())
+
 	} else { // plain http request
-		req_prot = REQ_PROT_HTTP
+		proto = REQ_PROT_HTTP
+		target = req.Host
+
+		// delete http header Proxy-xxx
 		for k, _ := range req.Header {
 			if strings.HasPrefix(k, "Proxy") {
 				delete(req.Header, k)
 			}
 		}
-		buf := new(bytes.Buffer)
+		// serialize modified request to buffer
 		req.Write(buf)
+		// rollback
 		conn.Unread(buf.Bytes())
-		target = req.Host
 	}
+
 	if target == NULL {
 		panic("missing host in address")
 	}
+
 	_, _, err = net.SplitHostPort(target)
 	if err != nil {
-		// the header.Host without port
+		// plain http request: the header.Host without port
 		if strings.Contains(err.Error(), "port") && req.Method != "CONNECT" {
 			target += ":80"
 		} else {
-			panic(err.Error())
+			panic(err)
 		}
 	}
 	return
@@ -272,135 +303,152 @@ type tunParams struct {
 //
 // client negotiation
 //
-type d5CNegotiation struct {
+type dbcCltNego struct {
 	*D5Params
-	dhKey    DHKE
-	identity string
+	dhKey DHKE
 }
 
-func (nego *d5CNegotiation) negotiate(p *tunParams) (conn *Conn, err error) {
-	var con *net.TCPConn
+func (n *dbcCltNego) negotiate(p *tunParams) (conn *Conn, err error) {
+	var rawConn net.Conn
 	defer func() {
 		if e, y := exception.ErrorOf(recover()); y {
-			SafeClose(con)
+			SafeClose(rawConn)
 			err = e
 		}
 	}()
-	con, err = net.DialTCP("tcp", nil, nego.d5sAddr)
+	rawConn, err = net.DialTimeout("tcp", n.d5sAddrStr, GENERAL_SO_TIMEOUT)
 	ThrowIf(err != nil, D5SER_UNREACHABLE)
-	setSoTimeout(con)
-	var hConn = NewConnWithHash(con)
+
+	hConn := newHashedConn(rawConn)
 	conn = hConn.Conn
-	nego.requestAuthAndDHExchange(hConn)
-	setSoTimeout(con)
-	p.cipherFactory = nego.finishDHExThenSetupCipher(hConn)
-	hConn.cipher = p.cipherFactory.NewCipher(nil)
-	setSoTimeout(con)
-	nego.validateAndGetTokens(hConn, p)
+	n.requestAuthAndDHExchange(hConn)
+
+	p.cipherFactory = n.finishDHExThenSetupCipher(hConn)
+	hConn.cipher = p.cipherFactory.InitCipher(nil)
+
+	n.validateAndGetTokens(hConn, p)
 	return
 }
 
 // send
 // obf~256 | idBlockLen~2 | idBlock(enc)~? | dhPubLen~2 | dhPub~?
-func (nego *d5CNegotiation) requestAuthAndDHExchange(conn *hashedConn) {
+func (n *dbcCltNego) requestAuthAndDHExchange(conn *hashedConn) {
 	// obfuscated header 256
 	obf := randArray(256, 256)
 	obf[0xff] = d5Sub(obf[0xd5])
-	// send identity using rsa
-	identity := nego.user + IDENTITY_SEP + nego.pass
-	idBlock, err := RSAEncrypt([]byte(identity), nego.sPub)
-	ThrowErr(err)
 	buf := new(bytes.Buffer)
 	buf.Write(obf)
 
+	// send identity using rsa
+	identity := n.user + IDENTITY_SEP + n.pass
+	idBlock, err := RSAEncrypt([]byte(identity), n.sPub)
+	ThrowErr(err)
+
+	// idBlock
 	idBlockLen := uint16(len(idBlock))
 	binary.BigEndian.PutUint16(obf, idBlockLen)
 	buf.Write(obf[:2])
 	buf.Write(idBlock)
 
-	pub := nego.dhKey.ExportPubKey()
+	// dhke
+	pub := n.dhKey.ExportPubKey()
 	binary.BigEndian.PutUint16(obf, uint16(len(pub)))
 	buf.Write(obf[:2])
 	buf.Write(pub)
 
+	setWTimeout(conn)
 	_, err = conn.Write(buf.Bytes())
 	ThrowErr(err)
 }
 
-// recv: rhPub~2+256
-func (nego *d5CNegotiation) finishDHExThenSetupCipher(conn *hashedConn) *CipherFactory {
+func (n *dbcCltNego) finishDHExThenSetupCipher(conn *hashedConn) *CipherFactory {
+	// recv: rhPub~2+256 or ecdhPub~2+32
+	setRTimeout(conn)
 	buf, err := ReadFullByLen(2, conn)
 	ThrowErr(err)
+
 	if len(buf) == 1 {
 		switch buf[0] {
-		case 0xff:
+		case 0xff: // invalid indentity
 			err = auth.AUTH_FAILED
 		default:
-			err = VALIDATION_FAILED.Apply("indentity")
+			ThrowErr(VALIDATION_FAILED.Apply("indentity"))
 		}
-		ThrowErr(err)
 	}
-	secret := nego.dhKey.ComputeKey(buf)
-	return NewCipherFactory(nego.cipher, secret)
+
+	secret := n.dhKey.ComputeKey(buf)
+	return NewCipherFactory(n.cipher, secret)
 }
 
-func (nego *d5CNegotiation) validateAndGetTokens(sconn *hashedConn, t *tunParams) {
-	buf, err := ReadFullByLen(2, sconn)
+func (n *dbcCltNego) validateAndGetTokens(hConn *hashedConn, t *tunParams) {
+	setRTimeout(hConn)
+	buf, err := ReadFullByLen(2, hConn)
 	ThrowErr(err)
-	tVer := VERSION
-	oVer := binary.BigEndian.Uint32(buf)
-	if oVer > tVer {
-		oVerStr := fmt.Sprintf("%d.%d.%04d", oVer>>24, (oVer>>16)&0xFF, oVer&0xFFFF)
-		tVer >>= 16
-		oVer >>= 16
-		if tVer == oVer {
-			log.Warningf("Caution !!! Please upgrade to new version, remote is v%s\n", oVerStr)
+
+	myVer := VERSION
+	rVer := binary.BigEndian.Uint32(buf)
+	if rVer > myVer {
+		rVerStr := fmt.Sprintf("%d.%d.%04d", rVer>>24, (rVer>>16)&0xFF, rVer&0xFFFF)
+		myVer >>= 16
+		rVer >>= 16
+		if myVer == rVer {
+			log.Warningf("Caution !!! Please upgrade to new version, remote is v%s\n", rVerStr)
 		} else {
-			err = INCOMPATIBLE_VERSION.Apply(oVerStr)
+			ThrowErr(INCOMPATIBLE_VERSION.Apply(rVerStr))
+			// return
 		}
-		ThrowErr(err)
 	}
-	ofs := 4
-	ofs += 2
+	// parse params
+	ofs := 4 // skiped upon version
 	t.dtInterval = int(binary.BigEndian.Uint16(buf[ofs:]))
 	ofs += 2
 	t.tunQty = int(buf[ofs])
-	t.token = buf[TUN_PARAMS_LEN:]
+	t.token = buf[TUN_PARAMS_LEN:] // absolute offset
+
 	if log.V(3) {
 		n := len(buf) - TUN_PARAMS_LEN
-		log.Infof("Received tokens count=%d\n", n/TKSZ)
+		log.Infof("Received tokens size=%d\n", n/TKSZ)
 	}
-	rHash := sconn.RHashSum()
-	wHash := sconn.WHashSum()
-	_, err = sconn.Write(rHash)
+
+	// send rHash
+	rHash := hConn.RHashSum()
+	wHash := hConn.WHashSum()
+	setWTimeout(hConn)
+	_, err = hConn.Write(rHash)
 	ThrowErr(err)
+
+	// recv remote rHash
 	oHash := make([]byte, TKSZ)
-	_, err = sconn.Read(oHash)
+	setRTimeout(hConn)
+	_, err = hConn.Read(oHash)
+	ThrowErr(err)
+
 	if !bytes.Equal(wHash, oHash) {
-		log.Errorln("Server hash/r is inconsistence with the client/w")
-		log.Errorf("rHash: [% x] wHash: [% x]\n", rHash, wHash)
-		log.Errorf("oHash: [% x]\n", oHash)
+		log.Errorln("Server hash-r is inconsistence with myself-w")
+		log.Errorf("my WHash: [% x]\n", wHash)
+		log.Errorf("peer RHash: [% x]\n", oHash)
 		ThrowErr(INCONSISTENT_HASH)
 	}
 }
 
 //
-// d5Server negotiation
+// Server negotiation
 //
-type d5SNegotiation struct {
+type dbcSerNego struct {
 	*Server
 	clientAddr     string
 	clientIdentity string
-	tokenBuf       []byte
+	isNewSession   bool
 }
 
-func (nego *d5SNegotiation) negotiate(hConn *hashedConn) (session *Session, err error) {
-	setSoTimeout(hConn)
-	nego.clientAddr = hConn.RemoteAddr().String()
+func (n *dbcSerNego) negotiate(hConn *hashedConn) (session *Session, err error) {
+	n.clientAddr = hConn.RemoteAddr().String()
 	var (
 		nr  int
 		buf = make([]byte, DMLEN1)
 	)
+
+	setRTimeout(hConn)
 	nr, err = hConn.Read(buf)
 	if err != nil {
 		return nil, err
@@ -408,105 +456,143 @@ func (nego *d5SNegotiation) negotiate(hConn *hashedConn) (session *Session, err 
 
 	if nr == DMLEN2 &&
 		d5SumValid(buf[TKSZ-2], buf[TKSZ]) && d5SumValid(buf[TKSZ-1], buf[TKSZ+1]) {
-		return nego.dataSession(hConn, buf)
+		return n.dataSession(hConn, buf)
 	}
+
 	if nr == DMLEN1 &&
 		d5SumValid(buf[0xd5], buf[0xff]) {
-		return nego.handshakeSession(hConn)
+		return n.handshakeSession(hConn)
 	}
-	log.Warningf("Unrecognized Request from=%s len=%d\n", nego.clientAddr, nr)
+
+	log.Warningf("Unrecognized Request from=%s len=%d\n", n.clientAddr, nr)
 	return nil, NEGOTIATION_FAILED
 }
 
-func (nego *d5SNegotiation) handshakeSession(hConn *hashedConn) (session *Session, err error) {
+// new connection
+func (n *dbcSerNego) handshakeSession(hConn *hashedConn) (session *Session, err error) {
 	defer func() {
 		if e, y := exception.ErrorOf(recover()); y {
 			err = e
 		}
 	}()
-	setSoTimeout(hConn)
-	var skey = nego.verifyThenDHExchange(hConn)
-	var cf = NewCipherFactory(nego.Cipher, skey)
-	hConn.cipher = cf.NewCipher(nil)
-	session = NewSession(hConn.Conn, cf, nego)
-	setSoTimeout(hConn)
-	nego.respondTestWithToken(hConn, session)
+	var skey = n.verifyThenDHExchange(hConn)
+	var cf = NewCipherFactory(n.Cipher, skey)
+
+	hConn.cipher = cf.InitCipher(nil)
+	session = NewSession(hConn.Conn, cf, n)
+	n.isNewSession = true
+	n.respondTestWithToken(hConn, session)
 	return
 }
 
-func (nego *d5SNegotiation) dataSession(hConn *hashedConn, buf []byte) (session *Session, err error) {
+// quick resume session
+func (n *dbcSerNego) dataSession(hConn *hashedConn, buf []byte) (session *Session, err error) {
 	token := buf[:TKSZ]
-	if session := nego.sessionMgr.take(token); session != nil {
+	if session := n.sessionMgr.take(token); session != nil {
+		// init cipher of new connection
+		hConn.cipher = session.cipherFactory.InitCipher(token)
+		// check and set identify
 		session.identifyConn(hConn.Conn)
-		nego.tokenBuf = buf
-		return session, DATATUN_SESSION
+		return session, nil
 	}
-	log.Warningln("Incorrect token from", hConn.RemoteAddr())
+
+	log.Warningln("Incorrect token from", n.clientAddr)
 	return nil, VALIDATION_FAILED
 }
 
-func (nego *d5SNegotiation) verifyThenDHExchange(conn net.Conn) (key []byte) {
+func (n *dbcSerNego) verifyThenDHExchange(conn net.Conn) (key []byte) {
+	// client identity segment
+	setRTimeout(conn)
 	credBuf, err := ReadFullByLen(2, conn)
-	ThrowIf(err != nil, err)
-	userIdentity, err := RSADecrypt(credBuf, nego.RSAKeys.priv)
 	ThrowErr(err)
-	clientIdentity := string(userIdentity)
+
+	identityRaw, err := RSADecrypt(credBuf, n.RSAKeys.priv)
+	ThrowErr(err)
+
+	identityStr := string(identityRaw)
 	if log.V(2) {
-		log.Infoln("Auth clientIdentity:", SubstringBefore(clientIdentity, IDENTITY_SEP), "***")
+		log.Infoln("Auth clientIdentity:", SubstringBefore(identityStr, IDENTITY_SEP), "***")
 	}
-	allow, err := nego.AuthSys.Authenticate(userIdentity)
-	if !allow { // invalid user indentity
-		log.Warningf("Auth %s failed: %v\n", clientIdentity, err)
+
+	allow, err := n.AuthSys.Authenticate(identityRaw)
+	if allow {
+		n.clientIdentity = identityStr
+	} else { // client denied
+		log.Warningf("Auth %s failed: %v\n", identityStr, err)
+		// reply failed msg
 		conn.Write([]byte{0, 1, 0xff})
 		panic(err)
 	}
-	nego.clientIdentity = clientIdentity
-	bobPub, err := ReadFullByLen(2, conn)
-	key = nego.dhKey.ComputeKey(bobPub)
 
-	myPub := nego.dhKey.ExportPubKey()
+	// read client RH-pub
+	setRTimeout(conn)
+	bobPub, err := ReadFullByLen(2, conn)
+	ThrowErr(err)
+	key = n.dhKey.ComputeKey(bobPub)
+
+	// send my RH-pub
+	myPub := n.dhKey.ExportPubKey()
 	buf := make([]byte, len(myPub)+2)
 	binary.BigEndian.PutUint16(buf, uint16(len(myPub)))
 	copy(buf[2:], myPub)
+
+	setWTimeout(conn)
 	_, err = conn.Write(buf)
+	ThrowErr(err)
 	return
 }
 
 //         |------------- tun params ------------|
 // | len~2 | version~4 | interval~2 | reserved~? | tokens~20N ; hash~20
-func (nego *d5SNegotiation) respondTestWithToken(sconn *hashedConn, session *Session) {
+func (n *dbcSerNego) respondTestWithToken(hConn *hashedConn, session *Session) {
 	var (
-		headLen = TUN_PARAMS_LEN + 2
-		err     error
+		headLen  = TUN_PARAMS_LEN + 2
+		totalLen = TUN_PARAMS_LEN + GENERATE_TOKEN_NUM*TKSZ
+		err      error
 	)
-	// tun params
+	// tun params buffer built from rand
 	tpBuf := randArray(headLen, headLen)
-	binary.BigEndian.PutUint16(tpBuf, uint16(TUN_PARAMS_LEN+GENERATE_TOKEN_NUM*TKSZ))
+	// len
+	binary.BigEndian.PutUint16(tpBuf, uint16(totalLen))
 	ofs := 2
+
+	// ver
 	copy(tpBuf[ofs:], ito4b(VERSION))
 	ofs += 4
-	binary.BigEndian.PutUint16(tpBuf[ofs:], uint16(0))
-	ofs += 2
+
+	// params
+	// ping interval
 	binary.BigEndian.PutUint16(tpBuf[ofs:], uint16(DT_PING_INTERVAL))
 	ofs += 2
+
+	// tun qty
 	tpBuf[ofs] = PARALLEL_TUN_QTY
 
-	_, err = sconn.Write(tpBuf)
+	setWTimeout(hConn)
+	_, err = hConn.Write(tpBuf) // just header
 	ThrowErr(err)
-	tokens := nego.sessionMgr.createTokens(session, GENERATE_TOKEN_NUM)
-	_, err = sconn.Write(tokens[1:])
+
+	// send tokens
+	tokens := n.sessionMgr.createTokens(session, GENERATE_TOKEN_NUM)
+	setWTimeout(hConn)
+	_, err = hConn.Write(tokens[1:]) // skip index=0
 	ThrowErr(err)
-	rHash := sconn.RHashSum()
-	wHash := sconn.WHashSum()
+
+	rHash := hConn.RHashSum()
+	wHash := hConn.WHashSum()
 	oHash := make([]byte, TKSZ)
-	_, err = sconn.Read(oHash)
+	setRTimeout(hConn)
+	_, err = hConn.Read(oHash)
 	ThrowErr(err)
+
 	if !bytes.Equal(wHash, oHash) {
-		log.Errorln("Remote hash/r not equals self/w")
-		log.Errorf("rHash: [% x] wHash: [% x]\n", rHash, wHash)
-		log.Errorf("oHash: [% x]\n", oHash)
+		log.Errorln("Client hash-r is inconsistence with myself-w")
+		log.Errorf("my WHash: [% x]\n", wHash)
+		log.Errorf("peer RHash: [% x]\n", oHash)
 		panic(INCONSISTENT_HASH)
 	}
-	_, err = sconn.Write(rHash)
+
+	setWTimeout(hConn)
+	_, err = hConn.Write(rHash)
 	ThrowErr(err)
 }
