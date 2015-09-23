@@ -428,7 +428,7 @@ func DetectRunAsServ() bool {
 	p, e := osext.Executable()
 	ThrowErr(e)
 	p = filepath.Base(p)
-	return p[0] == 0x44
+	return p[len(p) - 1] == 'd'
 }
 
 func DetectFile(isServ bool) (string, bool) {
