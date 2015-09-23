@@ -39,7 +39,7 @@ func main() {
 	flag.StringVar(&context.config, "config", "", "indicate Config path if it in nontypical path")
 	flag.StringVar(&output, "o", "", "output file")
 	flag.BoolVar(&context.csc, "csc", false, "Server;;Create Server Config")
-	flag.BoolVar(&context.icc, "icc", false, "Server;;Issue Client Credential for user//-icc <ServerAddress:Port> <User1> <User2>...")
+	flag.BoolVar(&context.ccc, "ccc", false, "Server;;Issue Client Credential for user//-ccc <ServerAddress:Port> <User1> <User2>...")
 	flag.BoolVar(&context.isServ, "serv", false, "Server;;run as Server explicitly")
 	flag.BoolVar(&showVersion, "V", false, "show Version")
 	flag.StringVar(&context.verbosity, "v", "", "Verbose log level")
@@ -69,8 +69,8 @@ func main() {
 		return
 	}
 
-	if context.icc {
-		context.icc_process(output)
+	if context.ccc {
+		context.ccc_process(output)
 		return
 	}
 

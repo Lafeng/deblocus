@@ -27,7 +27,7 @@ type bootContext struct {
 	config    string
 	isServ    bool
 	csc       bool
-	icc       bool
+	ccc       bool
 	statser   Statser
 	verbosity string
 	debug     bool
@@ -36,7 +36,7 @@ type bootContext struct {
 func (c *bootContext) parse() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	if !c.isServ {
-		c.isServ = c.icc || t.DetectRunAsServ()
+		c.isServ = c.ccc || t.DetectRunAsServ()
 	}
 	if c.config == "" && !c.csc {
 		var e bool
@@ -76,7 +76,7 @@ func (c *bootContext) setLogVerbose(level int) {
 	}
 }
 
-func (c *bootContext) icc_process(output string) {
+func (c *bootContext) ccc_process(output string) {
 	defer func() {
 		if e := recover(); e != nil {
 			fmt.Println(e)
@@ -91,7 +91,7 @@ func (c *bootContext) icc_process(output string) {
 		d5sc.Listen = addr
 		for i, arg := range flag.Args() {
 			if i > 0 {
-				t.CreateClientCredential(output, d5sc, arg)
+				t.CreateClientConfig(output, d5sc, arg)
 			}
 		}
 		return

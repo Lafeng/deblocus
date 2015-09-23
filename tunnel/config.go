@@ -235,7 +235,7 @@ func Generate_d5sFile(file string, rsaParam string) (e error) {
 }
 
 // public for external
-func CreateClientCredential(file string, d5s *D5ServConf, user string) (e error) {
+func CreateClientConfig(file string, d5s *D5ServConf, user string) (e error) {
 	var f *os.File
 	if file == NULL {
 		f = os.Stdout
@@ -249,6 +249,13 @@ func CreateClientCredential(file string, d5s *D5ServConf, user string) (e error)
 			f.Close()
 		}()
 	}
+	head := "#\n# deblocus client configuration\n#\n\nListen      :9009\nVerbose     1\n\n# client credential\n"
+	f.WriteString(head)
+	e = CreateClientCredential(f, d5s, user)
+	return
+}
+
+func CreateClientCredential(f *os.File, d5s *D5ServConf, user string) (e error) {
 	u, e := d5s.AuthSys.UserInfo(user)
 	if e != nil {
 		ThrowErr(e)
