@@ -7,9 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
-	"encoding/binary"
 	"github.com/Lafeng/deblocus/exception"
-	"github.com/monnand/dhkx"
 )
 
 var (
@@ -120,35 +118,4 @@ func GenerateRSAKeyPair(keyBits int) *RSAKeyPair {
 		priv: priv,
 		pub:  &priv.PublicKey,
 	}
-}
-
-type DHKeyPair struct {
-	priv   *dhkx.DHKey
-	pub    []byte
-	pubLen []byte
-}
-
-func GenerateDHKeyPairs() *DHKeyPair {
-	// Get a group. Use the default one would be enough.
-	g, _ := dhkx.GetGroup(0)
-	pair := new(DHKeyPair)
-	// Generate a private key from the group.
-	// Use the default random number generator.
-	priv, _ := g.GeneratePrivateKey(nil)
-	pair.priv = priv
-	// Get the public key from the private key.
-	pair.pub = priv.Bytes()
-	pair.pubLen = make([]byte, 2)
-	binary.BigEndian.PutUint16(pair.pubLen, uint16(len(pair.pub)))
-	return pair
-}
-
-func takeSharedKey(pair *DHKeyPair, opub []byte) []byte {
-	g, _ := dhkx.GetGroup(0)
-	// Recover Bob's public key
-	opubkey := dhkx.NewPublicKey(opub)
-	// Compute the key
-	k, _ := g.ComputeKey(opubkey, pair.priv)
-	// Get the key in the form of []byte
-	return k.Bytes()
 }

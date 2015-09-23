@@ -274,7 +274,7 @@ type tunParams struct {
 //
 type d5CNegotiation struct {
 	*D5Params
-	dhKeys   *DHKeyPair
+	dhKey    DHKE
 	identity string
 }
 
@@ -312,12 +312,17 @@ func (nego *d5CNegotiation) requestAuthAndDHExchange(conn *hashedConn) {
 	ThrowErr(err)
 	buf := new(bytes.Buffer)
 	buf.Write(obf)
+
 	idBlockLen := uint16(len(idBlock))
 	binary.BigEndian.PutUint16(obf, idBlockLen)
 	buf.Write(obf[:2])
 	buf.Write(idBlock)
-	buf.Write(nego.dhKeys.pubLen)
-	buf.Write(nego.dhKeys.pub)
+
+	pub := nego.dhKey.ExportPubKey()
+	binary.BigEndian.PutUint16(obf, uint16(len(pub)))
+	buf.Write(obf[:2])
+	buf.Write(pub)
+
 	_, err = conn.Write(buf.Bytes())
 	ThrowErr(err)
 }
@@ -335,7 +340,7 @@ func (nego *d5CNegotiation) finishDHExThenSetupCipher(conn *hashedConn) *CipherF
 		}
 		ThrowErr(err)
 	}
-	secret := takeSharedKey(nego.dhKeys, buf)
+	secret := nego.dhKey.ComputeKey(buf)
 	return NewCipherFactory(nego.cipher, secret)
 }
 
@@ -449,22 +454,21 @@ func (nego *d5SNegotiation) verifyThenDHExchange(conn net.Conn) (key []byte) {
 	if log.V(2) {
 		log.Infoln("Auth clientIdentity:", SubstringBefore(clientIdentity, IDENTITY_SEP), "***")
 	}
-	allow, ex := nego.AuthSys.Authenticate(userIdentity)
-	cDHPub, err := ReadFullByLen(2, conn)
+	allow, err := nego.AuthSys.Authenticate(userIdentity)
 	if !allow { // invalid user indentity
-		log.Warningf("Auth %s failed: %v\n", clientIdentity, ex)
+		log.Warningf("Auth %s failed: %v\n", clientIdentity, err)
 		conn.Write([]byte{0, 1, 0xff})
-		panic(ex)
+		panic(err)
 	}
 	nego.clientIdentity = clientIdentity
-	key = takeSharedKey(nego.dhKeys, cDHPub)
-	//	if log.V(5) {
-	//		dumpHex("Sharedkey", key)
-	//	}
-	buf := new(bytes.Buffer)
-	buf.Write(nego.dhKeys.pubLen)
-	buf.Write(nego.dhKeys.pub)
-	_, err = buf.WriteTo(conn)
+	bobPub, err := ReadFullByLen(2, conn)
+	key = nego.dhKey.ComputeKey(bobPub)
+
+	myPub := nego.dhKey.ExportPubKey()
+	buf := make([]byte, len(myPub)+2)
+	binary.BigEndian.PutUint16(buf, uint16(len(myPub)))
+	copy(buf[2:], myPub)
+	_, err = conn.Write(buf)
 	return
 }
 

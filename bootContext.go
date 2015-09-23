@@ -15,6 +15,10 @@ import (
 	"time"
 )
 
+const (
+	DH_METHOD = "ECDHE-P256"
+)
+
 type Statser interface {
 	Stats() string
 }
@@ -97,7 +101,7 @@ func (c *bootContext) icc_process(output string) {
 }
 
 type clientMgr struct {
-	dhKeys     *t.DHKeyPair
+	dhKey      t.DHKE
 	d5pArray   []*t.D5Params
 	clients    []*t.Client
 	num        int
@@ -142,7 +146,7 @@ func (m *clientMgr) Stats() string {
 
 func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
 	d5pArray := d5c.D5PList
-	dhKeys := t.GenerateDHKeyPairs()
+	dhKey, _ := t.NewDHKey(DH_METHOD)
 	num := len(d5pArray)
 	var chain []byte
 	if num > 1 {
@@ -152,7 +156,7 @@ func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
 		}
 	}
 	mgr := &clientMgr{
-		dhKeys,
+		dhKey,
 		d5pArray,
 		make([]*t.Client, num),
 		num,
@@ -160,7 +164,7 @@ func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
 	}
 
 	for i := 0; i < num; i++ {
-		c := t.NewClient(d5pArray[i], dhKeys)
+		c := t.NewClient(d5pArray[i], dhKey)
 		mgr.clients[i] = c
 		go c.StartTun(true)
 	}
@@ -211,8 +215,8 @@ func (context *bootContext) startServer() {
 	}
 	defer ln.Close()
 
-	dhKeys := t.GenerateDHKeyPairs()
-	server := t.NewServer(conf, dhKeys)
+	dhKey, _ := t.NewDHKey(DH_METHOD)
+	server := t.NewServer(conf, dhKey)
 	context.statser = server
 	for {
 		conn, err := ln.AcceptTCP()

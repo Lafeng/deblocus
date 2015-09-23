@@ -209,13 +209,13 @@ func (s *SessionMgr) createTokens(session *Session, many int) []byte {
 //
 type Server struct {
 	*D5ServConf
-	dhKeys     *DHKeyPair
+	dhKey      DHKE
 	sessionMgr *SessionMgr
 	filter     Filterable
 }
 
-func NewServer(d5s *D5ServConf, dhKeys *DHKeyPair) *Server {
-	s := &Server{d5s, dhKeys, NewSessionMgr(), nil}
+func NewServer(d5s *D5ServConf, dhKey DHKE) *Server {
+	s := &Server{d5s, dhKey, NewSessionMgr(), nil}
 	if len(d5s.DenyDest) == 2 {
 		s.filter, _ = geo.NewGeoIPFilter(d5s.DenyDest)
 	}

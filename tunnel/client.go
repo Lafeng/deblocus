@@ -36,10 +36,10 @@ type Client struct {
 	pendingTK   *semaphore
 }
 
-func NewClient(d5p *D5Params, dhKeys *DHKeyPair) *Client {
+func NewClient(d5p *D5Params, dhKey DHKE) *Client {
 	clt := &Client{
 		lock:        new(sync.Mutex),
-		nego:        &d5CNegotiation{D5Params: d5p, dhKeys: dhKeys},
+		nego:        &d5CNegotiation{D5Params: d5p, dhKey: dhKey},
 		State:       CLT_PENDING,
 		pendingConn: NewSemaphore(true), // unestablished connection
 		pendingTK:   NewSemaphore(true), // waiting tokens
