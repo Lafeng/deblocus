@@ -210,7 +210,11 @@ func GenerateD5sTemplate(file string, rsaParam string) (e error) {
 	d5sConf.RSAKeys = GenerateRSAKeyPair(rsaKeyBits)
 
 	desc := getImportableDesc(d5sConf)
-	f.WriteString("#\n# deblocus server configuration\n#\n\n")
+	f.WriteString(`# -----------------------------
+# deblocus server configuration
+# -----------------------------
+
+`)
 	sk := make([]string, 0, len(desc))
 	for k := range desc {
 		sk = append(sk, k)
@@ -220,8 +224,11 @@ func GenerateD5sTemplate(file string, rsaParam string) (e error) {
 		defaultVal := desc[k].sType.Tag.Get("importable")
 		f.WriteString(fmt.Sprintf("%-16s   %s\n", k, defaultVal))
 	}
-	f.WriteString("\n### Please take good care of this secret file during the server life cycle.\n")
-	f.WriteString("### DON'T modify the following lines, unless you known what happens.\n\n")
+	f.WriteString(`
+### Please take good care of this secret file during the server life cycle.
+### DO NOT modify the following lines, unless you known what will happen.
+
+`)
 	k := d5sConf.RSAKeys
 	keyBytes := x509.MarshalPKCS1PrivateKey(k.priv)
 	keyText := pem.EncodeToMemory(&pem.Block{
@@ -248,8 +255,7 @@ func CreateClientConfig(file string, d5s *D5ServConf, user string) (e error) {
 		}()
 	}
 
-	head := `
-# -----------------------------
+	head := `# -----------------------------
 # deblocus client configuration
 # -----------------------------
 
