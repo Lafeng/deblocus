@@ -10,14 +10,15 @@ import (
 )
 
 var (
-	NoSuchDHMethod = exception.New(0, "No Such DH method")
+	NoSuchDHMethod  = exception.New(0, "No Such DH method")
+	InvalidECCParam = exception.New(0, "Invalid ECC parameters")
 )
 
 // enum: DHE, ECDHE-P224,256,384,521
 func NewDHKey(name string) (DHKE, error) {
 	name = strings.ToUpper(name)
 	if name == "DHE" {
-		return GenerateDHEKey(), nil
+		return GenerateDHEKey()
 	}
 	if strings.HasPrefix(name, "ECDHE-") {
 		name = name[6:]
@@ -40,7 +41,7 @@ func NewDHKey(name string) (DHKE, error) {
 
 type DHKE interface {
 	ExportPubKey() []byte
-	ComputeKey(bobPub []byte) []byte
+	ComputeKey(bobPub []byte) ([]byte, error)
 }
 
 type ECKey struct {
@@ -71,19 +72,19 @@ func (k *ECKey) ExportPubKey() []byte {
 
 // Q' = curve.G * k'
 // K(x,y) = Q' * k = G * k' * k
-func (k *ECKey) ComputeKey(bobPub []byte) []byte {
+func (k *ECKey) ComputeKey(bobPub []byte) ([]byte, error) {
 	curve := k.curve
 	bobX, bobY := elliptic.Unmarshal(curve, bobPub)
 	if bobX == nil || bobY == nil {
 		// the point is not on the curve
-		panic("error")
+		return nil, InvalidECCParam
 	}
 	xk, _ := curve.ScalarMult(bobX, bobY, k.priv)
-	return xk.Bytes()
+	return xk.Bytes(), nil
 }
 
 const (
-	_DH_GROUP_ID = 14
+	_DH_GROUP_ID = 14 // 2048bits
 )
 
 // classical Diffie–Hellman–Merkle key exchange
@@ -92,29 +93,33 @@ type DHEKey struct {
 	pub  []byte
 }
 
-func GenerateDHEKey() *DHEKey {
+func GenerateDHEKey() (*DHEKey, error) {
 	// Get a group. Use the default one would be enough.
 	g, _ := dhkx.GetGroup(_DH_GROUP_ID)
-	pair := new(DHEKey)
+	k := new(DHEKey)
 	// Generate a private key from the group.
 	// Use the default random number generator.
-	priv, _ := g.GeneratePrivateKey(nil)
-	pair.priv = priv
-	// Get the public key from the private key.
-	pair.pub = priv.Bytes()
-	return pair
+	k.priv, err = g.GeneratePrivateKey(nil)
+	if k.priv != nil {
+		// Get the public key from the private key.
+		k.pub = k.priv.Bytes()
+	}
+	return k, err
 }
 
 func (d *DHEKey) ExportPubKey() []byte {
 	return d.pub
 }
 
-func (d *DHEKey) ComputeKey(pub []byte) []byte {
+func (d *DHEKey) ComputeKey(pub []byte) ([]byte, error) {
 	g, _ := dhkx.GetGroup(_DH_GROUP_ID)
 	// Recover Bob's public key
 	opubkey := dhkx.NewPublicKey(pub)
 	// Compute the key
-	k, _ := g.ComputeKey(opubkey, d.priv)
-	// Get the key in the form of []byte
-	return k.Bytes()
+	k, e := g.ComputeKey(opubkey, d.priv)
+	if e == nil {
+		// Get the key in the form of []byte
+		return k.Bytes(), nil
+	}
+	return nil, e
 }

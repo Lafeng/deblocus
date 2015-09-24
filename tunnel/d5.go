@@ -376,8 +376,9 @@ func (n *dbcCltNego) finishDHExThenSetupCipher(conn *hashedConn) *CipherFactory 
 		}
 	}
 
-	secret := n.dhKey.ComputeKey(buf)
-	return NewCipherFactory(n.cipher, secret)
+	key, err := n.dhKey.ComputeKey(buf)
+	ThrowErr(err)
+	return NewCipherFactory(n.cipher, key)
 }
 
 func (n *dbcCltNego) validateAndGetTokens(hConn *hashedConn, t *tunParams) {
@@ -528,7 +529,8 @@ func (n *dbcSerNego) verifyThenDHExchange(conn net.Conn) (key []byte) {
 	setRTimeout(conn)
 	bobPub, err := ReadFullByLen(2, conn)
 	ThrowErr(err)
-	key = n.dhKey.ComputeKey(bobPub)
+	key, err = n.dhKey.ComputeKey(bobPub)
+	ThrowErr(err)
 
 	// send my RH-pub
 	myPub := n.dhKey.ExportPubKey()
