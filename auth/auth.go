@@ -16,7 +16,7 @@ var (
 )
 
 type AuthSys interface {
-	Authenticate(input []byte) (bool, error)
+	Authenticate(user, passwd string) (bool, error)
 	AddUser(user *User) error
 	UserInfo(user string) (*User, error)
 }
@@ -62,20 +62,22 @@ func NewFileAuthSys(path string) (AuthSys, error) {
 	return sys, nil
 }
 
-func (a *FileAuthSys) Authenticate(input []byte) (bool, error) {
-	arr := strings.SplitN(string(input), "\x00", 2)
-	if len(arr) != 2 {
-		return false, INVALID_AUTH_PARAMS
-	}
-	if _, y := a.db[arr[0]]; y {
-		return y, nil
+func (a *FileAuthSys) Authenticate(user, passwd string) (bool, error) {
+	if u, y := a.db[user]; y {
+		if u.Pass == passwd {
+			return true, nil
+		} else {
+			return false, AUTH_FAILED
+		}
 	} else {
-		return false, AUTH_FAILED
+		return false, NO_SUCH_USER.Apply(user)
 	}
 }
+
 func (a *FileAuthSys) AddUser(user *User) error {
 	return nil
 }
+
 func (a *FileAuthSys) UserInfo(user string) (*User, error) {
 	if u, y := a.db[user]; y {
 		return u, nil

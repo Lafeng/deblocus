@@ -86,7 +86,7 @@ func (c *Client) restart() (tun *Conn, rn int32) {
 		atomic.CompareAndSwapInt32(&c.restarting, 1, 0)
 		atomic.CompareAndSwapInt32(&c.State, CLT_PENDING, CLT_WORKING)
 		rn = atomic.AddInt32(&c.round, 1)
-		for j := c.tp.tunQty; j > 1; j-- {
+		for j := c.tp.parallels; j > 1; j-- {
 			go c.StartTun(false)
 		}
 	}
@@ -137,7 +137,7 @@ func (c *Client) StartTun(mustRestart bool) {
 				log.Infof("Tun=%s is established\n", tun.sign())
 			}
 			atomic.AddInt32(&c.dtCnt, 1)
-			c.mux.Listen(tun, c.eventHandler, c.tp.dtInterval)
+			c.mux.Listen(tun, c.eventHandler, c.tp.pingInterval)
 			dtcnt := atomic.AddInt32(&c.dtCnt, -1)
 
 			log.Errorf("Tun=%s was disconnected, Reconnect after %s\n", tun.sign(), RETRY_INTERVAL)

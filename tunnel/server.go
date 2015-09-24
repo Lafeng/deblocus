@@ -208,11 +208,20 @@ type Server struct {
 	*D5ServConf
 	dhKey      DHKE
 	sessionMgr *SessionMgr
+	tunParams  *tunParams
 	filter     Filterable
 }
 
 func NewServer(d5s *D5ServConf, dhKey DHKE) *Server {
-	s := &Server{d5s, dhKey, NewSessionMgr(), nil}
+	s := &Server{
+		D5ServConf: d5s,
+		dhKey:      dhKey,
+		sessionMgr: NewSessionMgr(),
+		tunParams: &tunParams{
+			pingInterval: DT_PING_INTERVAL,
+			parallels:    PARALLEL_TUN_QTY,
+		},
+	}
 	if len(d5s.DenyDest) == 2 {
 		s.filter, _ = geo.NewGeoIPFilter(d5s.DenyDest)
 	}

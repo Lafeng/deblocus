@@ -112,6 +112,12 @@ type RSAKeyPair struct {
 	pub  *rsa.PublicKey
 }
 
+// max length
+func RSABlockSize(pub *rsa.PublicKey) int {
+	k := (pub.N.BitLen() + 7) / 8
+	return k - 2*sha1.Size - 2
+}
+
 func GenerateRSAKeyPair(keyBits int) *RSAKeyPair {
 	priv, _ := rsa.GenerateKey(rand.Reader, keyBits)
 	return &RSAKeyPair{

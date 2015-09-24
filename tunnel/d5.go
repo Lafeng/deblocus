@@ -18,11 +18,15 @@ import (
 )
 
 const (
+	IPV4        byte = 1
+	DOMAIN      byte = 3
+	IPV6        byte = 4
+	S5_VER      byte = 5
+	AUTH_FAILED byte = 0xff
+)
+
+const (
 	D5                 = 0xd5
-	IPV4               = byte(1)
-	DOMAIN             = byte(3)
-	IPV6               = byte(4)
-	SOCKS5_VER         = byte(5)
 	NULL               = ""
 	DMLEN1             = 256
 	DMLEN2             = TKSZ + 2
@@ -101,7 +105,7 @@ func (s *s5Handler) handshake() {
 	}
 
 	ver, nmethods := buf[0], int(buf[1])
-	if ver != SOCKS5_VER || nmethods < 1 {
+	if ver != S5_VER || nmethods < 1 {
 		s.err = INVALID_SOCKS5_HEADER.Apply(fmt.Sprintf("[% x]", buf[:2]))
 		return
 	}
@@ -154,7 +158,7 @@ func (s *s5Handler) parseRequest() string {
 	_, err := s.conn.Read(buf)
 	ThrowErr(err)
 	ver, cmd, atyp := buf[0], buf[1], buf[3]
-	if ver != SOCKS5_VER || cmd != 1 {
+	if ver != S5_VER || cmd != 1 {
 		s.err = INVALID_SOCKS5_REQUEST
 		return NULL
 	}
@@ -296,8 +300,33 @@ func d5SumValid(a, b byte) bool {
 type tunParams struct {
 	cipherFactory *CipherFactory
 	token         []byte
-	dtInterval    int
-	tunQty        int
+	pingInterval  int
+	parallels     int
+}
+
+// write to buf
+// for server
+func (p *tunParams) serialize(buf []byte) (offset int) {
+	binary.BigEndian.PutUint16(buf, uint16(p.pingInterval))
+	offset = 2
+
+	buf[offset] = byte(p.parallels)
+	offset++
+	return
+}
+
+// read from raw buf
+// for client
+func (p *tunParams) deserialize(buf []byte, offset int) {
+	p.pingInterval = int(binary.BigEndian.Uint16(buf[offset:]))
+	offset += 2
+
+	p.parallels = int(buf[offset])
+	//offset++
+
+	// absolute offset
+	p.token = buf[TUN_PARAMS_LEN:]
+	return
 }
 
 //
@@ -305,12 +334,15 @@ type tunParams struct {
 //
 type dbcCltNego struct {
 	*D5Params
-	dhKey DHKE
+	dhKey  DHKE
+	ibHash []byte
 }
 
 func (n *dbcCltNego) negotiate(p *tunParams) (conn *Conn, err error) {
 	var rawConn net.Conn
 	defer func() {
+		// free ibHash
+		n.ibHash = nil
 		if e, y := exception.ErrorOf(recover()); y {
 			SafeClose(rawConn)
 			err = e
@@ -340,8 +372,7 @@ func (n *dbcCltNego) requestAuthAndDHExchange(conn *hashedConn) {
 	buf.Write(obf)
 
 	// send identity using rsa
-	identity := n.user + IDENTITY_SEP + n.pass
-	idBlock, err := RSAEncrypt([]byte(identity), n.sPub)
+	idBlock, err := n.idBlockSerialize()
 	ThrowErr(err)
 
 	// idBlock
@@ -367,9 +398,9 @@ func (n *dbcCltNego) finishDHExThenSetupCipher(conn *hashedConn) *CipherFactory 
 	buf, err := ReadFullByLen(2, conn)
 	ThrowErr(err)
 
-	if len(buf) == 1 {
+	if len(buf) == 1 { // failed
 		switch buf[0] {
-		case 0xff: // invalid indentity
+		case AUTH_FAILED:
 			err = auth.AUTH_FAILED
 		default:
 			ThrowErr(VALIDATION_FAILED.Apply("indentity"))
@@ -386,8 +417,10 @@ func (n *dbcCltNego) validateAndGetTokens(hConn *hashedConn, t *tunParams) {
 	buf, err := ReadFullByLen(2, hConn)
 	ThrowErr(err)
 
+	// compare version with remote
 	myVer := VERSION
 	rVer := binary.BigEndian.Uint32(buf)
+	ofs := 4
 	if rVer > myVer {
 		rVerStr := fmt.Sprintf("%d.%d.%04d", rVer>>24, (rVer>>16)&0xFF, rVer&0xFFFF)
 		myVer >>= 16
@@ -399,16 +432,19 @@ func (n *dbcCltNego) validateAndGetTokens(hConn *hashedConn, t *tunParams) {
 			// return
 		}
 	}
+
+	// check ibHash
+	_ibHash := buf[ofs : ofs+20]
+	ofs += 20
+	if !bytes.Equal(n.ibHash, _ibHash) {
+		ThrowErr(INCONSISTENT_HASH.Apply("MITM attack"))
+	}
+
 	// parse params
-	ofs := 4 // skiped upon version
-	t.dtInterval = int(binary.BigEndian.Uint16(buf[ofs:]))
-	ofs += 2
-	t.tunQty = int(buf[ofs])
-	t.token = buf[TUN_PARAMS_LEN:] // absolute offset
+	t.deserialize(buf, ofs)
 
 	if log.V(3) {
-		n := len(buf) - TUN_PARAMS_LEN
-		log.Infof("Received tokens size=%d\n", n/TKSZ)
+		log.Infof("Received tokens size=%d\n", len(t.token)/TKSZ)
 	}
 
 	// send rHash
@@ -440,6 +476,7 @@ type dbcSerNego struct {
 	clientAddr     string
 	clientIdentity string
 	isNewSession   bool
+	ibHash         []byte
 }
 
 func (n *dbcSerNego) negotiate(hConn *hashedConn) (session *Session, err error) {
@@ -472,6 +509,8 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn) (session *Session, err error) 
 // new connection
 func (n *dbcSerNego) handshakeSession(hConn *hashedConn) (session *Session, err error) {
 	defer func() {
+		// free ibHash
+		n.ibHash = nil
 		if e, y := exception.ErrorOf(recover()); y {
 			err = e
 		}
@@ -507,21 +546,20 @@ func (n *dbcSerNego) verifyThenDHExchange(conn net.Conn) (key []byte) {
 	credBuf, err := ReadFullByLen(2, conn)
 	ThrowErr(err)
 
-	identityRaw, err := RSADecrypt(credBuf, n.RSAKeys.priv)
+	user, passwd, err := n.idBlockDeserialize(credBuf)
 	ThrowErr(err)
 
-	identityStr := string(identityRaw)
-	if log.V(2) {
-		log.Infoln("Auth clientIdentity:", SubstringBefore(identityStr, IDENTITY_SEP), "***")
+	if log.V(1) {
+		log.Infoln("Auth client", user)
 	}
 
-	allow, err := n.AuthSys.Authenticate(identityRaw)
+	allow, err := n.AuthSys.Authenticate(user, passwd)
 	if allow {
-		n.clientIdentity = identityStr
+		n.clientIdentity = user
 	} else { // client denied
-		log.Warningf("Auth %s failed: %v\n", identityStr, err)
+		log.Warningf("Auth %s:%s failed: %v\n", user, passwd, err)
 		// reply failed msg
-		conn.Write([]byte{0, 1, 0xff})
+		conn.Write([]byte{0, 1, AUTH_FAILED})
 		panic(err)
 	}
 
@@ -544,8 +582,8 @@ func (n *dbcSerNego) verifyThenDHExchange(conn net.Conn) (key []byte) {
 	return
 }
 
-//         |------------- tun params ------------|
-// | len~2 | version~4 | interval~2 | reserved~? | tokens~20N ; hash~20
+//         |--------- head --------|------- tun params ------|
+// | len~2 | version~4 | ibHash~20 | interval~2 | reserved~? | tokens~20N | hash~20
 func (n *dbcSerNego) respondTestWithToken(hConn *hashedConn, session *Session) {
 	var (
 		headLen  = TUN_PARAMS_LEN + 2
@@ -553,25 +591,22 @@ func (n *dbcSerNego) respondTestWithToken(hConn *hashedConn, session *Session) {
 		err      error
 	)
 	// tun params buffer built from rand
-	tpBuf := randArray(headLen, headLen)
+	headBuf := make([]byte, headLen)
 	// len
-	binary.BigEndian.PutUint16(tpBuf, uint16(totalLen))
+	binary.BigEndian.PutUint16(headBuf, uint16(totalLen))
 	ofs := 2
 
 	// ver
-	copy(tpBuf[ofs:], ito4b(VERSION))
-	ofs += 4
+	ofs += copy(headBuf[ofs:], ito4b(VERSION))
+
+	// ibHash feedback to client for verifying
+	ofs += copy(headBuf[ofs:], n.ibHash)
 
 	// params
-	// ping interval
-	binary.BigEndian.PutUint16(tpBuf[ofs:], uint16(DT_PING_INTERVAL))
-	ofs += 2
-
-	// tun qty
-	tpBuf[ofs] = PARALLEL_TUN_QTY
+	n.Server.tunParams.serialize(headBuf[ofs:])
 
 	setWTimeout(hConn)
-	_, err = hConn.Write(tpBuf) // just header
+	_, err = hConn.Write(headBuf) // just header
 	ThrowErr(err)
 
 	// send tokens
@@ -597,4 +632,38 @@ func (n *dbcSerNego) respondTestWithToken(hConn *hashedConn, session *Session) {
 	setWTimeout(hConn)
 	_, err = hConn.Write(rHash)
 	ThrowErr(err)
+}
+
+// block: rsa( identity~? | rand )
+// hash:  sha1(rand)
+func (n *dbcCltNego) idBlockSerialize() (block []byte, e error) {
+	identity := n.user + IDENTITY_SEP + n.pass
+	idLen, max := len(identity), RSABlockSize(n.sPub)
+	if idLen > max-1 {
+		e = INVALID_D5PARAMS.Apply("identity too long")
+		return
+	}
+	block = randArray(max, max)
+	block[0] = byte(idLen)
+	copy(block[1:], []byte(identity))
+	n.ibHash = hash20(block)
+	block, e = RSAEncrypt(block, n.sPub)
+	return
+}
+
+func (n *dbcSerNego) idBlockDeserialize(block []byte) (user, pass string, e error) {
+	block, e = RSADecrypt(block, n.RSAKeys.priv)
+	if e != nil {
+		return
+	}
+	idOfs := block[0] + 1
+	identity := block[1:idOfs]
+	fields := strings.Split(string(identity), IDENTITY_SEP)
+	if len(fields) != 2 {
+		e = INVALID_D5PARAMS.Apply("incorrect identity format")
+		return
+	}
+	user, pass = fields[0], fields[1]
+	n.ibHash = hash20(block)
+	return
 }

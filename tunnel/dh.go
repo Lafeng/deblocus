@@ -93,10 +93,10 @@ type DHEKey struct {
 	pub  []byte
 }
 
-func GenerateDHEKey() (*DHEKey, error) {
+func GenerateDHEKey() (k *DHEKey, err error) {
 	// Get a group. Use the default one would be enough.
 	g, _ := dhkx.GetGroup(_DH_GROUP_ID)
-	k := new(DHEKey)
+	k = new(DHEKey)
 	// Generate a private key from the group.
 	// Use the default random number generator.
 	k.priv, err = g.GeneratePrivateKey(nil)
