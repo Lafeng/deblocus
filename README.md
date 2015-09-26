@@ -47,7 +47,7 @@ Explanations:
 
 ## Quickstart
 
-1. Download [binary](https://github.com/Lafeng/deblocus/releases) or compile it from source.
+1. Download [executable](https://github.com/Lafeng/deblocus/releases) or compile it from source.
 2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki).
 
 ### Simple GUI for Windows
@@ -72,7 +72,7 @@ This product includes GeoLite2 data created by MaxMind, available from
 
 ## 介绍
 
-建立与远端网关的加密通道，为本地应用提供安全高效的局部代理(Socks5/Http)服务。
+建立与远端网关的加密通道，为本地应用提供安全高效的局部代理(Socks5/HTTP)服务。
 
 可以满足在企业网络/公共Wifi等情景下通信被窃听或拦截时高保密、高隐私的通信需要。
 
