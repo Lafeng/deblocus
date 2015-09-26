@@ -30,10 +30,6 @@ const (
 )
 
 const (
-	D5                 = 0xd5
-	NULL               = ""
-	DMLEN1             = 256
-	DMLEN2             = TKSZ + 2
 	GENERAL_SO_TIMEOUT = 10 * time.Second
 	TUN_PARAMS_LEN     = 32
 
@@ -47,8 +43,9 @@ const (
 	REQ_PROT_SOCKS5     = 2
 	REQ_PROT_HTTP       = 3
 	REQ_PROT_HTTP_T     = 4
-	IDENTITY_SEP        = "\x00"
+	NULL                = ""
 	CRLF                = "\r\n"
+	IDENTITY_SEP        = "\x00"
 	HTTP_PROXY_VER_LINE = "HTTP/1.1 200 Connection established"
 	HTTP_PROXY_AGENT    = "Proxy-Agent: "
 )
@@ -297,14 +294,6 @@ func httpProxyHandshake(conn *pushbackInputStream) (proto uint, target string) {
 		}
 	}
 	return
-}
-
-func d5Sub(a byte) byte {
-	return byte(D5 - int(int8(a)))
-}
-
-func d5SumValid(a, b byte) bool {
-	return uint(int8(a)+int8(b))&0xff == D5
 }
 
 type tunParams struct {

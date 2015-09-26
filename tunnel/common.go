@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"net"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -158,17 +157,6 @@ func setWTimeout(conn net.Conn) {
 	ThrowErr(e)
 }
 
-func randArray3(arrayLen int) []byte {
-	array := make([]byte, arrayLen+7)
-	loop := len(array) >> 3
-	var n int64
-	for i := 0; i < loop; i++ {
-		n = rand.Int63()
-		binary.LittleEndian.PutUint64(array[i<<3:], uint64(n))
-	}
-	return array[:arrayLen]
-}
-
 var myRand = &lockedSource{
 	rand.NewSource(time.Now().UnixNano()),
 	new(sync.Mutex),
@@ -197,18 +185,6 @@ func randArray(arrayLen int) []byte {
 	myRand.Unlock()
 
 	return array[:arrayLen]
-}
-
-func convert(raw []int) []byte {
-	// Get the slice header
-	header := *(*reflect.SliceHeader)(unsafe.Pointer(&raw))
-
-	// The length and capacity of the slice are different.
-	header.Len *= SIZEOF_INT
-	header.Cap *= SIZEOF_INT
-
-	// Convert slice header to an []int32
-	return *(*[]byte)(unsafe.Pointer(&header))
 }
 
 func hash20(byteArray []byte) []byte {
