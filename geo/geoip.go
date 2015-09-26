@@ -114,12 +114,13 @@ func NewGeoIPFilter(keyword string) (f *GeoIPFilter, e error) {
 
 func (f *GeoIPFilter) Filter(host string) bool {
 	ipAddr, e := net.ResolveTCPAddr("tcp4", host)
-	if e != nil {
+	ip4 := ipAddr.IP.To4()
+	if e != nil || ip4 == nil {
 		return false
 	}
 
 	// net.IP is 16-byte, ipv4.addr at 12-15
-	ip := binary.BigEndian.Uint32(ipAddr.IP[12:])
+	ip := binary.BigEndian.Uint32(ip4)
 	if nexthop, y := f.tab.Find(ip); y {
 		return nexthop == f.keyword
 	}

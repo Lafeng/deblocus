@@ -9,7 +9,9 @@ import (
 	"github.com/Lafeng/deblocus/auth"
 	"github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
+	"github.com/dchest/siphash"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"strconv"
@@ -23,6 +25,8 @@ const (
 	IPV6        byte = 4
 	S5_VER      byte = 5
 	AUTH_FAILED byte = 0xff
+	TYPE_NEW    byte = 0xfb
+	TYPE_DAT    byte = 0xf1
 )
 
 const (
@@ -32,6 +36,12 @@ const (
 	DMLEN2             = TKSZ + 2
 	GENERAL_SO_TIMEOUT = 10 * time.Second
 	TUN_PARAMS_LEN     = 32
+
+	DP_LEN1    = 256
+	DP_P2I     = 256 + 8
+	DP_MOD     = 65536
+	TIME_STEP  = 60 // seconds
+	TIME_ERROR = 1  // minutes
 
 	REQ_PROT_UNKNOWN    = 1
 	REQ_PROT_SOCKS5     = 2
@@ -365,9 +375,8 @@ func (n *dbcCltNego) negotiate(p *tunParams) (conn *Conn, err error) {
 // send
 // obf~256 | idBlockLen~2 | idBlock(enc)~? | dhPubLen~2 | dhPub~?
 func (n *dbcCltNego) requestAuthAndDHExchange(conn *hashedConn) {
-	// obfuscated header 256
-	obf := randArray(256, 256)
-	obf[0xff] = d5Sub(obf[0xd5])
+	// obfuscated header
+	obf := makeRandHead(TYPE_NEW, n.sPub.N.Bytes())
 	buf := new(bytes.Buffer)
 	buf.Write(obf)
 
@@ -483,7 +492,7 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn) (session *Session, err error) 
 	n.clientAddr = hConn.RemoteAddr().String()
 	var (
 		nr  int
-		buf = make([]byte, DMLEN1)
+		buf = make([]byte, DP_P2I)
 	)
 
 	setRTimeout(hConn)
@@ -492,14 +501,23 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn) (session *Session, err error) 
 		return nil, err
 	}
 
-	if nr == DMLEN2 &&
-		d5SumValid(buf[TKSZ-2], buf[TKSZ]) && d5SumValid(buf[TKSZ-1], buf[TKSZ+1]) {
-		return n.dataSession(hConn, buf)
-	}
+	ok, stype, len2 := verifyRandHead(buf, n.RSAKeys.pub.N.Bytes())
 
-	if nr == DMLEN1 &&
-		d5SumValid(buf[0xd5], buf[0xff]) {
-		return n.handshakeSession(hConn)
+	if ok {
+		if len2 > 0 {
+			setRTimeout(hConn)
+			_, err = io.ReadFull(hConn, buf[:len2])
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		switch byte(stype) {
+		case TYPE_NEW:
+			return n.handshakeSession(hConn)
+		case TYPE_DAT:
+			return n.dataSession(hConn)
+		}
 	}
 
 	log.Warningf("Unrecognized Request from=%s len=%d\n", n.clientAddr, nr)
@@ -526,8 +544,12 @@ func (n *dbcSerNego) handshakeSession(hConn *hashedConn) (session *Session, err 
 }
 
 // quick resume session
-func (n *dbcSerNego) dataSession(hConn *hashedConn, buf []byte) (session *Session, err error) {
-	token := buf[:TKSZ]
+func (n *dbcSerNego) dataSession(hConn *hashedConn) (session *Session, err error) {
+	token := make([]byte, TKSZ)
+	setRTimeout(hConn)
+	nr, err := hConn.Read(token)
+	ThrowIf(nr != TKSZ || err != nil, err)
+
 	if session := n.sessionMgr.take(token); session != nil {
 		// init cipher of new connection
 		hConn.cipher = session.cipherFactory.InitCipher(token)
@@ -643,7 +665,7 @@ func (n *dbcCltNego) idBlockSerialize() (block []byte, e error) {
 		e = INVALID_D5PARAMS.Apply("identity too long")
 		return
 	}
-	block = randArray(max, max)
+	block = randArray(max)
 	block[0] = byte(idLen)
 	copy(block[1:], []byte(identity))
 	n.ibHash = hash20(block)
@@ -665,5 +687,74 @@ func (n *dbcSerNego) idBlockDeserialize(block []byte) (user, pass string, e erro
 	}
 	user, pass = fields[0], fields[1]
 	n.ibHash = hash20(block)
+	return
+}
+
+func extractKeys(b []byte) (pos, sKey int, hKey uint64) {
+	p := len(b) - 10
+	sKey = int(binary.BigEndian.Uint16(b[p : p+2]))
+	pos = sKey % DP_LEN1
+	hKey = binary.BigEndian.Uint64(b[p+2 : p+10])
+	return
+}
+
+func timeCounter(withTimeError bool) (tc []uint64) {
+	if withTimeError {
+		// cur, prev1, next1, prev2, next2...
+		tc = make([]uint64, TIME_ERROR<<1+1)
+	} else {
+		tc = make([]uint64, 1)
+	}
+	var cur, last uint64 = 0, uint64(time.Now().Unix() / TIME_STEP)
+	for i := 0; i < len(tc); i++ {
+		cur += last
+		if i > 0 {
+			if i&1 == 1 {
+				cur -= uint64(i)
+			} else {
+				cur += uint64(i)
+			}
+		}
+		tc[i] = cur
+		last, cur = cur, 0
+	}
+	return tc
+}
+
+func makeRandHead(data byte, secret []byte) []byte {
+	randLen := rand.Int() % DP_LEN1 // 8bit
+	buf := randArray(randLen + DP_P2I)
+	pos, sKey, hKey := extractKeys(secret)
+
+	// actually f is uint16
+	f := (randLen << 8) | int(data)
+	f = (f + sKey) % DP_MOD
+	binary.BigEndian.PutUint16(buf[pos:pos+2], uint16(f))
+
+	sum := siphash.Hash(hKey, timeCounter(false)[0], buf[:DP_LEN1])
+	binary.BigEndian.PutUint64(buf[DP_LEN1:DP_P2I], sum)
+	return buf
+}
+
+func verifyRandHead(buf []byte, secret []byte) (verifyPass bool, data, len2 int) {
+	pos, sKey, hKey := extractKeys(secret)
+	tc := timeCounter(true)
+	p1 := buf[:DP_LEN1]
+
+	var sum, cltSum uint64
+	cltSum = binary.BigEndian.Uint64(buf[DP_LEN1:DP_P2I])
+
+	for i := 0; !verifyPass && i < len(tc); i++ {
+		sum = siphash.Hash(hKey, tc[i], p1)
+		verifyPass = cltSum == sum
+	}
+
+	if !verifyPass {
+		return
+	}
+
+	z := int(binary.BigEndian.Uint16(buf[pos : pos+2]))
+	z = (z - sKey + DP_MOD) % DP_MOD
+	len2, data = z>>8, z&0xff
 	return
 }

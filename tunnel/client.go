@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"bytes"
 	"fmt"
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
@@ -217,15 +218,18 @@ func (t *Client) createDataTun() (c *Conn, err error) {
 	if err != nil {
 		return nil, err
 	}
-	buf := make([]byte, DMLEN2)
+
+	buf := new(bytes.Buffer)
+	obf := makeRandHead(TYPE_DAT, t.nego.sPub.N.Bytes())
+	buf.Write(obf)
 	token := t.getToken()
-	copy(buf, token)
-	buf[TKSZ] = d5Sub(token[TKSZ-2])
-	buf[TKSZ+1] = d5Sub(token[TKSZ-1])
+	buf.Write(token)
+
+	setWTimeout(conn)
+	_, err = conn.Write(buf.Bytes())
+	ThrowErr(err)
 
 	cipher := t.tp.cipherFactory.InitCipher(token)
-	_, err = conn.Write(buf)
-	ThrowErr(err)
 	c = NewConn(conn.(*net.TCPConn), cipher)
 	c.identifier = t.nego.RemoteName()
 	return c, nil

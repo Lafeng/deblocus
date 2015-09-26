@@ -1,19 +1,20 @@
 package tunnel
 
 import (
-	crand "crypto/rand"
 	"crypto/sha1"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"math/rand"
 	"net"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 const (
@@ -21,11 +22,14 @@ const (
 )
 
 var (
-	ZERO_TIME = time.Time{}
+	ZERO_TIME  = time.Time{}
+	SIZEOF_INT int
 )
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
+	var aint int
+	SIZEOF_INT = int(unsafe.Sizeof(aint))
 }
 
 func nvl(v interface{}, def interface{}) interface{} {
@@ -154,11 +158,57 @@ func setWTimeout(conn net.Conn) {
 	ThrowErr(e)
 }
 
-// make lenght=alen array, and header padding with randLen random
-func randArray(aLen int, randLen int) []byte {
-	array := make([]byte, aLen)
-	io.ReadAtLeast(crand.Reader, array, randLen)
-	return array
+func randArray3(arrayLen int) []byte {
+	array := make([]byte, arrayLen+7)
+	loop := len(array) >> 3
+	var n int64
+	for i := 0; i < loop; i++ {
+		n = rand.Int63()
+		binary.LittleEndian.PutUint64(array[i<<3:], uint64(n))
+	}
+	return array[:arrayLen]
+}
+
+var myRand = &lockedSource{
+	rand.NewSource(time.Now().UnixNano()),
+	new(sync.Mutex),
+}
+
+type lockedSource struct {
+	rand.Source
+	*sync.Mutex
+}
+
+func (r *lockedSource) setSeed() {
+	r.Lock()
+	r.Seed(time.Now().UnixNano())
+	r.Unlock()
+}
+
+// make len=arrayLen array, and filled with len=randLen pseudorandom
+func randArray(arrayLen int) []byte {
+	newLen := (arrayLen + 7) >> 3 << 3
+	array := make([]byte, newLen)
+
+	myRand.Lock()
+	for i := 0; i < newLen; i += 8 {
+		binary.LittleEndian.PutUint64(array[i:i+8], uint64(myRand.Int63()))
+	}
+	myRand.Unlock()
+
+	return array[:arrayLen]
+}
+
+func convert(raw []int) []byte {
+	// Get the slice header
+	header := *(*reflect.SliceHeader)(unsafe.Pointer(&raw))
+
+	// The length and capacity of the slice are different.
+	header.Len *= SIZEOF_INT
+	header.Cap *= SIZEOF_INT
+
+	// Convert slice header to an []int32
+	return *(*[]byte)(unsafe.Pointer(&header))
 }
 
 func hash20(byteArray []byte) []byte {
