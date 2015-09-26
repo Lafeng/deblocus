@@ -47,7 +47,7 @@ Explanations:
 
 ## Quickstart
 
-1. Download [executable](https://github.com/Lafeng/deblocus/releases) or compile it from source.
+1. Download [executables](https://github.com/Lafeng/deblocus/releases) or compile it from source.
 2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki).
 
 ### Simple GUI for Windows
