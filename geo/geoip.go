@@ -114,8 +114,12 @@ func NewGeoIPFilter(keyword string) (f *GeoIPFilter, e error) {
 
 func (f *GeoIPFilter) Filter(host string) bool {
 	ipAddr, e := net.ResolveTCPAddr("tcp4", host)
+
+	if e != nil || ipAddr == nil {
+		return false
+	}
 	ip4 := ipAddr.IP.To4()
-	if e != nil || ip4 == nil {
+	if ip4 == nil {
 		return false
 	}
 
