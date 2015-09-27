@@ -208,6 +208,7 @@ func (s *SessionMgr) createTokens(session *Session, many int) []byte {
 type Server struct {
 	*D5ServConf
 	dhKey      DHKE
+	sharedKey  []byte
 	sessionMgr *SessionMgr
 	tunParams  *tunParams
 	tcPool     unsafe.Pointer // *[]uint64
@@ -219,6 +220,7 @@ func NewServer(d5s *D5ServConf, dhKey DHKE) *Server {
 	s := &Server{
 		D5ServConf: d5s,
 		dhKey:      dhKey,
+		sharedKey:  d5s.RSAKeys.priv.N.Bytes(),
 		sessionMgr: NewSessionMgr(),
 		tunParams: &tunParams{
 			pingInterval: DT_PING_INTERVAL,
@@ -257,7 +259,10 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 		ex.CatchException(recover())
 	}()
 
-	nego := &dbcSerNego{Server: t}
+	nego := &dbcSerNego{
+		Server:     t,
+		clientAddr: conn.RemoteAddr(),
+	}
 	// read atomically
 	tcPool := *(*[]uint64)(atomic.LoadPointer(&t.tcPool))
 	session, err := nego.negotiate(hConn, tcPool)

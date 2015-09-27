@@ -74,6 +74,7 @@ var (
 	DATATUN_SESSION      = exception.NewW("DT")
 	INCONSISTENT_HASH    = exception.NewW("Inconsistent hash")
 	INCOMPATIBLE_VERSION = exception.NewW("Incompatible version")
+	UNRECOGNIZED_REQ     = exception.NewW("Unrecognized Request")
 )
 
 // len_inByte: first segment length of bytes, enum: 1,2,4
@@ -471,14 +472,13 @@ func (n *dbcCltNego) validateAndGetTokens(hConn *hashedConn, t *tunParams) {
 //
 type dbcSerNego struct {
 	*Server
-	clientAddr     string
+	clientAddr     net.Addr
 	clientIdentity string
 	isNewSession   bool
 	ibHash         []byte
 }
 
 func (n *dbcSerNego) negotiate(hConn *hashedConn, tcPool []uint64) (session *Session, err error) {
-	n.clientAddr = hConn.RemoteAddr().String()
 	var (
 		nr  int
 		buf = make([]byte, DP_P2I)
@@ -486,11 +486,16 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn, tcPool []uint64) (session *Ses
 
 	setRTimeout(hConn)
 	nr, err = hConn.Read(buf)
-	if err != nil {
-		return nil, err
+
+	if nr != len(buf) { // may be a prober
+		if err != nil {
+			return nil, err
+		} else {
+			return nil, UNRECOGNIZED_REQ
+		}
 	}
 
-	ok, stype, len2 := verifyDbcHead(buf, n.RSAKeys.pub.N.Bytes(), tcPool)
+	ok, stype, len2 := verifyDbcHead(buf, n.sharedKey, tcPool)
 
 	if ok {
 		if len2 > 0 {
@@ -501,7 +506,7 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn, tcPool []uint64) (session *Ses
 			}
 		}
 
-		switch byte(stype) {
+		switch stype {
 		case TYPE_NEW:
 			return n.handshakeSession(hConn)
 		case TYPE_DAT:
@@ -509,8 +514,10 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn, tcPool []uint64) (session *Ses
 		}
 	}
 
+	// threats OR overlarge time error
+	// We could use this log to block threats origin by external tools such as fail2ban.
 	log.Warningf("Unrecognized Request from=%s len=%d\n", n.clientAddr, nr)
-	return nil, NEGOTIATION_FAILED
+	return nil, UNRECOGNIZED_REQ
 }
 
 // new connection
@@ -725,7 +732,7 @@ func makeDbcHead(data byte, secret []byte) []byte {
 	return buf
 }
 
-func verifyDbcHead(buf []byte, secret []byte, tc []uint64) (validated bool, data, len2 int) {
+func verifyDbcHead(buf []byte, secret []byte, tc []uint64) (validated bool, data, len2 byte) {
 	pos, sKey, hKey := extractKeys(secret)
 	p1 := buf[:DP_LEN1]
 
@@ -743,6 +750,6 @@ func verifyDbcHead(buf []byte, secret []byte, tc []uint64) (validated bool, data
 
 	z := int(binary.BigEndian.Uint16(buf[pos : pos+2]))
 	z = (z - sKey + DP_MOD) % DP_MOD
-	len2, data = z>>8, z&0xff
+	len2, data = byte(z>>8), byte(z&0xff)
 	return
 }

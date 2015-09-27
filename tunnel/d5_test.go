@@ -30,23 +30,24 @@ func TestSiphash(t *testing.T) {
 	t.Logf("tu=%.2fms speed=%.2fm", tu*1e3, float64(loop*len(msg))/float64(1<<20)/tu)
 }
 
-func TestRandHead(tt *testing.T) {
+// Test correctness of generating and verification
+func TestDbcHead(tt *testing.T) {
 	t := newTest(tt)
-	for i := 0; i < 1e3; i++ {
-		pub := randArray(1 << 5)
+	tc := calculateTimeCounter(true)
+	for i := 0; i < 1e5; i++ {
+		pub := randArray(1 << 4)
 
 		// generate
-		data := int(pub[0])
-		head := makeDbcHead(byte(data), pub)
-		len2 := len(head) - DP_P2I
+		data := pub[0]
+		head := makeDbcHead(data, pub)
+		len2 := byte(len(head) - DP_P2I)
 		//tt.Logf("randBuf len=%d len2=%d", len(randBuf), len2)
 
 		// verify
-		tc := calculateTimeCounter(true)
 		ok, _data, _len2 := verifyDbcHead(head, pub, tc)
-		t.Assert(ok).Fatalf("verifyRandHead failed")
+		t.Assert(ok).Fatalf("verifyDbcHead failed")
 		t.Assert(len2 == _len2).Fatalf("expected len2=%d but _len2=%d", len2, _len2)
-		t.Assert(data == _data).Fatalf("expected data=%d but _data=%d  0=%d", data, _data, pub[0])
+		t.Assert(data == _data).Fatalf("expected data=%d but _data=%d", data, _data)
 	}
 }
 
@@ -64,7 +65,7 @@ func timeErrorUnit(sp []byte, errors int) bool {
 	return ok
 }
 
-func TestRandHeadTimeError(tt *testing.T) {
+func TestDbcHeadTimeError(tt *testing.T) {
 	t := newTest(tt)
 	sp := randArray(1 << 10)
 
