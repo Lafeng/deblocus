@@ -487,37 +487,37 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn, tcPool []uint64) (session *Ses
 	setRTimeout(hConn)
 	nr, err = hConn.Read(buf)
 
-	if nr != len(buf) { // may be a prober
-		if err != nil {
-			return nil, err
-		} else {
-			return nil, UNRECOGNIZED_REQ
-		}
-	}
+	if nr == len(buf) {
 
-	ok, stype, len2 := verifyDbcHead(buf, n.sharedKey, tcPool)
+		ok, stype, len2 := verifyDbcHead(buf, n.sharedKey, tcPool)
 
-	if ok {
-		if len2 > 0 {
-			setRTimeout(hConn)
-			_, err = io.ReadFull(hConn, buf[:len2])
-			if err != nil {
-				return nil, err
+		if ok {
+			var nrlen2 int
+			if len2 > 0 {
+				setRTimeout(hConn)
+				nrlen2, err = io.ReadFull(hConn, buf[:len2])
+			}
+
+			if nrlen2 == int(len2) && err == nil {
+				switch stype {
+				case TYPE_NEW:
+					return n.handshakeSession(hConn)
+				case TYPE_DAT:
+					return n.dataSession(hConn)
+				}
 			}
 		}
 
-		switch stype {
-		case TYPE_NEW:
-			return n.handshakeSession(hConn)
-		case TYPE_DAT:
-			return n.dataSession(hConn)
-		}
+	} // then may be a prober
+
+	if err == nil {
+		err = UNRECOGNIZED_REQ
 	}
 
 	// threats OR overlarge time error
 	// We could use this log to block threats origin by external tools such as fail2ban.
 	log.Warningf("Unrecognized Request from=%s len=%d\n", n.clientAddr, nr)
-	return nil, UNRECOGNIZED_REQ
+	return nil, err
 }
 
 // new connection
@@ -657,7 +657,7 @@ func (n *dbcSerNego) respondTestWithToken(hConn *hashedConn, session *Session) {
 func (n *dbcCltNego) idBlockSerialize() (block []byte, e error) {
 	identity := n.user + IDENTITY_SEP + n.pass
 	idLen, max := len(identity), RSABlockSize(n.sPub)
-	if idLen > max-1 {
+	if idLen > max-2 {
 		e = INVALID_D5PARAMS.Apply("identity too long")
 		return
 	}

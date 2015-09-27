@@ -292,7 +292,9 @@ func (s *Server) updateNow() {
 	tc := calculateTimeCounter(true)
 	// write atomically
 	atomic.StorePointer(&s.tcPool, unsafe.Pointer(&tc))
-	log.Infoln("updateTimeCounterThread", len(tc))
+	if log.V(4) {
+		log.Infoln("updateTimeCounterThread", len(tc))
+	}
 }
 
 func (t *Server) Stats() string {
