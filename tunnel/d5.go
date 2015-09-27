@@ -492,13 +492,12 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn, tcPool []uint64) (session *Ses
 		ok, stype, len2 := verifyDbcHead(buf, n.sharedKey, tcPool)
 
 		if ok {
-			var nrlen2 int
 			if len2 > 0 {
 				setRTimeout(hConn)
-				nrlen2, err = io.ReadFull(hConn, buf[:len2])
+				nr, err = io.ReadFull(hConn, buf[:len2])
 			}
 
-			if nrlen2 == int(len2) && err == nil {
+			if nr == int(len2) && err == nil {
 				switch stype {
 				case TYPE_NEW:
 					return n.handshakeSession(hConn)
