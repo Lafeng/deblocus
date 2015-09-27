@@ -57,7 +57,7 @@ func (c *Client) initialNegotiation() (tun *Conn) {
 	if err != nil {
 		log.Errorf("Failed to connect %s, Retry after %s\n", c.nego.RemoteName(), RETRY_INTERVAL)
 		if strings.Contains(err.Error(), "closed") {
-			log.Warningln("May be your clock is not accurate, or your authority credentials is invalid.")
+			log.Warningln("Maybe your clock is inaccurate, or your client credential is invalid.")
 			os.Exit(2)
 		}
 		return nil
