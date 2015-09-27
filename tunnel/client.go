@@ -220,7 +220,7 @@ func (t *Client) createDataTun() (c *Conn, err error) {
 	}
 
 	buf := new(bytes.Buffer)
-	obf := makeRandHead(TYPE_DAT, t.nego.sPub.N.Bytes())
+	obf := makeDbcHead(TYPE_DAT, t.nego.sPub.N.Bytes())
 	buf.Write(obf)
 	token := t.getToken()
 	buf.Write(token)

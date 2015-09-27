@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 )
 
 const (
@@ -209,6 +210,8 @@ type Server struct {
 	dhKey      DHKE
 	sessionMgr *SessionMgr
 	tunParams  *tunParams
+	tcPool     unsafe.Pointer // *[]uint64
+	tcTicker   *time.Ticker
 	filter     Filterable
 }
 
@@ -222,6 +225,25 @@ func NewServer(d5s *D5ServConf, dhKey DHKE) *Server {
 			parallels:    PARALLEL_TUN_QTY,
 		},
 	}
+
+	// inital update time counter
+	s.updateNow()
+
+	var step = time.Second * TIME_STEP
+	var now = time.Now()
+	// Calculate the distance to next integral minute,
+	var dis = now.Truncate(step).Add(step).Sub(now).Nanoseconds() - 1e3
+	if dis < 1e3 {
+		dis = 1e3
+	}
+
+	// To make the discrete time-counter closer to the exact zero point of minute.
+	// then plan starting the timer on next integral minutes.
+	time.AfterFunc(time.Duration(dis), func() {
+		s.updateNow() // first run on integral point manully
+		go s.updateTimeCounterWorker(step)
+	})
+
 	if len(d5s.DenyDest) == 2 {
 		s.filter, _ = geo.NewGeoIPFilter(d5s.DenyDest)
 	}
@@ -234,8 +256,11 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 		hConn.FreeHash()
 		ex.CatchException(recover())
 	}()
+
 	nego := &dbcSerNego{Server: t}
-	session, err := nego.negotiate(hConn)
+	// read atomically
+	tcPool := *(*[]uint64)(atomic.LoadPointer(&t.tcPool))
+	session, err := nego.negotiate(hConn, tcPool)
 
 	if err == nil {
 		go session.DataTunServe(hConn.Conn, nego.isNewSession)
@@ -245,6 +270,24 @@ func (t *Server) TunnelServe(conn *net.TCPConn) {
 			t.sessionMgr.clearTokens(session)
 		}
 	}
+}
+
+func (s *Server) updateTimeCounterWorker(step time.Duration) {
+	if s.tcTicker == nil {
+		s.tcTicker = time.NewTicker(step)
+	}
+	// awakened by ticker to do second and later
+	for now := range s.tcTicker.C {
+		s.updateNow()
+		myRand.setSeed(now.Nanosecond())
+	}
+}
+
+func (s *Server) updateNow() {
+	tc := calculateTimeCounter(true)
+	// write atomically
+	atomic.StorePointer(&s.tcPool, unsafe.Pointer(&tc))
+	log.Infoln("updateTimeCounterThread", len(tc))
 }
 
 func (t *Server) Stats() string {

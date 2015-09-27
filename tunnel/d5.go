@@ -365,7 +365,7 @@ func (n *dbcCltNego) negotiate(p *tunParams) (conn *Conn, err error) {
 // obf~256 | idBlockLen~2 | idBlock(enc)~? | dhPubLen~2 | dhPub~?
 func (n *dbcCltNego) requestAuthAndDHExchange(conn *hashedConn) {
 	// obfuscated header
-	obf := makeRandHead(TYPE_NEW, n.sPub.N.Bytes())
+	obf := makeDbcHead(TYPE_NEW, n.sPub.N.Bytes())
 	buf := new(bytes.Buffer)
 	buf.Write(obf)
 
@@ -477,7 +477,7 @@ type dbcSerNego struct {
 	ibHash         []byte
 }
 
-func (n *dbcSerNego) negotiate(hConn *hashedConn) (session *Session, err error) {
+func (n *dbcSerNego) negotiate(hConn *hashedConn, tcPool []uint64) (session *Session, err error) {
 	n.clientAddr = hConn.RemoteAddr().String()
 	var (
 		nr  int
@@ -490,7 +490,7 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn) (session *Session, err error) 
 		return nil, err
 	}
 
-	ok, stype, len2 := verifyRandHead(buf, n.RSAKeys.pub.N.Bytes())
+	ok, stype, len2 := verifyDbcHead(buf, n.RSAKeys.pub.N.Bytes(), tcPool)
 
 	if ok {
 		if len2 > 0 {
@@ -682,12 +682,12 @@ func (n *dbcSerNego) idBlockDeserialize(block []byte) (user, pass string, e erro
 func extractKeys(b []byte) (pos, sKey int, hKey uint64) {
 	p := len(b) - 10
 	sKey = int(binary.BigEndian.Uint16(b[p : p+2]))
-	pos = sKey % DP_LEN1
+	pos = sKey % 0xff
 	hKey = binary.BigEndian.Uint64(b[p+2 : p+10])
 	return
 }
 
-func timeCounter(withTimeError bool) (tc []uint64) {
+func calculateTimeCounter(withTimeError bool) (tc []uint64) {
 	if withTimeError {
 		// cur, prev1, next1, prev2, next2...
 		tc = make([]uint64, TIME_ERROR<<1+1)
@@ -710,7 +710,7 @@ func timeCounter(withTimeError bool) (tc []uint64) {
 	return tc
 }
 
-func makeRandHead(data byte, secret []byte) []byte {
+func makeDbcHead(data byte, secret []byte) []byte {
 	randLen := rand.Int() % DP_LEN1 // 8bit
 	buf := randArray(randLen + DP_P2I)
 	pos, sKey, hKey := extractKeys(secret)
@@ -720,25 +720,24 @@ func makeRandHead(data byte, secret []byte) []byte {
 	f = (f + sKey) % DP_MOD
 	binary.BigEndian.PutUint16(buf[pos:pos+2], uint16(f))
 
-	sum := siphash.Hash(hKey, timeCounter(false)[0], buf[:DP_LEN1])
+	sum := siphash.Hash(hKey, calculateTimeCounter(false)[0], buf[:DP_LEN1])
 	binary.BigEndian.PutUint64(buf[DP_LEN1:DP_P2I], sum)
 	return buf
 }
 
-func verifyRandHead(buf []byte, secret []byte) (verifyPass bool, data, len2 int) {
+func verifyDbcHead(buf []byte, secret []byte, tc []uint64) (validated bool, data, len2 int) {
 	pos, sKey, hKey := extractKeys(secret)
-	tc := timeCounter(true)
 	p1 := buf[:DP_LEN1]
 
 	var sum, cltSum uint64
 	cltSum = binary.BigEndian.Uint64(buf[DP_LEN1:DP_P2I])
 
-	for i := 0; !verifyPass && i < len(tc); i++ {
+	for i := 0; !validated && i < len(tc); i++ {
 		sum = siphash.Hash(hKey, tc[i], p1)
-		verifyPass = cltSum == sum
+		validated = cltSum == sum
 	}
 
-	if !verifyPass {
+	if !validated {
 		return
 	}
 

@@ -10,9 +10,9 @@ import (
 
 func TestRandFilling(t *testing.T) {
 	t1 := time.Now()
-	var count int = 1e3
+	var count int = 5e2
 	for i := 0; i < count; i++ {
-		_ = randArray(1 << 20)
+		randArray(1 << 20)
 	}
 	tu := time.Since(t1).Nanoseconds() / 1e6
 	t.Logf("total=%dms speed=%.2fm/s", tu, float64(count*1e3)/float64(tu))
@@ -21,44 +21,46 @@ func TestRandFilling(t *testing.T) {
 func TestSiphash(t *testing.T) {
 	k1, k2 := uint64(rand.Int63()), uint64(rand.Int63())
 	msg := randArray(1 << 9) // 512B
-	var loop int = 6e6
+	var loop int = 2e6
 	t1 := time.Now()
 	for i := 0; i < loop; i++ {
 		siphash.Hash(k1, k2, msg)
 	}
-	tu := time.Since(t1).Nanoseconds() / 1e6
-	t.Logf("tu=%dms throughput=%.2fm", tu, float64(loop*len(msg))/float64(1<<20))
+	tu := float64(time.Since(t1).Nanoseconds()) / 1e9
+	t.Logf("tu=%.2fms speed=%.2fm", tu*1e3, float64(loop*len(msg))/float64(1<<20)/tu)
 }
 
 func TestRandHead(tt *testing.T) {
 	t := newTest(tt)
 	for i := 0; i < 1e3; i++ {
-		pub := randArray(1 << 10)
+		pub := randArray(1 << 5)
 
 		// generate
 		data := int(pub[0])
-		randBuf := makeRandHead(byte(data), pub)
-		len2 := len(randBuf) - DP_P2I
-		//t.Logf("randBuf len=%d len2=%d", len(randBuf), len2)
+		head := makeDbcHead(byte(data), pub)
+		len2 := len(head) - DP_P2I
+		//tt.Logf("randBuf len=%d len2=%d", len(randBuf), len2)
 
 		// verify
-		ok, _data, _len2 := verifyRandHead(randBuf, pub)
+		tc := calculateTimeCounter(true)
+		ok, _data, _len2 := verifyDbcHead(head, pub, tc)
 		t.Assert(ok).Fatalf("verifyRandHead failed")
-		t.Assert(data == _data).Fatalf("expected data=%d but _data=%d", data, _data)
 		t.Assert(len2 == _len2).Fatalf("expected len2=%d but _len2=%d", len2, _len2)
+		t.Assert(data == _data).Fatalf("expected data=%d but _data=%d  0=%d", data, _data, pub[0])
 	}
 }
 
 func timeErrorUnit(sp []byte, errors int) bool {
 	_, _, hk := extractKeys(sp)
 	// generate
-	randBuf := makeRandHead(1, sp)
+	head := makeDbcHead(1, sp)
 	// make error
 	tc := uint64(time.Now().Unix()/TIME_STEP + int64(errors))
-	errSum := siphash.Hash(hk, tc, randBuf[:DP_LEN1])
-	binary.BigEndian.PutUint64(randBuf[DP_LEN1:], errSum)
+	errSum := siphash.Hash(hk, tc, head[:DP_LEN1])
+	binary.BigEndian.PutUint64(head[DP_LEN1:], errSum)
 	// verify
-	ok, _, _ := verifyRandHead(randBuf, sp)
+	tcArr := calculateTimeCounter(true)
+	ok, _, _ := verifyDbcHead(head, sp, tcArr)
 	return ok
 }
 

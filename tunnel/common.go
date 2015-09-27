@@ -167,9 +167,9 @@ type lockedSource struct {
 	*sync.Mutex
 }
 
-func (r *lockedSource) setSeed() {
+func (r *lockedSource) setSeed(seed int) {
 	r.Lock()
-	r.Seed(time.Now().UnixNano())
+	r.Seed(int64(seed))
 	r.Unlock()
 }
 
