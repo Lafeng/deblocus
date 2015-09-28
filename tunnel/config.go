@@ -71,10 +71,10 @@ func (c *D5ClientConf) validate() error {
 type D5Params struct {
 	d5sAddrStr string
 	provider   string
-	sPub       *rsa.PublicKey
 	cipher     string
 	user       string
 	pass       string
+	rsaKey     *RSAKeyPair
 }
 
 func (d *D5Params) RemoteName() string {
@@ -85,7 +85,7 @@ func (d *D5Params) RemoteName() string {
 	}
 }
 
-// without sPub field
+// without rsaKey field
 func NewD5Params(uri string) (*D5Params, error) {
 	re := regexp.MustCompile("d5://(\\w+):([^@]+)@([.:a-zA-Z0-9-]+)#(\\w+)")
 	ma := re.FindStringSubmatch(uri)
@@ -128,8 +128,8 @@ type D5ServConf struct {
 	Verbose    int    `importable:"1"`
 	DenyDest   string `importable:"OFF"`
 	AuthSys    auth.AuthSys
-	RSAKeys    *RSAKeyPair
 	ListenAddr *net.TCPAddr
+	rsaKey     *RSAKeyPair
 }
 
 func (d *D5ServConf) validate() error {
@@ -156,7 +156,7 @@ func (d *D5ServConf) validate() error {
 	if d.ServerName == NULL {
 		return CONF_ERROR.Apply("ServerName")
 	}
-	if d.RSAKeys == nil {
+	if d.rsaKey == nil {
 		return CONF_MISS.Apply("ServerPrivateKey")
 	}
 	if len(d.DenyDest) > 0 {
@@ -171,7 +171,7 @@ func (d *D5ServConf) validate() error {
 
 // PEMed text
 func (d *D5ServConf) generateD5pForUser(user *auth.User) string {
-	keyBytes, e := x509.MarshalPKIXPublicKey(d.RSAKeys.pub)
+	keyBytes, e := x509.MarshalPKIXPublicKey(d.rsaKey.pub)
 	ThrowErr(e)
 	header := map[string]string{
 		WORD_provider: d.ServerName,
@@ -207,7 +207,7 @@ func GenerateD5sTemplate(file string, rsaParam string) (e error) {
 		rsaKeyBits = 2048
 	}
 	d5sConf := new(D5ServConf)
-	d5sConf.RSAKeys = GenerateRSAKeyPair(rsaKeyBits)
+	d5sConf.rsaKey = GenerateRSAKeyPair(rsaKeyBits)
 
 	desc := getImportableDesc(d5sConf)
 	f.WriteString(`# -----------------------------
@@ -229,7 +229,7 @@ func GenerateD5sTemplate(file string, rsaParam string) (e error) {
 ### DO NOT modify the following lines, unless you known what will happen.
 
 `)
-	k := d5sConf.RSAKeys
+	k := d5sConf.rsaKey
 	keyBytes := x509.MarshalPKCS1PrivateKey(k.priv)
 	keyText := pem.EncodeToMemory(&pem.Block{
 		Type:  SER_KEY_TYPE,
@@ -289,7 +289,7 @@ func parse_d5pFragment(fc []byte) *D5Params {
 	ThrowIf(err != nil, INVALID_D5P_FRAGMENT)
 	d5p, err := NewD5Params(block.Headers[WORD_d5p])
 	ThrowErr(err)
-	d5p.sPub = pub.(*rsa.PublicKey)
+	d5p.rsaKey = &RSAKeyPair{pub: pub.(*rsa.PublicKey)}
 	if provider, y := block.Headers[WORD_provider]; y {
 		d5p.provider = provider
 	}
@@ -330,8 +330,7 @@ func parse_d5sPrivateKey(pemData []byte) *RSAKeyPair {
 func Parse_d5sFile(path string) *D5ServConf {
 	var d5s = new(D5ServConf)
 	var kParse = func(buf []byte) {
-		key := parse_d5sPrivateKey(buf)
-		d5s.RSAKeys = key
+		d5s.rsaKey = parse_d5sPrivateKey(buf)
 	}
 	desc := getImportableDesc(d5s)
 	parseD5ConfFile(path, desc, kParse)

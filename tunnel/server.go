@@ -220,7 +220,7 @@ func NewServer(d5s *D5ServConf, dhKey DHKE) *Server {
 	s := &Server{
 		D5ServConf: d5s,
 		dhKey:      dhKey,
-		sharedKey:  d5s.RSAKeys.priv.N.Bytes(),
+		sharedKey:  d5s.rsaKey.SharedKey(),
 		sessionMgr: NewSessionMgr(),
 		tunParams: &tunParams{
 			pingInterval: DT_PING_INTERVAL,
@@ -252,25 +252,24 @@ func NewServer(d5s *D5ServConf, dhKey DHKE) *Server {
 	return s
 }
 
-func (t *Server) TunnelServe(conn *net.TCPConn) {
-	hConn := newHashedConn(conn)
+func (t *Server) TunnelServe(raw *net.TCPConn) {
+	hConn, conn := newHashedConn(raw)
 	defer func() {
-		hConn.FreeHash()
 		ex.CatchException(recover())
 	}()
 
 	nego := &dbcSerNego{
 		Server:     t,
-		clientAddr: conn.RemoteAddr(),
+		clientAddr: raw.RemoteAddr(),
 	}
 	// read atomically
 	tcPool := *(*[]uint64)(atomic.LoadPointer(&t.tcPool))
 	session, err := nego.negotiate(hConn, tcPool)
 
 	if err == nil {
-		go session.DataTunServe(hConn.Conn, nego.isNewSession)
+		go session.DataTunServe(conn, nego.isNewSession)
 	} else {
-		SafeClose(conn)
+		SafeClose(raw)
 		if session != nil {
 			t.sessionMgr.clearTokens(session)
 		}

@@ -351,8 +351,8 @@ func (n *dbcCltNego) negotiate(p *tunParams) (conn *Conn, err error) {
 	rawConn, err = net.DialTimeout("tcp", n.d5sAddrStr, GENERAL_SO_TIMEOUT)
 	ThrowIf(err != nil, D5SER_UNREACHABLE)
 
-	hConn := newHashedConn(rawConn)
-	conn = hConn.Conn
+	var hConn *hashedConn
+	hConn, conn = newHashedConn(rawConn)
 	n.requestAuthAndDHExchange(hConn)
 
 	p.cipherFactory = n.finishDHExThenSetupCipher(hConn)
@@ -366,7 +366,7 @@ func (n *dbcCltNego) negotiate(p *tunParams) (conn *Conn, err error) {
 // obf~256 | idBlockLen~2 | idBlock(enc)~? | dhPubLen~2 | dhPub~?
 func (n *dbcCltNego) requestAuthAndDHExchange(conn *hashedConn) {
 	// obfuscated header
-	obf := makeDbcHead(TYPE_NEW, n.sPub.N.Bytes())
+	obf := makeDbcHead(TYPE_NEW, n.rsaKey.SharedKey())
 	buf := new(bytes.Buffer)
 	buf.Write(obf)
 
@@ -436,7 +436,8 @@ func (n *dbcCltNego) validateAndGetTokens(hConn *hashedConn, t *tunParams) {
 	_ibHash := buf[ofs : ofs+20]
 	ofs += 20
 	if !bytes.Equal(n.ibHash, _ibHash) {
-		ThrowErr(INCONSISTENT_HASH.Apply("MITM attack"))
+		// S->C is polluted.
+		ThrowErr(INCONSISTENT_HASH.Apply("MitM attack"))
 	}
 
 	// parse params
@@ -446,24 +447,43 @@ func (n *dbcCltNego) validateAndGetTokens(hConn *hashedConn, t *tunParams) {
 		log.Infof("Received tokens size=%d\n", len(t.token)/TKSZ)
 	}
 
-	// send rHash
-	rHash := hConn.RHashSum()
-	wHash := hConn.WHashSum()
-	setWTimeout(hConn)
-	_, err = hConn.Write(rHash)
-	ThrowErr(err)
+	// validated or throws
+	verifyHash(hConn, false)
+}
 
-	// recv remote rHash
-	oHash := make([]byte, TKSZ)
+func verifyHash(hConn *hashedConn, isServ bool) {
+	hashBuf := make([]byte, hConn.hashSize*2)
+	rHash, wHash := hConn.HashSum()
+	var err error
+
+	if !isServ { // client send hash at first
+		copy(hashBuf[:hConn.hashSize], rHash)
+		copy(hashBuf[hConn.hashSize:], wHash)
+		setWTimeout(hConn)
+		_, err = hConn.Write(hashBuf)
+		ThrowErr(err)
+	}
+
 	setRTimeout(hConn)
-	_, err = hConn.Read(oHash)
+	_, err = io.ReadFull(hConn, hashBuf)
 	ThrowErr(err)
 
-	if !bytes.Equal(wHash, oHash) {
-		log.Errorln("Server hash-r is inconsistence with myself-w")
-		log.Errorf("my WHash: [% x]\n", wHash)
-		log.Errorf("peer RHash: [% x]\n", oHash)
+	rHashp, wHashp := hashBuf[:hConn.hashSize], hashBuf[hConn.hashSize:]
+	if !bytes.Equal(rHash, wHashp) || !bytes.Equal(wHash, rHashp) {
+		log.Errorln("My hash is inconsistent with peer")
+		if DEBUG {
+			log.Errorf("  My Hash r:[% x] w:[% x]", rHash, wHash)
+			log.Errorf("Peer Hash r:[% x] w:[% x]", rHashp, wHashp)
+		}
 		ThrowErr(INCONSISTENT_HASH)
+	}
+
+	if isServ { // server reply hash
+		copy(hashBuf[:hConn.hashSize], rHash)
+		copy(hashBuf[hConn.hashSize:], wHash)
+		setWTimeout(hConn)
+		_, err = hConn.Write(hashBuf)
+		ThrowErr(err)
 	}
 }
 
@@ -526,6 +546,7 @@ func (n *dbcSerNego) handshakeSession(hConn *hashedConn) (session *Session, err 
 		// free ibHash
 		n.ibHash = nil
 		if e, y := exception.ErrorOf(recover()); y {
+			log.Warningln("handshake error", e)
 			err = e
 		}
 	}()
@@ -544,17 +565,18 @@ func (n *dbcSerNego) dataSession(hConn *hashedConn) (session *Session, err error
 	token := make([]byte, TKSZ)
 	setRTimeout(hConn)
 	nr, err := hConn.Read(token)
-	ThrowIf(nr != TKSZ || err != nil, err)
-
-	if session := n.sessionMgr.take(token); session != nil {
-		// init cipher of new connection
-		hConn.cipher = session.cipherFactory.InitCipher(token)
-		// check and set identify
-		session.identifyConn(hConn.Conn)
-		return session, nil
+	// read buf ok
+	if nr == len(token) && err == nil {
+		// check token ok
+		if session := n.sessionMgr.take(token); session != nil {
+			// init cipher of new connection
+			hConn.cipher = session.cipherFactory.InitCipher(token)
+			// check and set identify
+			session.identifyConn(hConn.Conn)
+			return session, nil
+		}
 	}
-
-	log.Warningln("Incorrect token from", n.clientAddr)
+	log.Warningln("Incorrect token from", n.clientAddr, nvl(err, NULL))
 	return nil, VALIDATION_FAILED
 }
 
@@ -633,30 +655,15 @@ func (n *dbcSerNego) respondTestWithToken(hConn *hashedConn, session *Session) {
 	_, err = hConn.Write(tokens[1:]) // skip index=0
 	ThrowErr(err)
 
-	rHash := hConn.RHashSum()
-	wHash := hConn.WHashSum()
-	oHash := make([]byte, TKSZ)
-	setRTimeout(hConn)
-	_, err = hConn.Read(oHash)
-	ThrowErr(err)
-
-	if !bytes.Equal(wHash, oHash) {
-		log.Errorln("Client hash-r is inconsistence with myself-w")
-		log.Errorf("my WHash: [% x]\n", wHash)
-		log.Errorf("peer RHash: [% x]\n", oHash)
-		panic(INCONSISTENT_HASH)
-	}
-
-	setWTimeout(hConn)
-	_, err = hConn.Write(rHash)
-	ThrowErr(err)
+	// validated or throws
+	verifyHash(hConn, true)
 }
 
 // block: rsa( identity~? | rand )
 // hash:  sha1(rand)
 func (n *dbcCltNego) idBlockSerialize() (block []byte, e error) {
 	identity := n.user + IDENTITY_SEP + n.pass
-	idLen, max := len(identity), RSABlockSize(n.sPub)
+	idLen, max := len(identity), n.rsaKey.BlockSize()
 	if idLen > max-2 {
 		e = INVALID_D5PARAMS.Apply("identity too long")
 		return
@@ -665,13 +672,16 @@ func (n *dbcCltNego) idBlockSerialize() (block []byte, e error) {
 	block[0] = byte(idLen)
 	copy(block[1:], []byte(identity))
 	n.ibHash = hash20(block)
-	block, e = RSAEncrypt(block, n.sPub)
+	block, e = n.rsaKey.Encrypt(block)
 	return
 }
 
 func (n *dbcSerNego) idBlockDeserialize(block []byte) (user, pass string, e error) {
-	block, e = RSADecrypt(block, n.RSAKeys.priv)
+	block, e = n.rsaKey.Decrypt(block)
 	if e != nil {
+		// rsa.ErrDecryption represent cases:
+		// 1, C->S is polluted
+		// 2, PubKey of client was not paired with PrivKey.
 		return
 	}
 	idOfs := block[0] + 1

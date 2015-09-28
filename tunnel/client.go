@@ -226,7 +226,7 @@ func (t *Client) createDataTun() (c *Conn, err error) {
 	}
 
 	buf := new(bytes.Buffer)
-	obf := makeDbcHead(TYPE_DAT, t.nego.sPub.N.Bytes())
+	obf := makeDbcHead(TYPE_DAT, t.nego.rsaKey.SharedKey())
 	buf.Write(obf)
 	token := t.getToken()
 	buf.Write(token)

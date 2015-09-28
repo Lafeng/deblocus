@@ -106,16 +106,20 @@ func IdentifierOf(con net.Conn) string {
 
 type hashedConn struct {
 	*Conn
-	rHash hash.Hash
-	wHash hash.Hash
+	rHash    hash.Hash
+	wHash    hash.Hash
+	hashSize int
 }
 
-func newHashedConn(conn net.Conn) *hashedConn {
-	return &hashedConn{
-		Conn:  NewConn(conn, nullCipherKit),
-		rHash: sha1.New(),
-		wHash: sha1.New(),
+func newHashedConn(conn net.Conn) (h *hashedConn, c *Conn) {
+	c = NewConn(conn, nullCipherKit)
+	h = &hashedConn{
+		Conn:     c,
+		rHash:    sha1.New(),
+		wHash:    sha1.New(),
+		hashSize: sha1.Size,
 	}
+	return
 }
 
 func (c *hashedConn) Read(b []byte) (n int, e error) {
@@ -133,21 +137,11 @@ func (c *hashedConn) Write(b []byte) (int, error) {
 	return c.Conn.Write(b)
 }
 
-func (c *hashedConn) FreeHash() {
-	c.rHash = nil
-	c.wHash = nil
-}
-
-func (c *hashedConn) RHashSum() []byte {
-	hash := c.rHash.Sum(nil)
-	c.rHash = nil
-	return hash
-}
-
-func (c *hashedConn) WHashSum() []byte {
-	hash := c.wHash.Sum(nil)
-	c.wHash = nil
-	return hash
+func (c *hashedConn) HashSum() (r, w []byte) {
+	r = c.rHash.Sum(nil)
+	w = c.wHash.Sum(nil)
+	c.rHash, c.wHash = nil, nil
+	return
 }
 
 //

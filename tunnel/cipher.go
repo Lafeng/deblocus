@@ -98,13 +98,13 @@ func toSecretKey(secret []byte, size int) []byte {
 // single block encrypt
 // RSA1024-OAEP_sha1: msg.length <= 86byte
 // RSA2048-OAEP_sha1: msg.length <= 214byte
-func RSAEncrypt(src []byte, pub *rsa.PublicKey) (enc []byte, err error) {
-	return rsa.EncryptOAEP(sha1.New(), rand.Reader, pub, src, nil)
+func (k *RSAKeyPair) Encrypt(src []byte) (enc []byte, err error) {
+	return rsa.EncryptOAEP(sha1.New(), rand.Reader, k.pub, src, nil)
 }
 
 // single block decrypt
-func RSADecrypt(src []byte, priv *rsa.PrivateKey) (plain []byte, err error) {
-	return rsa.DecryptOAEP(sha1.New(), rand.Reader, priv, src, nil)
+func (k *RSAKeyPair) Decrypt(src []byte) (plain []byte, err error) {
+	return rsa.DecryptOAEP(sha1.New(), rand.Reader, k.priv, src, nil)
 }
 
 type RSAKeyPair struct {
@@ -112,10 +112,14 @@ type RSAKeyPair struct {
 	pub  *rsa.PublicKey
 }
 
-// max length
-func RSABlockSize(pub *rsa.PublicKey) int {
-	k := (pub.N.BitLen() + 7) / 8
-	return k - 2*sha1.Size - 2
+// max length of encryption
+func (k *RSAKeyPair) BlockSize() int {
+	K := (k.pub.N.BitLen() + 7) / 8
+	return K - 2*sha1.Size - 2
+}
+
+func (k *RSAKeyPair) SharedKey() []byte {
+	return k.pub.N.Bytes()
 }
 
 func GenerateRSAKeyPair(keyBits int) *RSAKeyPair {
