@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -114,27 +115,21 @@ func NewGeoIPFilter(keyword string) (f *GeoIPFilter, e error) {
 
 func (f *GeoIPFilter) Filter(host string) bool {
 	ipAddr, e := net.ResolveTCPAddr("tcp4", host)
-
+	// assume no target no filter
 	if e != nil || ipAddr == nil {
 		return false
 	}
-	ip4 := ipAddr.IP.To4()
-	if ip4 == nil {
+
+	ipv4 := ipAddr.IP.To4()
+	if ipv4 == nil { // not a ipv4 addr
 		return false
 	}
 
-	// net.IP is 16-byte, ipv4.addr at 12-15
-	ip := binary.BigEndian.Uint32(ip4)
-	if nexthop, y := f.tab.Find(ip); y {
+	ipv4Uint32 := binary.BigEndian.Uint32(ipv4)
+	if nexthop, y := f.tab.Find(ipv4Uint32); y {
 		return nexthop == f.keyword
 	}
 	return false
-}
-
-type slice struct {
-	array uintptr
-	len   int
-	cap   int
 }
 
 // Serialize routingTable{trie,base,pre} to 3-[]byte directly without copying
@@ -171,10 +166,11 @@ func verifyLen(total int, unitLen int) {
 }
 
 // Invariant: count(oldSlice)*sizeof(oldUnit) == count(newSlice)*sizeof(newUnit)
-// Caution memory leak !!!
+// Caution memory leak
+// TODO How to do this on Big-Endian machine ?
 func convertSlice(p unsafe.Pointer, newlen int) unsafe.Pointer {
-	slicePtr := (*slice)(p)
-	newSlice := slice{slicePtr.array, newlen, newlen}
+	slice := (*reflect.SliceHeader)(p)
+	newSlice := reflect.SliceHeader{slice.Data, newlen, newlen}
 	return unsafe.Pointer(&newSlice)
 }
 

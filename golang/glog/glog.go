@@ -699,10 +699,10 @@ func (l *loggingT) output(s severity, buf *buffer, file string, line int, alsoTo
 	}
 	data := buf.Bytes()
 	if l.toStderr {
-		os.Stdout.Write(data)
+		os.Stderr.Write(data)
 	} else {
 		if alsoToStderr || l.alsoToStderr || s >= l.stderrThreshold.get() {
-			os.Stdout.Write(data)
+			os.Stderr.Write(data)
 		}
 		if l.file[s] == nil {
 			if err := l.createFiles(s); err != nil {
@@ -1198,16 +1198,41 @@ func Exitf(format string, args ...interface{}) {
 	logging.printf(fatalLog, format, args...)
 }
 
-func Set_output(toStd bool, logDir string) {
-	// modified func output()#693, really output to stdout
+//--------------------------------------------------------
+/*
+Changes:
+	L77: comment import flag
+	L399-402: comment flag variable
+	L537-557: add simple header on logV=0
+	And following changes.
+
+*/
+func SetLogOutput(logDir string) {
 	if logDir != "" {
+		_, err := os.Stat(logDir)
+		if os.IsNotExist(err) {
+			err = os.MkdirAll(logDir, 0644)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Create logdir %s error %v", logDir, err)
+				os.Exit(2)
+			}
+		}
 		logDirs = append(logDirs, logDir)
-		logging.alsoToStderr = toStd
+		logging.alsoToStderr = true
 	} else {
-		logging.toStderr = toStd
+		logging.toStderr = true
 	}
 }
 
-func Set_Verbose(verbosity int) {
+func DirectPrintln(data string) {
+	buf := logging.getBuffer()
+	buf.WriteString(data)
+	if data[len(data)-1] != '\n' {
+		buf.WriteByte('\n')
+	}
+	logging.output(errorLog, buf, "", 0, true)
+}
+
+func SetLogVerbose(verbosity int) {
 	atomic.StoreInt32((*int32)(&logging.verbosity), int32(verbosity))
 }

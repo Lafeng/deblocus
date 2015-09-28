@@ -489,6 +489,7 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn, tcPool []uint64) (session *Ses
 
 	if nr == len(buf) {
 
+		nr = 0 // reset nr
 		ok, stype, len2 := verifyDbcHead(buf, n.sharedKey, tcPool)
 
 		if ok {

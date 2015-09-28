@@ -54,7 +54,7 @@ func main() {
 
 	context.parse()
 	// toStd bool, logDir string
-	log.Set_output(true, logDir)
+	log.SetLogOutput(logDir)
 
 	if context.csc {
 		context.cscHandler(output)

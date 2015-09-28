@@ -45,10 +45,12 @@ func newEdgeConn(mux *multiplexer, key, dest string, tun *Conn, conn net.Conn) *
 		tun:  tun,
 		conn: conn,
 		key:  key,
-		dest: dest,
 	}
 	if mux.isClient {
 		edge.ready = make(chan byte, 1)
+		edge.dest = "<-" + dest
+	} else {
+		edge.dest = "->" + dest
 	}
 	return edge
 }

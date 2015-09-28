@@ -43,21 +43,19 @@ func New(code int, msg string) *Exception {
 }
 
 func CatchException(e interface{}) bool {
-	if ex, y := e.(*Exception); y && ex.warning {
-		log.Errorln(ex.msg)
-		return true
-	} else if e != nil {
-		if DEBUG {
+	if e != nil {
+		if s, y := e.(string); y {
+			log.Warningln(s)
+		} else if ex, y := e.(*Exception); y && ex.warning {
+			log.Errorln(ex.msg)
+			return true
+		} else {
+			log.Errorln(e)
+		}
+		if DEBUG || bool(log.V(3)) {
 			buf := make([]byte, 1600)
 			runtime.Stack(buf, false)
-			fmt.Println(e)
-			fmt.Println(string(buf))
-		} else {
-			if s, y := e.(string); y {
-				log.Warningln(s)
-			} else {
-				log.Errorln(e)
-			}
+			log.DirectPrintln(string(buf))
 		}
 		return true
 	}

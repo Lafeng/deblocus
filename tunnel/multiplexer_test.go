@@ -39,8 +39,8 @@ func init() {
 	deblocusArgs = append(deblocusArgs, os.Args[1:]...)
 	fs.Parse(deblocusArgs)
 
-	log.Set_output(true, "")
-	log.Set_Verbose(v)
+	log.SetLogOutput("")
+	log.SetLogVerbose(v)
 	cltAddr += strconv.FormatInt(randomRange(1, 1<<13)+3e4, 10)
 	svrAddr += strconv.FormatInt(randomRange(1, 1<<13)+3e4, 10)
 	dstAddr += strconv.FormatInt(randomRange(1, 1<<13)+3e4, 10)

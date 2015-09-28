@@ -71,9 +71,9 @@ func (c *bootContext) setLogVerbose(level int) {
 		}
 	}
 	if v >= 0 {
-		log.Set_Verbose(v)
+		log.SetLogVerbose(v)
 	} else {
-		log.Set_Verbose(level)
+		log.SetLogVerbose(level)
 	}
 }
 

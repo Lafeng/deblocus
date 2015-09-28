@@ -7,7 +7,6 @@ import (
 	log "github.com/Lafeng/deblocus/golang/glog"
 	"io"
 	"net"
-	"reflect"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -472,7 +471,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		}
 	}()
 	if edge.positive { // for client
-		_len := _frame(buf, FRAME_ACTION_OPEN, sid, []byte(edge.dest))
+		_len := _frame(buf, FRAME_ACTION_OPEN, sid, []byte(edge.dest[2:])) // dest with a leading mark
 		if tunWrite1(tun, buf[:_len]) != nil {
 			SafeClose(tun)
 			return
@@ -487,10 +486,15 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 	)
 	for {
 		if _fast_open {
+			// In fastOpening, the timeout will give rise to recheck fastopen state
 			src.SetReadDeadline(time.Now().Add(READ_TMO_IN_FASTOPEN))
-			v, y := reflect.ValueOf(edge.ready).TryRecv()
-			if y {
-				code = v.Interface().(byte)
+			received := false
+			select {
+			case code = <-edge.ready:
+				received = true
+			default:
+			}
+			if received {
 				if code == FRAME_ACTION_OPEN_Y {
 					_fast_open = false // fastopen finished
 				} else {
@@ -511,7 +515,8 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 					}
 				}
 			}
-			if !_fast_open { // fastopen finished
+			// Received signal-y then finish fastopen
+			if !_fast_open {
 				// read forever
 				src.SetReadDeadline(ZERO_TIME)
 			}
