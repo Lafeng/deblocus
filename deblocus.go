@@ -20,9 +20,11 @@ func waitSignal() {
 		switch sig {
 		case t.Bye:
 			log.Exitln("Exiting.")
+			context.doClose()
 			return
 		case syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM:
 			log.Exitln("Terminated by", sig)
+			context.doClose()
 			return
 		case USR2:
 			context.doStats()

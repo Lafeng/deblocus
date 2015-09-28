@@ -256,8 +256,12 @@ func (c *Client) eventHandler(e event, msg ...interface{}) {
 }
 
 func (t *Client) Stats() string {
-	return fmt.Sprintf("Stats/Client -> %s DT=%d TK=%d", t.nego.d5sAddrStr,
+	return fmt.Sprintf("Client -> %s Conn=%d TK=%d", t.nego.d5sAddrStr,
 		atomic.LoadInt32(&t.dtCnt), len(t.token)/TKSZ)
+}
+
+func (t *Client) Close() {
+	t.mux.destroy()
 }
 
 func (c *Client) getToken() []byte {

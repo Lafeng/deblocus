@@ -17,18 +17,19 @@ const (
 	DH_METHOD = "ECDHE-P256"
 )
 
-type Statser interface {
+type Component interface {
 	Stats() string
+	Close()
 }
 
 type bootContext struct {
-	config    string
-	isServ    bool
-	csc       bool
-	ccc       bool
-	statser   Statser
-	verbosity string
-	debug     bool
+	config     string
+	isServ     bool
+	csc        bool
+	ccc        bool
+	verbosity  string
+	debug      bool
+	components []Component
 }
 
 func (c *bootContext) parse() {
@@ -53,8 +54,18 @@ func (c *bootContext) parse() {
 }
 
 func (c *bootContext) doStats() {
-	if c.statser != nil {
-		println(c.statser.Stats())
+	if c.components != nil {
+		for _, t := range c.components {
+			fmt.Fprintln(os.Stderr, t.Stats())
+		}
+	}
+}
+
+func (c *bootContext) doClose() {
+	if c.components != nil {
+		for _, t := range c.components {
+			t.Close()
+		}
 	}
 }
 
@@ -126,7 +137,7 @@ func (context *bootContext) startClient() {
 	defer ln.Close()
 	dhKey, _ := t.NewDHKey(DH_METHOD)
 	client := t.NewClient(conf, dhKey)
-	context.statser = client
+	context.components = append(context.components, client)
 	go client.StartTun(true)
 
 	for {
@@ -162,7 +173,7 @@ func (context *bootContext) startServer() {
 
 	dhKey, _ := t.NewDHKey(DH_METHOD)
 	server := t.NewServer(conf, dhKey)
-	context.statser = server
+	context.components = append(context.components, server)
 	for {
 		conn, err := ln.AcceptTCP()
 		if err == nil {

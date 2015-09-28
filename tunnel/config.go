@@ -249,7 +249,7 @@ func CreateClientConfig(file string, d5s *D5ServConf, user string) (e error) {
 		defer f.Close()
 	}
 	defer f.Sync()
-	f.WriteString(_d5c_header[1:])
+
 	e = generateClientCredential(f, d5s, user)
 	return
 }
@@ -263,6 +263,7 @@ func generateClientCredential(f *os.File, d5s *D5ServConf, user string) error {
 	if e != nil {
 		return e
 	}
+	f.WriteString(_d5c_header[1:])
 	f.WriteString(text)
 	return nil
 }

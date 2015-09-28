@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/binary"
 	"fmt"
@@ -296,8 +297,34 @@ func (s *Server) updateNow() {
 	}
 }
 
+// implement Stats()
 func (t *Server) Stats() string {
-	return ""
+	uniqClient := make(map[string]byte)
+	t.sessionMgr.lock.RLock()
+	for _, s := range t.sessionMgr.container {
+		if _, y := uniqClient[s.cid]; !y {
+			uniqClient[s.cid] = byte(s.activeCnt)
+		}
+	}
+	t.sessionMgr.lock.RUnlock()
+	buf := new(bytes.Buffer)
+	for k, n := range uniqClient {
+		buf.WriteString(fmt.Sprintf("Clt=%s Conn=%d\n", k, n))
+	}
+	return string(buf.Bytes())
+}
+
+// implement Close()
+func (t *Server) Close() {
+	uniqSession := make(map[string]byte)
+	t.sessionMgr.lock.RLock()
+	for _, s := range t.sessionMgr.container {
+		if _, y := uniqSession[s.cid]; !y {
+			uniqSession[s.cid] = 1
+			s.mux.destroy()
+		}
+	}
+	t.sessionMgr.lock.RUnlock()
 }
 
 //
