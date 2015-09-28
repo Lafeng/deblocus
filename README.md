@@ -58,7 +58,7 @@ Explanations:
 
 ## Acknowledgements
 
-Thanks to these projects: [qtunnel](https://github.com/getqujing/qtunnel), [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx) , [glog](https://github.com/golang/glog) and [siphash](https://github.com/dchest/siphash).
+Thanks to these projects: [qtunnel](https://github.com/getqujing/qtunnel), [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx), [glog](https://github.com/golang/glog) and [siphash](https://github.com/dchest/siphash).
 
 This product includes GeoLite2 data created by MaxMind, available from
 <http://www.maxmind.com>.
