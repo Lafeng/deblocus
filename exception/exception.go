@@ -54,8 +54,8 @@ func CatchException(e interface{}) bool {
 		}
 		if DEBUG || bool(log.V(3)) {
 			buf := make([]byte, 1600)
-			runtime.Stack(buf, false)
-			log.DirectPrintln(string(buf))
+			n := runtime.Stack(buf, false)
+			log.DirectPrintln(string(buf[:n]))
 		}
 		return true
 	}
