@@ -6,12 +6,10 @@ import (
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
 	t "github.com/Lafeng/deblocus/tunnel"
-	"math/rand"
 	"net"
 	"os"
 	"runtime"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -78,11 +76,6 @@ func (c *bootContext) setLogVerbose(level int) {
 }
 
 func (c *bootContext) cscHandler(output string) {
-	defer func() {
-		if e := recover(); e != nil {
-			fmt.Fprintln(os.Stderr, e)
-		}
-	}()
 	// ./deblocus -csc [1024 or 2048]
 	var rsaParam string
 	switch flag.NArg() {
@@ -93,98 +86,27 @@ func (c *bootContext) cscHandler(output string) {
 		fmt.Fprintln(os.Stderr, "Incorrect arguments")
 		return
 	}
-	t.GenerateD5sTemplate(output, rsaParam)
+	if e := t.GenerateD5sTemplate(output, rsaParam); e != nil {
+		fmt.Fprintln(os.Stderr, e)
+	}
 }
 
 func (c *bootContext) cccHandler(output string) {
-	defer func() {
-		if e := recover(); e != nil {
-			fmt.Fprintln(os.Stderr, e)
-		}
-	}()
 	// ./deblocus -ccc SERV_ADDR:PORT USER
 	if flag.NArg() == 2 {
 		addr := flag.Arg(0)
 		if v, e := t.IsValidHost(addr); !v {
-			panic(e)
+			fmt.Fprintln(os.Stderr, e)
+			return
 		}
-		var d5sc = t.Parse_d5sFile(c.config)
+		var d5sc = t.Parse_d5s_file(c.config)
 		d5sc.Listen = addr
-		t.CreateClientConfig(output, d5sc, flag.Arg(1))
+		if e := t.CreateClientConfig(output, d5sc, flag.Arg(1)); e != nil {
+			fmt.Fprintln(os.Stderr, e)
+		}
 	} else {
 		fmt.Fprintln(os.Stderr, "Incorrect arguments")
 	}
-}
-
-type clientMgr struct {
-	dhKey      t.DHKE
-	d5pArray   []*t.D5Params
-	clients    []*t.Client
-	num        int
-	indexChain []byte
-}
-
-func (m *clientMgr) selectClient() *t.Client {
-	if m.num > 1 {
-		i := rand.Intn(m.num<<4) >> 4
-		for _, v := range m.indexChain[i : i+m.num-1] {
-			if w := m.clients[v]; w != nil && atomic.LoadInt32(&w.State) >= 0 {
-				return w
-			}
-		}
-	} else {
-		if w := m.clients[0]; w != nil && atomic.LoadInt32(&w.State) >= 0 {
-			return w
-		}
-	}
-	log.Errorf("No available tunnels for servicing new request")
-	time.Sleep(t.REST_INTERVAL)
-	return nil
-}
-
-func (m *clientMgr) selectClientServ(conn net.Conn) {
-	if client := m.selectClient(); client != nil {
-		client.ClientServe(conn)
-	} else {
-		t.SafeClose(conn)
-	}
-}
-
-func (m *clientMgr) Stats() string {
-	arr := make([]string, m.num)
-	for i, c := range m.clients {
-		if c != nil {
-			arr[i] = c.Stats()
-		}
-	}
-	return strings.Join(arr, "\n")
-}
-
-func NewClientMgr(d5c *t.D5ClientConf) *clientMgr {
-	d5pArray := d5c.D5PList
-	dhKey, _ := t.NewDHKey(DH_METHOD)
-	num := len(d5pArray)
-	var chain []byte
-	if num > 1 {
-		chain = make([]byte, 2*num)
-		for i, _ := range chain {
-			chain[i] = byte(i % num)
-		}
-	}
-	mgr := &clientMgr{
-		dhKey,
-		d5pArray,
-		make([]*t.Client, num),
-		num,
-		chain,
-	}
-
-	for i := 0; i < num; i++ {
-		c := t.NewClient(d5pArray[i], dhKey)
-		mgr.clients[i] = c
-		go c.StartTun(true)
-	}
-	return mgr
 }
 
 func (context *bootContext) startClient() {
@@ -192,26 +114,33 @@ func (context *bootContext) startClient() {
 		ex.CatchException(warning(recover()))
 		sigChan <- t.Bye
 	}()
-	var conf = t.Parse_d5cFile(context.config)
+	var conf = t.Parse_d5c_file(context.config)
 	context.setLogVerbose(conf.Verbose)
 	log.Infoln(versionString())
 	log.Infoln("Socks5/Http is working at", conf.ListenAddr)
-
-	mgr := NewClientMgr(conf)
-	context.statser = mgr
 
 	ln, err := net.ListenTCP("tcp", conf.ListenAddr)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	defer ln.Close()
+	dhKey, _ := t.NewDHKey(DH_METHOD)
+	client := t.NewClient(conf, dhKey)
+	context.statser = client
+	go client.StartTun(true)
+
 	for {
 		conn, err := ln.Accept()
 		if err == nil {
-			go mgr.selectClientServ(conn)
-		} else {
-			t.SafeClose(conn)
+			if client.IsReady() {
+				go client.ClientServe(conn)
+				continue
+			} else {
+				log.Errorf("No available tunnels for servicing new request")
+				time.Sleep(time.Second)
+			}
 		}
+		t.SafeClose(conn)
 	}
 }
 
@@ -220,7 +149,7 @@ func (context *bootContext) startServer() {
 		ex.CatchException(warning(recover()))
 		sigChan <- t.Bye
 	}()
-	var conf = t.Parse_d5sFile(context.config)
+	var conf = t.Parse_d5s_file(context.config)
 	context.setLogVerbose(conf.Verbose)
 	log.Infoln(versionString())
 	log.Infoln("Server is listening on", conf.ListenAddr)

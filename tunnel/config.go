@@ -49,15 +49,15 @@ type D5ClientConf struct {
 	Listen     string `importable:":9009"`
 	Verbose    int    `importable:"1"`
 	ListenAddr *net.TCPAddr
-	D5PList    []*D5Params
+	d5p        *D5Params
 }
 
 func (c *D5ClientConf) validate() error {
-	if len(c.D5PList) < 1 {
+	if c.d5p == nil {
 		return CONF_MISS.Apply("Not found d5p fragment")
 	}
 	if c.Listen == "" {
-		return LOCAL_BIND_ERROR
+		return CONF_MISS.Apply("Listen")
 	}
 	a, e := net.ResolveTCPAddr("tcp", c.Listen)
 	if e != nil {
@@ -170,9 +170,11 @@ func (d *D5ServConf) validate() error {
 }
 
 // PEMed text
-func (d *D5ServConf) generateD5pForUser(user *auth.User) string {
+func (d *D5ServConf) generateD5pForUser(user *auth.User) (string, error) {
 	keyBytes, e := x509.MarshalPKIXPublicKey(d.rsaKey.pub)
-	ThrowErr(e)
+	if e != nil {
+		return NULL, e
+	}
 	header := map[string]string{
 		WORD_provider: d.ServerName,
 		WORD_d5p:      fmt.Sprintf("d5://%s:%s@%s#%s", user.Name, user.Pass, d.Listen, d.Cipher),
@@ -182,7 +184,7 @@ func (d *D5ServConf) generateD5pForUser(user *auth.User) string {
 		Headers: header,
 		Bytes:   keyBytes,
 	})
-	return string(keyByte)
+	return string(keyByte), nil
 }
 
 func GenerateD5sTemplate(file string, rsaParam string) (e error) {
@@ -191,14 +193,13 @@ func GenerateD5sTemplate(file string, rsaParam string) (e error) {
 		f = os.Stdout
 	} else {
 		f, e = os.OpenFile(file, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0600)
-		ThrowErr(e)
-		e = f.Truncate(0)
-		ThrowErr(e)
-		defer func() {
-			f.Sync()
-			f.Close()
-		}()
+		if e != nil {
+			return e
+		}
+		defer f.Close()
 	}
+	defer f.Sync()
+
 	var rsaKeyBits int
 	switch rsaParam {
 	case "1024":
@@ -209,28 +210,23 @@ func GenerateD5sTemplate(file string, rsaParam string) (e error) {
 	d5sConf := new(D5ServConf)
 	d5sConf.rsaKey = GenerateRSAKeyPair(rsaKeyBits)
 
-	desc := getImportableDesc(d5sConf)
-	f.WriteString(`# -----------------------------
-# deblocus server configuration
-# -----------------------------
+	f.WriteString(_d5s_header[1:])
 
-`)
+	desc := getImportableDesc(d5sConf)
 	sk := make([]string, 0, len(desc))
 	for k := range desc {
 		sk = append(sk, k)
 	}
 	sort.Strings(sk)
+	// write fields
 	for _, k := range sk {
 		defaultVal := desc[k].sType.Tag.Get("importable")
 		f.WriteString(fmt.Sprintf("%-16s   %s\n", k, defaultVal))
 	}
-	f.WriteString(`
-### Please take good care of this secret file during the server life cycle.
-### DO NOT modify the following lines, unless you known what will happen.
 
-`)
-	k := d5sConf.rsaKey
-	keyBytes := x509.MarshalPKCS1PrivateKey(k.priv)
+	f.WriteString(_d5s_middle)
+	// write priv
+	keyBytes := x509.MarshalPKCS1PrivateKey(d5sConf.rsaKey.priv)
 	keyText := pem.EncodeToMemory(&pem.Block{
 		Type:  SER_KEY_TYPE,
 		Bytes: keyBytes,
@@ -240,47 +236,39 @@ func GenerateD5sTemplate(file string, rsaParam string) (e error) {
 }
 
 // public for external
+// throws
 func CreateClientConfig(file string, d5s *D5ServConf, user string) (e error) {
 	var f *os.File
 	if file == NULL {
 		f = os.Stdout
 	} else {
 		f, e = os.OpenFile(file, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
-		ThrowErr(e)
-		e = f.Truncate(0)
-		ThrowErr(e)
-		defer func() {
-			f.Sync()
-			f.Close()
-		}()
+		if e != nil {
+			return e
+		}
+		defer f.Close()
 	}
-
-	head := `# -----------------------------
-# deblocus client configuration
-# -----------------------------
-
-Listen      :9009
-Verbose     1
-
-# client credential
-`
-	f.WriteString(head)
-	CreateClientCredential(f, d5s, user)
+	defer f.Sync()
+	f.WriteString(_d5c_header[1:])
+	e = generateClientCredential(f, d5s, user)
 	return
 }
 
-// throwing
-func CreateClientCredential(f *os.File, d5s *D5ServConf, user string) {
+func generateClientCredential(f *os.File, d5s *D5ServConf, user string) error {
 	u, e := d5s.AuthSys.UserInfo(user)
 	if e != nil {
-		ThrowErr(e)
+		return e
 	}
-	f.WriteString(d5s.generateD5pForUser(u))
-	return
+	text, e := d5s.generateD5pForUser(u)
+	if e != nil {
+		return e
+	}
+	f.WriteString(text)
+	return nil
 }
 
 // d5p-PEM-encoding
-func parse_d5pFragment(fc []byte) *D5Params {
+func parse_d5p(fc []byte) *D5Params {
 	block, _ := pem.Decode(fc)
 	// not PEM-encoded or unknown header
 	ThrowIf(block == nil || block.Headers == nil || block.Headers[WORD_d5p] == "", INVALID_D5P_FRAGMENT)
@@ -297,11 +285,10 @@ func parse_d5pFragment(fc []byte) *D5Params {
 }
 
 // public for external
-func Parse_d5cFile(path string) *D5ClientConf {
+func Parse_d5c_file(path string) *D5ClientConf {
 	var d5c = new(D5ClientConf)
 	var kParse = func(buf []byte) {
-		key := parse_d5pFragment(buf)
-		d5c.D5PList = append(d5c.D5PList, key)
+		d5c.d5p = parse_d5p(buf)
 	}
 	desc := getImportableDesc(d5c)
 	parseD5ConfFile(path, desc, kParse)
@@ -309,8 +296,7 @@ func Parse_d5cFile(path string) *D5ClientConf {
 	return d5c
 }
 
-// PrivateKey for server
-func parse_d5sPrivateKey(pemData []byte) *RSAKeyPair {
+func parseRSAPrivateKey(pemData []byte) *RSAKeyPair {
 	block, _ := pem.Decode(pemData)
 	// not PEM-encoded
 	ThrowIf(block == nil, INVALID_D5S_FILE)
@@ -327,10 +313,10 @@ func parse_d5sPrivateKey(pemData []byte) *RSAKeyPair {
 }
 
 // public for external
-func Parse_d5sFile(path string) *D5ServConf {
+func Parse_d5s_file(path string) *D5ServConf {
 	var d5s = new(D5ServConf)
 	var kParse = func(buf []byte) {
-		d5s.rsaKey = parse_d5sPrivateKey(buf)
+		d5s.rsaKey = parseRSAPrivateKey(buf)
 	}
 	desc := getImportableDesc(d5s)
 	parseD5ConfFile(path, desc, kParse)
@@ -470,3 +456,27 @@ func DetectFile(isServ bool) (string, bool) {
 	}
 	return filepath.Join(p, name), false
 }
+
+const _d5s_header = `
+# -----------------------------
+# deblocus server configuration
+# -----------------------------
+
+`
+
+const _d5s_middle = `
+### Please take good care of this secret file during the server life cycle.
+### DO NOT modify the following lines, unless you known what will happen.
+
+`
+
+const _d5c_header = `
+# -----------------------------
+# deblocus client configuration
+# -----------------------------
+
+Listen      :9009
+Verbose     1
+
+# client credential
+`

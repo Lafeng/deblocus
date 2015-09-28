@@ -5,6 +5,7 @@ import (
 	"fmt"
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -39,10 +40,10 @@ type Client struct {
 	pendingTK   *semaphore
 }
 
-func NewClient(d5p *D5Params, dhKey DHKE) *Client {
+func NewClient(d5c *D5ClientConf, dhKey DHKE) *Client {
 	clt := &Client{
 		lock:        new(sync.Mutex),
-		nego:        &dbcCltNego{D5Params: d5p, dhKey: dhKey},
+		nego:        &dbcCltNego{D5Params: d5c.d5p, dhKey: dhKey},
 		State:       CLT_PENDING,
 		pendingConn: NewSemaphore(true), // unestablished connection
 		pendingTK:   NewSemaphore(true), // waiting tokens
@@ -184,7 +185,9 @@ func (c *Client) ClientServe(conn net.Conn) {
 	pbConn := NewPushbackInputStream(conn)
 	proto, e := detectProtocol(pbConn)
 	if e != nil {
-		log.Warningln(e)
+		if e != io.EOF {
+			log.Warningln(e)
+		}
 		return
 	}
 	switch proto {
@@ -211,6 +214,10 @@ func (c *Client) ClientServe(conn net.Conn) {
 		time.Sleep(REST_INTERVAL)
 	}
 
+}
+
+func (t *Client) IsReady() bool {
+	return atomic.LoadInt32(&t.State) >= 0
 }
 
 // must catch exceptions and return
