@@ -1211,7 +1211,7 @@ func SetLogOutput(logDir string) {
 	if logDir != "" {
 		_, err := os.Stat(logDir)
 		if os.IsNotExist(err) {
-			err = os.MkdirAll(logDir, 0644)
+			err = os.MkdirAll(logDir, 0755)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Create logdir %s error %v", logDir, err)
 				os.Exit(2)

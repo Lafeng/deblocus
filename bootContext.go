@@ -27,7 +27,7 @@ type bootContext struct {
 	isServ     bool
 	csc        bool
 	ccc        bool
-	verbosity  string
+	vFlag      int
 	debug      bool
 	components []Component
 }
@@ -51,6 +51,7 @@ func (c *bootContext) parse() {
 	t.VER_STRING = versionString()
 	t.DEBUG = c.debug
 	ex.DEBUG = c.debug
+
 }
 
 func (c *bootContext) doStats() {
@@ -69,20 +70,11 @@ func (c *bootContext) doClose() {
 	}
 }
 
-func (c *bootContext) setLogVerbose(level int) {
-	var vFlag = c.verbosity
-	var v int = -1
-	if len(vFlag) > 0 {
-		if len(vFlag) == 1 && vFlag[0] >= 48 && vFlag[0] <= 57 {
-			v = int(vFlag[0]) - 48
-		} else {
-			fmt.Fprintln(os.Stderr, "Warning: invalid option -v="+vFlag)
-		}
-	}
-	if v >= 0 {
-		log.SetLogVerbose(v)
+func (c *bootContext) setLogVerbose(verbose int) {
+	if c.vFlag >= 0 {
+		log.SetLogVerbose(c.vFlag)
 	} else {
-		log.SetLogVerbose(level)
+		log.SetLogVerbose(verbose)
 	}
 }
 

@@ -292,7 +292,7 @@ func Parse_d5c_file(path string) *D5ClientConf {
 		d5c.d5p = parse_d5p(buf)
 	}
 	desc := getImportableDesc(d5c)
-	parseD5ConfFile(path, desc, kParse)
+	parseConfigFile(path, desc, kParse)
 	ThrowErr(d5c.validate())
 	return d5c
 }
@@ -320,7 +320,7 @@ func Parse_d5s_file(path string) *D5ServConf {
 		d5s.rsaKey = parseRSAPrivateKey(buf)
 	}
 	desc := getImportableDesc(d5s)
-	parseD5ConfFile(path, desc, kParse)
+	parseConfigFile(path, desc, kParse)
 	ThrowErr(d5s.validate())
 	return d5s
 }
@@ -353,7 +353,7 @@ func getImportableDesc(instance interface{}) ImportableFieldDesc {
 }
 
 // interrupt if throw exception
-func parseD5ConfFile(path string, desc ImportableFieldDesc, kParse keyParser) {
+func parseConfigFile(path string, desc ImportableFieldDesc, kParse keyParser) {
 	file, e := os.Open(path)
 	ThrowErr(e)
 	defer file.Close()
@@ -447,15 +447,18 @@ func DetectFile(isServ bool) (string, bool) {
 	} else {
 		name = "deblocus.d5c"
 	}
-	for _, f := range []string{name, // cwd
-		filepath.Join(p, name),                 // bin
-		filepath.Join(homeDir, name),           // home
-		filepath.Join("/etc/deblocus", name)} { // /etc/deblocus
+	paths := []string{
+		name, // cwd
+		filepath.Join(p, name),               // bin
+		filepath.Join(homeDir, name),         // home
+		filepath.Join("/etc/deblocus", name), // /etc/deblocus
+	}
+	for _, f := range paths {
 		if !IsNotExist(f) {
 			return f, true
 		}
 	}
-	return filepath.Join(p, name), false
+	return "[" + strings.Join(paths, "; ") + "]", false
 }
 
 const _d5s_header = `

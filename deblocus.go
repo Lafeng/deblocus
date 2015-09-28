@@ -44,7 +44,7 @@ func main() {
 	flag.BoolVar(&context.ccc, "ccc", false, "Server;;Create Client Config for user//-ccc <ServerAddress:Port> <User1> <User2>...")
 	flag.BoolVar(&context.isServ, "serv", false, "Server;;run as Server explicitly")
 	flag.BoolVar(&showVersion, "V", false, "show Version")
-	flag.StringVar(&context.verbosity, "v", "", "Verbose log level")
+	flag.IntVar(&context.vFlag, "v", 0, "Verbose log level")
 	flag.StringVar(&logDir, "logdir", "", "write log into the directory")
 	flag.BoolVar(&context.debug, "debug", false, "debug")
 	flag.Parse()
