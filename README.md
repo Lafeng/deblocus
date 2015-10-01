@@ -25,7 +25,7 @@ Current version is v0.10.2640-beta
 
 ## Introduction
 
-Deblocus is a tunneling software that allows secure TCP connection through the server by acting as a SOCKS5/HTTP proxy server on the client side.
+Deblocus is a tunneling software that allows secure TCP connection through the server by acting as a SOCKS5/HTTP proxy server on the client side. The deblocus server shall not be shared with someone you don't trust.
 
 ![deblocus-introduction.png](https://i.imgur.com/FP5A7hE.png)
 
