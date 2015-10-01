@@ -1,4 +1,4 @@
-package tunnel
+package crypto
 
 import (
 	"crypto/elliptic"

@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	c "github.com/Lafeng/deblocus/crypto"
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
 	t "github.com/Lafeng/deblocus/tunnel"
@@ -127,7 +128,7 @@ func (context *bootContext) startClient() {
 		log.Fatalln(err)
 	}
 	defer ln.Close()
-	dhKey, _ := t.NewDHKey(DH_METHOD)
+	dhKey, _ := c.NewDHKey(DH_METHOD)
 	client := t.NewClient(conf, dhKey)
 	context.components = append(context.components, client)
 	go client.StartTun(true)
@@ -163,7 +164,7 @@ func (context *bootContext) startServer() {
 	}
 	defer ln.Close()
 
-	dhKey, _ := t.NewDHKey(DH_METHOD)
+	dhKey, _ := c.NewDHKey(DH_METHOD)
 	server := t.NewServer(conf, dhKey)
 	context.components = append(context.components, server)
 	for {

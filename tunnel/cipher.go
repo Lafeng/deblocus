@@ -7,7 +7,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
+	"github.com/Lafeng/deblocus/crypto"
 	"github.com/Lafeng/deblocus/exception"
+	"strings"
 )
 
 var (
@@ -47,13 +49,27 @@ func (c *NullCipherKit) decrypt(dst, src []byte) {}
 
 var nullCipherKit = new(NullCipherKit)
 
-var availableCiphers = map[string]*cipherDecr{
-	"AES128CFB": &cipherDecr{16, newAES_CFB},
-	"AES192CFB": &cipherDecr{24, newAES_CFB},
-	"AES256CFB": &cipherDecr{32, newAES_CFB},
+// Uppercase Name
+var availableCiphers = []interface{}{
+	"AES128CFB", &cipherDecr{16, new_AES_CFB},
+	"AES192CFB", &cipherDecr{24, new_AES_CFB},
+	"AES256CFB", &cipherDecr{32, new_AES_CFB},
+	"CHACHA20", &cipherDecr{32, new_ChaCha20},
 }
 
-func newAES_CFB(key, iv []byte) *XORCipherKit {
+func GetAvailableCipher(wants string) (*cipherDecr, error) {
+	wants = strings.ToUpper(wants)
+	for i := 0; i < len(availableCiphers); i += 2 {
+		name := availableCiphers[i].(string)
+		decr := availableCiphers[i+1].(*cipherDecr)
+		if name == wants {
+			return decr, nil
+		}
+	}
+	return nil, UNSUPPORTED_CIPHER.Apply(wants)
+}
+
+func new_AES_CFB(key, iv []byte) *XORCipherKit {
 	block, _ := aes.NewCipher(key)
 	if iv == nil {
 		iv = key[:aes.BlockSize]
@@ -62,6 +78,17 @@ func newAES_CFB(key, iv []byte) *XORCipherKit {
 	}
 	ec := cipher.NewCFBEncrypter(block, iv)
 	dc := cipher.NewCFBDecrypter(block, iv)
+	return &XORCipherKit{ec, dc}
+}
+
+func new_ChaCha20(key, iv []byte) *XORCipherKit {
+	if iv == nil {
+		iv = key[:crypto.CHACHA20_IVSize]
+	} else {
+		iv = iv[:crypto.CHACHA20_IVSize]
+	}
+	ec, _ := crypto.NewChaCha20(key, iv)
+	dc, _ := crypto.NewChaCha20(key, iv)
 	return &XORCipherKit{ec, dc}
 }
 
@@ -75,7 +102,7 @@ func (c *CipherFactory) InitCipher(iv []byte) *XORCipherKit {
 }
 
 func NewCipherFactory(name string, secret []byte) *CipherFactory {
-	def := availableCiphers[name]
+	def, _ := GetAvailableCipher(name)
 	key := toSecretKey(secret, def.keyLen)
 	return &CipherFactory{
 		key, def.builder,

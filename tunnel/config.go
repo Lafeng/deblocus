@@ -92,11 +92,11 @@ func NewD5Params(uri string) (*D5Params, error) {
 	if len(ma) != 5 {
 		return nil, INVALID_D5PARAMS
 	}
-	_, y := availableCiphers[ma[4]]
-	if !y {
-		return nil, UNSUPPORTED_CIPHER.Apply(ma[4])
+	_, e := GetAvailableCipher(ma[4])
+	if e != nil {
+		return nil, e
 	}
-	_, e := net.ResolveTCPAddr("tcp", ma[3])
+	_, e = net.ResolveTCPAddr("tcp", ma[3])
 	if e != nil {
 		return nil, D5SER_UNREACHABLE.Apply(e)
 	}
@@ -149,9 +149,9 @@ func (d *D5ServConf) validate() error {
 	if len(d.Cipher) < 1 {
 		return CONF_MISS.Apply("Cipher")
 	}
-	_, y := availableCiphers[d.Cipher]
-	if !y {
-		return UNSUPPORTED_CIPHER.Apply(d.Cipher)
+	_, e = GetAvailableCipher(d.Cipher)
+	if e != nil {
+		return e
 	}
 	if d.ServerName == NULL {
 		return CONF_ERROR.Apply("ServerName")

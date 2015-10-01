@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/Lafeng/deblocus/auth"
+	"github.com/Lafeng/deblocus/crypto"
 	"github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
 	"github.com/dchest/siphash"
@@ -334,7 +335,7 @@ func (p *tunParams) deserialize(buf []byte, offset int) {
 //
 type dbcCltNego struct {
 	*D5Params
-	dhKey  DHKE
+	dhKey  crypto.DHKE
 	ibHash []byte
 }
 

@@ -3,6 +3,7 @@ package tunnel
 import (
 	"bytes"
 	"fmt"
+	"github.com/Lafeng/deblocus/crypto"
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
 	"io"
@@ -40,7 +41,7 @@ type Client struct {
 	pendingTK   *semaphore
 }
 
-func NewClient(d5c *D5ClientConf, dhKey DHKE) *Client {
+func NewClient(d5c *D5ClientConf, dhKey crypto.DHKE) *Client {
 	clt := &Client{
 		lock:        new(sync.Mutex),
 		nego:        &dbcCltNego{D5Params: d5c.d5p, dhKey: dhKey},
@@ -185,7 +186,9 @@ func (c *Client) ClientServe(conn net.Conn) {
 	pbConn := NewPushbackInputStream(conn)
 	proto, e := detectProtocol(pbConn)
 	if e != nil {
-		if e != io.EOF {
+		// chrome will make some advance connections and then aborted
+		// cause a EOF
+		if e != io.EOF && e != io.ErrUnexpectedEOF {
 			log.Warningln(e)
 		}
 		return

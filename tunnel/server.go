@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/binary"
 	"fmt"
+	"github.com/Lafeng/deblocus/crypto"
 	ex "github.com/Lafeng/deblocus/exception"
 	"github.com/Lafeng/deblocus/geo"
 	log "github.com/Lafeng/deblocus/golang/glog"
@@ -208,7 +209,7 @@ func (s *SessionMgr) createTokens(session *Session, many int) []byte {
 //
 type Server struct {
 	*D5ServConf
-	dhKey      DHKE
+	dhKey      crypto.DHKE
 	sharedKey  []byte
 	sessionMgr *SessionMgr
 	tunParams  *tunParams
@@ -217,7 +218,7 @@ type Server struct {
 	filter     Filterable
 }
 
-func NewServer(d5s *D5ServConf, dhKey DHKE) *Server {
+func NewServer(d5s *D5ServConf, dhKey crypto.DHKE) *Server {
 	s := &Server{
 		D5ServConf: d5s,
 		dhKey:      dhKey,
