@@ -6,7 +6,7 @@
 #include <stddef.h>
 
 // Ref: https://gist.github.com/nicky-zs/7541169
-#if __GLIBC__ 
+#if defined(__GNUC__) && defined(__linux)
 #include <string.h>
 
 void *__memcpy_glibc_2_2_5(void *, const void *, size_t);
