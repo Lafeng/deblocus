@@ -57,16 +57,12 @@ fastXORBytes(size_t *dst, size_t *a, size_t *b, size_t n)
 {
 	size_t i = n, w = n / wordSize;
 	if (w > 0) {
-		for (i = w; i--;) {
-			*(dst++) = *(a++) ^ *(b++);
-		}
+		for (i = w; i--; *dst++ = *a++ ^ *b++);
 		i = n - w*wordSize;
 	}
 	if (i > 0) {
 		uint8_t *d8 = (uint8_t *)dst, *a8 = (uint8_t *)a, *b8 = (uint8_t *)b;
-		for (; i--;) {
-			*(d8++) = *(a8++) ^ *(b8++);
-		}
+		for (; i--; *d8++ = *a8++ ^ *b8++);
 	}
 }
 
