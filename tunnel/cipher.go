@@ -83,9 +83,9 @@ func new_AES_CFB(key, iv []byte) *XORCipherKit {
 
 func new_ChaCha20(key, iv []byte) *XORCipherKit {
 	if iv == nil {
-		iv = key[:crypto.CHACHA20_IVSize]
+		iv = key[:crypto.CHACHA_IVSize]
 	} else {
-		iv = iv[:crypto.CHACHA20_IVSize]
+		iv = iv[:crypto.CHACHA_IVSize]
 	}
 	ec, e := crypto.NewChaCha20(key, iv)
 	ThrowErr(e)

@@ -1,3 +1,5 @@
+// +build cgo AND amd64
+
 package crypto
 
 import (
@@ -9,8 +11,8 @@ import (
 /*
 #cgo CFLAGS: -O3
 #cgo LDFLAGS: -L${SRCDIR}
-#cgo linux,amd64 LDFLAGS: -Wl,--wrap=memcpy -lchacha_linux_amd64
-#cgo windows,amd64 LDFLAGS: -lchacha_windows_amd64
+#cgo linux LDFLAGS: -Wl,--wrap=memcpy -lchacha_linux_amd64
+#cgo windows LDFLAGS: -lchacha_windows_amd64
 #include "chacha.h"
 */
 import "C"
@@ -18,8 +20,9 @@ import "C"
 const (
 	CHACHA_KeySize   = 32
 	CHACHA_BlockSize = 64
-	CHACHA20_IVSize  = 8
-	CHACHA20_ROUND   = 12
+	CHACHA_IVSize    = 8
+	CHACHA12_ROUND   = 12
+	CHACHA20_ROUND   = 20
 )
 
 type KeySizeError int
@@ -43,16 +46,24 @@ type ChaCha struct {
 }
 
 func NewChaCha20(key, iv []byte) (*ChaCha, error) {
+	return newChaCha(key, iv, CHACHA20_ROUND)
+}
+
+func NewChaCha12(key, iv []byte) (*ChaCha, error) {
+	return newChaCha(key, iv, CHACHA12_ROUND)
+}
+
+func newChaCha(key, iv []byte, rounds uint) (*ChaCha, error) {
 	if ks := len(key); ks != CHACHA_KeySize {
 		return nil, KeySizeError(ks)
 	}
 	ivLen := len(iv)
 	switch {
-	case ivLen < CHACHA20_IVSize:
+	case ivLen < CHACHA_IVSize:
 		return nil, KeySizeError(ivLen)
-	case ivLen == CHACHA20_IVSize:
+	case ivLen == CHACHA_IVSize:
 	default:
-		iv = iv[:CHACHA20_IVSize]
+		iv = iv[:CHACHA_IVSize]
 	}
 
 	// create chacha_state_internal like chacha_init()
@@ -62,7 +73,7 @@ func NewChaCha20(key, iv []byte) (*ChaCha, error) {
 	statePtr := (*C.chacha_state_internal)(unsafe.Pointer(&state[0]))
 	keyPtr := (*C.chacha_key)(unsafe.Pointer(statePtr))
 	ivPtr := (*C.chacha_iv)(unsafe.Pointer(&state[40]))
-	statePtr.rounds = CHACHA20_ROUND // important
+	statePtr.rounds = C.size_t(rounds) // important
 	statePtr.offset = 0
 
 	var chacha = &ChaCha{
