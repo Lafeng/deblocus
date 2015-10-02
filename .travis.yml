@@ -4,6 +4,7 @@ go:
 env:
   global:
     - TARGET_ARCH=amd64
+	- CGO_ENABLED=1
   matrix:
     - TARGET_OS=linux
     - TARGET_OS=darwin
