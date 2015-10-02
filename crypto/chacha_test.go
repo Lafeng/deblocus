@@ -18,8 +18,8 @@ func initChaCha() (*ChaCha, *ChaCha) {
 	iv := make([]byte, 8)
 	io.ReadFull(rand.Reader, key)
 	io.ReadFull(rand.Reader, iv)
-	chacha20_1, _ := NewChaCha20(key, iv)
-	chacha20_2, _ := NewChaCha20(key, iv)
+	chacha20_1, _ := NewChaCha(key, iv, CHACHA20_ROUND)
+	chacha20_2, _ := NewChaCha(key, iv, CHACHA20_ROUND)
 	return chacha20_1, chacha20_2
 }
 

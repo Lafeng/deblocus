@@ -13,7 +13,7 @@ import (
 #cgo LDFLAGS: -L${SRCDIR}
 #cgo linux LDFLAGS: -Wl,--wrap=memcpy -lchacha_linux_amd64
 #cgo windows LDFLAGS: -lchacha_windows_amd64
-#cgo darwin LDFLAGS: lchacha_darwin_amd64
+#cgo darwin LDFLAGS: -lchacha_darwin_amd64
 #include "chacha.h"
 */
 import "C"
@@ -46,15 +46,7 @@ type ChaCha struct {
 	state    []byte // raw
 }
 
-func NewChaCha20(key, iv []byte) (*ChaCha, error) {
-	return newChaCha(key, iv, CHACHA20_ROUND)
-}
-
-func NewChaCha12(key, iv []byte) (*ChaCha, error) {
-	return newChaCha(key, iv, CHACHA12_ROUND)
-}
-
-func newChaCha(key, iv []byte, rounds uint) (*ChaCha, error) {
+func NewChaCha(key, iv []byte, rounds uint) (*ChaCha, error) {
 	if ks := len(key); ks != CHACHA_KeySize {
 		return nil, KeySizeError(ks)
 	}

@@ -54,6 +54,7 @@ var availableCiphers = []interface{}{
 	"AES128CFB", &cipherDecr{16, new_AES_CFB},
 	"AES192CFB", &cipherDecr{24, new_AES_CFB},
 	"AES256CFB", &cipherDecr{32, new_AES_CFB},
+	"CHACHA12", &cipherDecr{32, new_ChaCha12},
 	"CHACHA20", &cipherDecr{32, new_ChaCha20},
 }
 
@@ -87,9 +88,22 @@ func new_ChaCha20(key, iv []byte) *XORCipherKit {
 	} else {
 		iv = iv[:crypto.CHACHA_IVSize]
 	}
-	ec, e := crypto.NewChaCha20(key, iv)
+	ec, e := crypto.NewChaCha(key, iv, crypto.CHACHA20_ROUND)
 	ThrowErr(e)
-	dc, e := crypto.NewChaCha20(key, iv)
+	dc, e := crypto.NewChaCha(key, iv, crypto.CHACHA20_ROUND)
+	ThrowErr(e)
+	return &XORCipherKit{ec, dc}
+}
+
+func new_ChaCha12(key, iv []byte) *XORCipherKit {
+	if iv == nil {
+		iv = key[:crypto.CHACHA_IVSize]
+	} else {
+		iv = iv[:crypto.CHACHA_IVSize]
+	}
+	ec, e := crypto.NewChaCha(key, iv, crypto.CHACHA12_ROUND)
+	ThrowErr(e)
+	dc, e := crypto.NewChaCha(key, iv, crypto.CHACHA12_ROUND)
 	ThrowErr(e)
 	return &XORCipherKit{ec, dc}
 }
