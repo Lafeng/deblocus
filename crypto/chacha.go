@@ -9,7 +9,7 @@ import (
 /*
 #cgo CFLAGS: -O3
 #cgo LDFLAGS: -L${SRCDIR}
-#cgo linux,amd64 LDFLAGS: -lchacha_linux_amd64
+#cgo linux,amd64 LDFLAGS: -Wl,--wrap=memcpy -lchacha_linux_amd64
 #cgo windows,amd64 LDFLAGS: -lchacha_windows_amd64
 #include "chacha.h"
 */
@@ -19,7 +19,7 @@ const (
 	CHACHA_KeySize   = 32
 	CHACHA_BlockSize = 64
 	CHACHA20_IVSize  = 8
-	CHACHA20_ROUND   = 20
+	CHACHA20_ROUND   = 12
 )
 
 type KeySizeError int

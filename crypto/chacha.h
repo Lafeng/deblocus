@@ -5,6 +5,19 @@
 
 #include <stddef.h>
 
+// Ref: https://gist.github.com/nicky-zs/7541169
+#if __GLIBC__ 
+#include <string.h>
+
+void *__memcpy_glibc_2_2_5(void *, const void *, size_t);
+
+asm(".symver __memcpy_glibc_2_2_5, memcpy@GLIBC_2.2.5");
+void *__wrap_memcpy(void *dest, const void *src, size_t n)
+{
+    return __memcpy_glibc_2_2_5(dest, src, n); 
+}
+#endif
+
 enum chacha_constants {
 	CHACHA_BLOCKBYTES = 64,
 };
