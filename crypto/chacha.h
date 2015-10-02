@@ -55,17 +55,17 @@ const size_t wordSize = sizeof(void*);
 INLINE void 
 fastXORBytes(size_t *dst, size_t *a, size_t *b, size_t n)
 {
-	size_t i = 0, w = n / wordSize;
+	size_t i = n, w = n / wordSize;
 	if (w > 0) {
-		for (i = 0; i < w; i++) {
-			dst[i] = a[i] ^ b[i];
+		for (i = w; i--; ++dst, ++a, ++b) {
+			*dst = *a ^ *b;
 		}
-		i *= wordSize;
+		i = n - w*wordSize;
 	}
-	if (i < n) {
+	if (i > 0) {
 		uint8_t *d8 = (uint8_t *)dst, *a8 = (uint8_t *)a, *b8 = (uint8_t *)b;
-		for (; i < n; i++) {
-			d8[i] = a8[i] ^ b8[i];
+		for (; i--; ++d8, ++a8, ++b8) {
+			*d8 = *a8 ^ *b8;
 		}
 	}
 }
@@ -78,7 +78,7 @@ size_t chacha_final(chacha_state_internal *S, unsigned char *out);
 
 void chacha(const chacha_key *key, const chacha_iv *iv, const  unsigned char *in,  unsigned char *out, size_t inlen, size_t rounds);
 
-void chacha_xor(chacha_state_internal *state, const unsigned char *in, unsigned char *out, const size_t inlen)
+void chacha_xor(chacha_state_internal *state, unsigned char *in, unsigned char *out, const size_t inlen)
 {
 	size_t i, j, rem, step;
 	j = state->offset;
@@ -86,9 +86,11 @@ void chacha_xor(chacha_state_internal *state, const unsigned char *in, unsigned 
 		rem = CHACHA_BLOCKBYTES - j;
 		step = rem <= (inlen-i) ? rem : (inlen-i);
 		
-		fastXORBytes((size_t *)(out + i), (size_t *)(in + i), (size_t *)(state->stream + j), step);
+		fastXORBytes((size_t *)out, (size_t *)in, (size_t *)(state->stream + j), step);
 		i += step;
 		j += step;
+		out += step;
+		in += step;
 	
 		if (j == CHACHA_BLOCKBYTES) {
 			chacha_update(state, state->stream, state->stream, CHACHA_BLOCKBYTES);
