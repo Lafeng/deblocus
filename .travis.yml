@@ -4,9 +4,11 @@ go:
 env:
   global:
     - TARGET_ARCH=amd64
-	- CGO_ENABLED=1
+    - CGO_ENABLED=1
   matrix:
     - TARGET_OS=linux
+    - TARGET_OS=darwin
+    - TARGET_OS=windows EXT=.exe
 before_deploy:
   - export GOARCH=$TARGET_ARCH GOOS=$TARGET_OS
 deploy:
