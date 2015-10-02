@@ -87,8 +87,10 @@ func new_ChaCha20(key, iv []byte) *XORCipherKit {
 	} else {
 		iv = iv[:crypto.CHACHA20_IVSize]
 	}
-	ec, _ := crypto.NewChaCha20(key, iv)
-	dc, _ := crypto.NewChaCha20(key, iv)
+	ec, e := crypto.NewChaCha20(key, iv)
+	ThrowErr(e)
+	dc, e := crypto.NewChaCha20(key, iv)
+	ThrowErr(e)
 	return &XORCipherKit{ec, dc}
 }
 

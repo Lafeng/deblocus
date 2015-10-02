@@ -7,6 +7,7 @@ import (
 )
 
 /*
+#cgo CFLAGS: -O3
 #cgo LDFLAGS: -L${SRCDIR}
 #cgo linux,amd64 LDFLAGS: -lchacha_linux_amd64
 #cgo windows,amd64 LDFLAGS: -lchacha_windows_amd64
@@ -45,36 +46,41 @@ func NewChaCha20(key, iv []byte) (*ChaCha, error) {
 	if ks := len(key); ks != CHACHA_KeySize {
 		return nil, KeySizeError(ks)
 	}
-	leniv := len(iv)
+	ivLen := len(iv)
 	switch {
-	case leniv < CHACHA20_IVSize:
-		return nil, KeySizeError(leniv)
+	case ivLen < CHACHA20_IVSize:
+		return nil, KeySizeError(ivLen)
+	case ivLen == CHACHA20_IVSize:
 	default:
 		iv = iv[:CHACHA20_IVSize]
 	}
 
-	// use go-copy to imitate chacha_init()
-	// but created in go life
-	var state [128]byte
+	// create chacha_state_internal like chacha_init()
+	var state [128 + 64 + 8]byte
 	copy(state[:32], key)
 	copy(state[40:48], iv)
 	statePtr := (*C.chacha_state_internal)(unsafe.Pointer(&state[0]))
-	keyPtr := (*C.chacha_key)(unsafe.Pointer(&state[0]))
+	keyPtr := (*C.chacha_key)(unsafe.Pointer(statePtr))
 	ivPtr := (*C.chacha_iv)(unsafe.Pointer(&state[40]))
 	statePtr.rounds = CHACHA20_ROUND // important
-	// 64:128 buffer
-	return &ChaCha{
+	statePtr.offset = 0
+
+	var chacha = &ChaCha{
 		statePtr: statePtr,
 		keyPtr:   keyPtr,
 		ivPtr:    ivPtr,
 		state:    state[:],
-	}, nil
+	}
+	chacha.initStream()
+	return chacha, nil
 }
 
+// implement cipher.Block interface
 func (c *ChaCha) BlockSize() int {
 	return CHACHA_BlockSize
 }
 
+// implement cipher.Block interface
 func (c *ChaCha) Encrypt(dst, src []byte) {
 	size := len(dst)
 	if size&0x3f > 0 {
@@ -86,6 +92,7 @@ func (c *ChaCha) Encrypt(dst, src []byte) {
 	C.chacha_update(c.statePtr, cIn, cOut, C.size_t(size))
 }
 
+// implement cipher.Block interface
 func (c *ChaCha) Decrypt(dst, src []byte) {
 	size := len(dst)
 	if size&0x3f > 0 {
@@ -97,9 +104,22 @@ func (c *ChaCha) Decrypt(dst, src []byte) {
 	C.chacha_update(c.statePtr, cIn, cOut, C.size_t(size))
 }
 
+// implement cipher.Stream interface
 func (c *ChaCha) XORKeyStream(dst, src []byte) {
 	var cIn = (*C.uchar)(unsafe.Pointer(&src[0]))
 	var cOut = (*C.uchar)(unsafe.Pointer(&dst[0]))
+	C.chacha_xor(c.statePtr, cIn, cOut, C.size_t(len(dst)))
+}
 
-	C.chacha_next(c.keyPtr, c.ivPtr, cIn, cOut, C.size_t(len(src)), CHACHA20_ROUND)
+func (c *ChaCha) initStream() {
+	copy(c.state[128:], sbox0)
+	buf := make([]byte, CHACHA_BlockSize)
+	c.XORKeyStream(buf, buf)
+}
+
+var sbox0 = []byte{
+	0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
+	0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf,
+	0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
+	0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e,
 }
