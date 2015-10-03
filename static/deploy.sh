@@ -3,9 +3,6 @@
 # env.global: TARGET_ARCH=amd64
 # before_deploy matrix export: GOARCH=$TARGET_ARCH GOOS=$TARGET_OS $EXT
 
-if [ -n "$EXT" ]; then
-	sudo apt-get install -y binutils-mingw-w64-x86-64 gcc-mingw-w64-x86-64
-fi
 if [ -n "$TRAVIS_BUILD_NUMBER" ]; then
 	BVER=${TRAVIS_BUILD_NUMBER}_`echo $TRAVIS_COMMIT | head -c 7`
 	OUTPUT=deblocus_${BVER}_$GOOS-$GOARCH.tgz
