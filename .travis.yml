@@ -11,6 +11,7 @@ env:
 addons:
   apt:
     packages:
+    - binutils-mingw-w64-x86-64
     - gcc-mingw-w64-x86-64
 before_deploy:
   - export GOARCH=$TARGET_ARCH GOOS=$TARGET_OS
