@@ -3,9 +3,13 @@
 # env.global: TARGET_ARCH=amd64
 # before_deploy matrix export: GOARCH=$TARGET_ARCH GOOS=$TARGET_OS $EXT
 
+if [ "$GOOS" = "windows" ]; then
+	export CC=x86_64-w64-mingw32-gcc
+fi
 if [ -n "$TRAVIS_BUILD_NUMBER" ]; then
 	BVER=${TRAVIS_BUILD_NUMBER}_`echo $TRAVIS_COMMIT | head -c 7`
 	OUTPUT=deblocus_${BVER}_$GOOS-$GOARCH.tgz
+	EXT=`go env GOEXE`
 	go build -ldflags "-X main.build_flag=-dev-$BVER"
 	if [ $? == 0 ]; then
 		tar cvaf $OUTPUT deblocus$EXT
