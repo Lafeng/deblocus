@@ -9,7 +9,7 @@ env:
     - TARGET_OS=linux
     - TARGET_OS=windows EXT=.exe CC=x86_64-w64-mingw32-gcc
 before_deploy:
-  - [ -n "$EXT" ] && sudo apt-get install -y binutils-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+  - \[ -n "$EXT" \] && sudo apt-get install -y binutils-mingw-w64-x86-64 gcc-mingw-w64-x86-64
   - export GOARCH=$TARGET_ARCH GOOS=$TARGET_OS
 deploy:
   provider: script
