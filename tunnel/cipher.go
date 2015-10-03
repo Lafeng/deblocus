@@ -3,12 +3,12 @@ package tunnel
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/md5"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
 	"github.com/Lafeng/deblocus/crypto"
 	"github.com/Lafeng/deblocus/exception"
+	"hash/fnv"
 	"strings"
 )
 
@@ -20,6 +20,7 @@ type cipherBuilder func(k, iv []byte) *XORCipherKit
 
 type cipherDecr struct {
 	keyLen  int
+	ivLen   int
 	builder cipherBuilder
 }
 
@@ -51,11 +52,11 @@ var nullCipherKit = new(NullCipherKit)
 
 // Uppercase Name
 var availableCiphers = []interface{}{
-	"AES128CFB", &cipherDecr{16, new_AES_CFB},
-	"AES192CFB", &cipherDecr{24, new_AES_CFB},
-	"AES256CFB", &cipherDecr{32, new_AES_CFB},
-	"CHACHA12", &cipherDecr{32, new_ChaCha12},
-	"CHACHA20", &cipherDecr{32, new_ChaCha20},
+	"CHACHA12", &cipherDecr{32, 8, new_ChaCha12},
+	"CHACHA20", &cipherDecr{32, 8, new_ChaCha20},
+	"AES128CFB", &cipherDecr{16, 16, new_AES_CFB},
+	"AES192CFB", &cipherDecr{24, 16, new_AES_CFB},
+	"AES256CFB", &cipherDecr{32, 16, new_AES_CFB},
 }
 
 func GetAvailableCipher(wants string) (*cipherDecr, error) {
@@ -72,22 +73,12 @@ func GetAvailableCipher(wants string) (*cipherDecr, error) {
 
 func new_AES_CFB(key, iv []byte) *XORCipherKit {
 	block, _ := aes.NewCipher(key)
-	if iv == nil {
-		iv = key[:aes.BlockSize]
-	} else {
-		iv = iv[:aes.BlockSize]
-	}
 	ec := cipher.NewCFBEncrypter(block, iv)
 	dc := cipher.NewCFBDecrypter(block, iv)
 	return &XORCipherKit{ec, dc}
 }
 
 func new_ChaCha20(key, iv []byte) *XORCipherKit {
-	if iv == nil {
-		iv = key[:crypto.CHACHA_IVSize]
-	} else {
-		iv = iv[:crypto.CHACHA_IVSize]
-	}
 	ec, e := crypto.NewChaCha(key, iv, crypto.CHACHA20_ROUND)
 	ThrowErr(e)
 	dc, e := crypto.NewChaCha(key, iv, crypto.CHACHA20_ROUND)
@@ -96,11 +87,6 @@ func new_ChaCha20(key, iv []byte) *XORCipherKit {
 }
 
 func new_ChaCha12(key, iv []byte) *XORCipherKit {
-	if iv == nil {
-		iv = key[:crypto.CHACHA_IVSize]
-	} else {
-		iv = iv[:crypto.CHACHA_IVSize]
-	}
 	ec, e := crypto.NewChaCha(key, iv, crypto.CHACHA12_ROUND)
 	ThrowErr(e)
 	dc, e := crypto.NewChaCha(key, iv, crypto.CHACHA12_ROUND)
@@ -109,33 +95,43 @@ func new_ChaCha12(key, iv []byte) *XORCipherKit {
 }
 
 type CipherFactory struct {
-	key     []byte
-	builder cipherBuilder
+	key  []byte
+	decr *cipherDecr
 }
 
 func (c *CipherFactory) InitCipher(iv []byte) *XORCipherKit {
-	return c.builder(c.key, iv)
+	if iv == nil {
+		iv = normalizeKey(c.key, nil, c.decr.ivLen)
+	} else {
+		iv = normalizeKey(iv, c.key, c.decr.ivLen)
+	}
+	return c.decr.builder(c.key, iv)
 }
 
 func NewCipherFactory(name string, secret []byte) *CipherFactory {
 	def, _ := GetAvailableCipher(name)
-	key := toSecretKey(secret, def.keyLen)
+	key := normalizeKey(secret, nil, def.keyLen)
 	return &CipherFactory{
-		key, def.builder,
+		key, def,
 	}
 }
 
-func toSecretKey(secret []byte, size int) []byte {
-	// size mod 16 must be 0
-	h := md5.New()
-	buf := make([]byte, size)
-	count := size / md5.Size
-	// repeatly fill the key with the secret
-	for i := 0; i < count; i++ {
-		h.Write(secret)
-		copy(buf[md5.Size*i:md5.Size*(i+1)-1], h.Sum(nil))
+// MUST have:  0 = size (mod 8)
+func normalizeKey(raw, ref []byte, size int) []byte {
+	var key = make([]byte, 0, size)
+	hs := fnv.New64a()
+	count := size >> 3
+	step := len(raw) / count
+	for i, j := 0, 0; i < count; i, j = i+1, j+step {
+		hs.Write(raw[j : j+step])
+		if i == 0 && ref != nil {
+			hs.Write(ref[:len(ref)>>1])
+		} else {
+			hs.Write(key)
+		}
+		key = hs.Sum(key)
 	}
-	return buf
+	return key
 }
 
 // single block encrypt

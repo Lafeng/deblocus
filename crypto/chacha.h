@@ -18,9 +18,8 @@ void *__wrap_memcpy(void *dest, const void *src, size_t n)
 }
 #endif
 
-enum chacha_constants {
-	CHACHA_BLOCKBYTES = 64,
-};
+#define	CHACHA_BLOCK_SIZE  64
+#define	CHACHA_STREAM_SIZE 256
 
 typedef struct chacha_key_t {
 	unsigned char b[32];
@@ -34,8 +33,8 @@ typedef struct chacha_state_internal_t {
 	unsigned char s[48];
 	size_t rounds;
 	size_t leftover;
-	unsigned char buffer[CHACHA_BLOCKBYTES];
-	unsigned char stream[CHACHA_BLOCKBYTES];
+	unsigned char buffer[CHACHA_BLOCK_SIZE];
+	unsigned char stream[CHACHA_STREAM_SIZE];
 	size_t offset;
 } chacha_state_internal;
 
@@ -79,7 +78,7 @@ void chacha_xor(chacha_state_internal *state, unsigned char *in, unsigned char *
 	size_t i, j, rem, step;
 	j = state->offset;
 	for (i = 0; i < inlen; ) {
-		rem = CHACHA_BLOCKBYTES - j;
+		rem = CHACHA_STREAM_SIZE - j;
 		step = rem <= (inlen-i) ? rem : (inlen-i);
 		
 		fastXORBytes((size_t *)out, (size_t *)in, (size_t *)(state->stream + j), step);
@@ -88,8 +87,8 @@ void chacha_xor(chacha_state_internal *state, unsigned char *in, unsigned char *
 		out += step;
 		in += step;
 	
-		if (j == CHACHA_BLOCKBYTES) {
-			chacha_update(state, state->stream, state->stream, CHACHA_BLOCKBYTES);
+		if (j == CHACHA_STREAM_SIZE) {
+			chacha_update(state, state->stream, state->stream, CHACHA_STREAM_SIZE);
 			j = state->offset = 0;
 		} else {
 			state->offset = j;
