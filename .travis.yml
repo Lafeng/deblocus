@@ -7,12 +7,14 @@ env:
     - CGO_ENABLED=1
   matrix:
     - TARGET_OS=linux
-    - TARGET_OS=windows GOOS=windows EXT=.exe CC=x86_64-w64-mingw32-gcc
+    - TARGET_OS=windows EXT=.exe CC=x86_64-w64-mingw32-gcc
 addons:
   apt:
     packages:
     - binutils-mingw-w64-x86-64
     - gcc-mingw-w64-x86-64
+before_script:
+  - export GOARCH=$TARGET_ARCH GOOS=$TARGET_OS
 before_deploy:
   - export GOARCH=$TARGET_ARCH GOOS=$TARGET_OS
 deploy:
