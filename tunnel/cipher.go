@@ -95,24 +95,25 @@ func new_ChaCha12(key, iv []byte) *XORCipherKit {
 }
 
 type CipherFactory struct {
-	key  []byte
-	decr *cipherDecr
+	key, ref []byte
+	decr     *cipherDecr
 }
 
 func (c *CipherFactory) InitCipher(iv []byte) *XORCipherKit {
 	if iv == nil {
-		iv = normalizeKey(c.key, nil, c.decr.ivLen)
+		iv = normalizeKey(c.key, c.ref, c.decr.ivLen)
 	} else {
-		iv = normalizeKey(iv, c.key, c.decr.ivLen)
+		iv = normalizeKey(iv, c.ref, c.decr.ivLen)
 	}
 	return c.decr.builder(c.key, iv)
 }
 
 func NewCipherFactory(name string, secret []byte) *CipherFactory {
 	def, _ := GetAvailableCipher(name)
-	key := normalizeKey(secret, nil, def.keyLen)
+	ref := hash20(secret)
+	key := normalizeKey(secret, ref, def.keyLen)
 	return &CipherFactory{
-		key, def,
+		key, ref, def,
 	}
 }
 
@@ -125,7 +126,7 @@ func normalizeKey(raw, ref []byte, size int) []byte {
 	for i, j := 0, 0; i < count; i, j = i+1, j+step {
 		hs.Write(raw[j : j+step])
 		if i == 0 && ref != nil {
-			hs.Write(ref[:len(ref)>>1])
+			hs.Write(ref)
 		} else {
 			hs.Write(key)
 		}

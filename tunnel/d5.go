@@ -357,7 +357,7 @@ func (n *dbcCltNego) negotiate(p *tunParams) (conn *Conn, err error) {
 	n.requestAuthAndDHExchange(hConn)
 
 	p.cipherFactory = n.finishDHExThenSetupCipher(hConn)
-	hConn.cipher = p.cipherFactory.InitCipher(nil)
+	hConn.cipher = p.cipherFactory.InitCipher(n.ibHash)
 
 	n.validateAndGetTokens(hConn, p)
 	return
@@ -554,7 +554,7 @@ func (n *dbcSerNego) handshakeSession(hConn *hashedConn) (session *Session, err 
 	var skey = n.verifyThenDHExchange(hConn)
 	var cf = NewCipherFactory(n.Cipher, skey)
 
-	hConn.cipher = cf.InitCipher(nil)
+	hConn.cipher = cf.InitCipher(n.ibHash)
 	session = NewSession(hConn.Conn, cf, n)
 	n.isNewSession = true
 	n.respondTestWithToken(hConn, session)
@@ -665,7 +665,7 @@ func (n *dbcSerNego) respondTestWithToken(hConn *hashedConn, session *Session) {
 func (n *dbcCltNego) idBlockSerialize() (block []byte, e error) {
 	identity := n.user + IDENTITY_SEP + n.pass
 	idLen, max := len(identity), n.rsaKey.BlockSize()
-	if idLen > max-2 {
+	if idLen > max-16 { // reserved least 16 random numbers
 		e = INVALID_D5PARAMS.Apply("identity too long")
 		return
 	}
