@@ -1,4 +1,4 @@
-# Deblocus
+# deblocus
 
 [![Build Status](https://travis-ci.org/Lafeng/deblocus.svg?branch=master)](https://travis-ci.org/Lafeng/deblocus)
 [![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)
@@ -25,50 +25,57 @@ Current version is v0.10.2640-beta
 
 ## Introduction
 
-Deblocus is a tunneling software that allows secure TCP connection through the server by acting as a SOCKS5/HTTP proxy server on the client side. The deblocus server shall not be shared with someone you don't trust.
+deblocus is a tunneling software that allows secure TCP connection through the server by acting as a SOCKS5/HTTP proxy server on the client side. The deblocus server shall not be shared with someone you don't trust.
 
 ![deblocus-introduction.png](https://i.imgur.com/FP5A7hE.png)
 
 ## Features
 
 1. Traffic encrypted with dynamic session key
-2. Client–server model with special protocol
-3. TCP multiplexing inside tunnel
-4. Fast Open over application layer (nearly 1-RTT connectivity overhead)
+2. TCP multiplexing inside tunnel
+3. Tunnel's communication was provided with mildly obfuscated traffic based on special protocol
+4. Fast-Open over application layer (response nearly 1-RTT)
 5. Filtering traffic to IPs in specified country with GeoLite2 data
+6. Use high-performance encryption implementation
 
 Explanations:
 
-1. Deblocus has [forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
+1. deblocus has [forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
 2. You can share a server with friends.
 3. Massive short requests can be accelerated.
 4. Latency greatly reduced.
 5. You can know it when inappropriate proxy is used.
+6. Could enjoy high throughput.
 
 ## Quickstart
 
 1. Download [executables](https://github.com/Lafeng/deblocus/releases) or compile it from source.
 2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki).
 
+## Applicable Scope
+
+Architecture: x86, amd64(x86-64)
+
+OS: windows, linux, osx
+
 ### Simple GUI for Windows
 
-[DeblocusMonitor](https://github.com/Lafeng/deblocus/releases) can minimize deblocus to tray.
+[deblocusMonitor](https://github.com/Lafeng/deblocus/releases) can minimize deblocus to tray.
 
 ![deblocusMonitor.png](https://i.imgur.com/pdBpKN6m.png)
 
 ## Acknowledgements
 
-Thanks to these projects: [qtunnel](https://github.com/getqujing/qtunnel), [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx), [glog](https://github.com/golang/glog) and [siphash](https://github.com/dchest/siphash).
+Thanks to these projects: [qtunnel](https://github.com/getqujing/qtunnel), [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx), [glog](https://github.com/golang/glog), [siphash](https://github.com/dchest/siphash) and [chacha-opt](https://github.com/floodyberry/chacha-opt).
 
-This product includes GeoLite2 data created by MaxMind, available from
-<http://www.maxmind.com>.
+This product includes GeoLite2 data created by MaxMind, available from <http://www.maxmind.com>.
 
 ## License
 
 [MIT License](https://github.com/Lafeng/deblocus/blob/master/LICENSE)
 
 
-# Deblocus
+# deblocus
 
 ## 介绍
 
