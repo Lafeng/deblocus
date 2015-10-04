@@ -40,7 +40,7 @@ Explanations:
 
 Arch: x86, amd64(x86-64)
 
-OS: Windows, Linux, OSX
+OS: Windows, Linux, OS X
 
 ### Simple GUI for Windows
 
