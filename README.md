@@ -5,7 +5,7 @@
 [![Issues](https://img.shields.io/github/issues/Lafeng/deblocus.svg)](https://github.com/Lafeng/deblocus/issues)
 [![Comment-on-Github.Party](https://img.shields.io/badge/Comment%20on-Github.Party-yellow.svg)](https://github.party/item?id=46)
 
-Current version is v0.10.2640-beta
+Current version is v0.11.2770-beta
 
 ```
       ___         ___         ___         ___  ___         ___         ___         ___     
@@ -25,16 +25,16 @@ Current version is v0.10.2640-beta
 
 ## Introduction
 
-deblocus is a tunneling software that allows secure TCP connection through the server by acting as a SOCKS5/HTTP proxy server on the client side. The deblocus server shall not be shared with someone you don't trust.
+deblocus is a tunneling software that allows secure TCP connection through the server by acting as a SOCKS5/HTTP proxy server on the client side. The deblocus server shall not be shared with anyone you don't trust.
 
 ![deblocus-introduction.png](https://i.imgur.com/FP5A7hE.png)
 
 ## Features
 
 1. Traffic encrypted with dynamic session key
-2. TCP multiplexing inside tunnel
+2. Client–server model with special protocol
 3. Tunnel's communication was provided with mildly obfuscated traffic based on special protocol
-4. Fast-Open over application layer (response nearly 1-RTT)
+4. TCP multiplexing inside tunnel and Fast-Open over application layer (response nearly 1-RTT)
 5. Filtering traffic to IPs in specified country with GeoLite2 data
 6. Use high-performance encryption implementation
 
@@ -52,11 +52,11 @@ Explanations:
 1. Download [executables](https://github.com/Lafeng/deblocus/releases) or compile it from source.
 2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki).
 
-## Applicable Scope
+## Platform
 
-Architecture: x86, amd64(x86-64)
+Arch: x86, amd64(x86-64)
 
-OS: windows, linux, osx
+OS: Windows, Linux, OSX
 
 ### Simple GUI for Windows
 
