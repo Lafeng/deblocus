@@ -2,6 +2,11 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.11.2770-beta 15/10/4
+improve the security of d5 protocol
+add chacha encryption implementation
+and bug fixes
+
 ## 0.10.2640-beta 15/9/20
 fix incorrect geo switch
 

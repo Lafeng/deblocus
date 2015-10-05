@@ -38,7 +38,7 @@ Explanations:
 
 ## Platform
 
-Arch: i386, amd64
+Arch: amd64
 
 OS: Windows, Linux, OS X
 
