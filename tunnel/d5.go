@@ -182,8 +182,12 @@ func (s *s5Handler) parseRequest() string {
 		ofs = net.IPv6len
 	case DOMAIN:
 		dlen := int(buf[0])
-		host = string(buf[1 : dlen+1])
 		ofs = dlen + 1
+		host = string(buf[1:ofs])
+		// literal IPv6
+		if strings.IndexByte(host, ':') > 0 && strings.IndexByte(host, '[') < 0 {
+			host = "[" + host + "]"
+		}
 	default:
 		s.err = INVALID_SOCKS5_REQUEST
 		return NULL
