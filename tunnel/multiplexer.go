@@ -5,9 +5,11 @@ import (
 	"fmt"
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
+	"github.com/cloudflare/golibs/bytepool"
 	"io"
 	"net"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -51,6 +53,11 @@ const (
 	ERR_PING_TIMEOUT = 0xe
 	ERR_NEW_PING     = 0xf
 	ERR_UNKNOWN      = 0x0
+)
+
+var (
+	once     sync.Once
+	bytePool *bytepool.BytePool
 )
 
 // [1, 0xfffe]
@@ -201,6 +208,11 @@ func (f *frame) toNewBuffer() []byte {
 	return b
 }
 
+func initBytePool() {
+	bytePool = new(bytepool.BytePool)
+	bytePool.Init(time.Minute, 1<<20)
+}
+
 // --------------------
 // multiplexer
 // --------------------
@@ -215,6 +227,7 @@ type multiplexer struct {
 }
 
 func newServerMultiplexer() *multiplexer {
+	once.Do(initBytePool)
 	m := &multiplexer{
 		isClient: false,
 		pool:     NewConnPool(),
@@ -225,6 +238,7 @@ func newServerMultiplexer() *multiplexer {
 }
 
 func newClientMultiplexer() *multiplexer {
+	once.Do(initBytePool)
 	m := &multiplexer{
 		isClient: true,
 		pool:     NewConnPool(),
@@ -446,7 +460,7 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 
 func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 	var (
-		buf  = make([]byte, FRAME_MAX_LEN)
+		buf  = bytePool.Get(FRAME_MAX_LEN)
 		code byte
 		src  = edge.conn
 	)
@@ -454,7 +468,13 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		// positively close then notify peer
 		if edge.bitwiseCompareAndSet(TCP_CLOSE_R) && code != FRAME_ACTION_OPEN_DENIED {
 			_frame(buf, FRAME_ACTION_CLOSE_W, sid, nil)
-			go tunWrite1(tun, buf[:FRAME_HEADER_LEN]) // tell peer to closeW
+			go func() {
+				// tell peer to closeW
+				tunWrite1(tun, buf[:FRAME_HEADER_LEN])
+				bytePool.Put(buf)
+			}()
+		} else {
+			bytePool.Put(buf)
 		}
 		if code == FRAME_ACTION_OPEN_Y {
 			closeR(src)
@@ -612,7 +632,7 @@ func _parseFrameHeader(header []byte) *frame {
 		nil, nil,
 	}
 	if f.length > 0 {
-		f.data = make([]byte, f.length)
+		f.data = bytePool.Get(int(f.length))
 	}
 	return f
 }

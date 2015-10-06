@@ -327,7 +327,14 @@ func (q *equeue) _close(force bool, close_code uint) {
 			log.Infof("closeW %s by peer\n", e.dest)
 		}
 	}
-	q.buffer.Init()
+
+	for i, e := q.buffer.Len(), q.buffer.Front(); i > 0; i, e = i-1, e.Next() {
+		f := e.Value.(*frame)
+		if f != nil && f.length > 0 {
+			bytePool.Put(f.data)
+		}
+	}
+
 	q.buffer = nil
 	if force {
 		atomic.StoreUint32(&e.closed, TCP_CLOSED)
