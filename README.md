@@ -1,52 +1,35 @@
 # deblocus
 
+Current version is v0.11.2770-beta
+
 [![Build Status](https://travis-ci.org/Lafeng/deblocus.svg?branch=master)](https://travis-ci.org/Lafeng/deblocus)
 [![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)
 [![Issues](https://img.shields.io/github/issues/Lafeng/deblocus.svg)](https://github.com/Lafeng/deblocus/issues)
 [![Comment-on-Github.Party](https://img.shields.io/badge/Comment%20on-Github.Party-yellow.svg)](https://github.party/item?id=46)
 
-Current version is v0.11.2770-beta
-
 ## Introduction
 
-deblocus is a tunneling software that allows secure TCP connection through the server by acting as a SOCKS5/HTTP proxy server on the client side. The deblocus server shall not be shared with anyone you don't trust.
-
-![deblocus-introduction.png](https://i.imgur.com/FP5A7hE.png)
+deblocus is a tunneling software that allows secure TCP connection through the server by acting as a SOCKS5/HTTP proxy server on the client side.
 
 ## Features
 
-1. Traffic encrypted with dynamic session key
-2. Client–server model with special protocol
-3. Tunnel's communication was provided with mildly obfuscated traffic based on special protocol
-4. TCP multiplexing inside tunnel and Fast-Open over application layer (response nearly 1-RTT)
-5. Filtering traffic to IPs in specified country with GeoLite2 data
-6. Use high-performance encryption implementation
-
-Explanations:
-
-1. deblocus has [forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
-2. You can share a server with friends.
-3. Massive short requests can be accelerated.
-4. Latency greatly reduced.
-5. You can know it when inappropriate proxy is used.
-6. Could enjoy high throughput.
+- Traffic encrypted with dynamic session key
+	* deblocus has [forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
+- Tunnel's communication was provided with mildly obfuscated traffic based on special protocol
+	* Keep communications secure and privacy over untrusted networks.
+- TCP multiplexing inside tunnel and Fast-Open over application layer
+	* Optimized connectivity for massive short requests, latency greatly reduced to nearly 1-RTT.
+- Filtering traffic to specified country (using GeoLite2 data)
+	* You can avoid the proxy was used for some inappropriate purposes.
+- Use high-performance encryption implementation
+	* Could enjoy high throughput and low resource consumption.
 
 ## Quickstart
 
+Available for the amd64 architecture on Windows, Linux and OS X.
+
 1. Download [executables](https://github.com/Lafeng/deblocus/releases) or compile it from source.
-2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki).
-
-## Platform
-
-Arch: amd64
-
-OS: Windows, Linux, OS X
-
-### Simple GUI for Windows
-
-[deblocusMonitor](https://github.com/Lafeng/deblocus/releases) can minimize deblocus to tray.
-
-![deblocusMonitor.png](https://i.imgur.com/pdBpKN6m.png)
+2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki) to learn more.
 
 ## Acknowledgements
 
