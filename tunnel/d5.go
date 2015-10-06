@@ -185,7 +185,7 @@ func (s *s5Handler) parseRequest() string {
 		ofs = dlen + 1
 		host = string(buf[1:ofs])
 		// literal IPv6
-		if strings.IndexByte(host, ':') > 0 && strings.IndexByte(host, '[') < 0 {
+		if strings.Count(host, ":") >= 2 && !strings.HasPrefix(host, "[") {
 			host = "[" + host + "]"
 		}
 	default:
