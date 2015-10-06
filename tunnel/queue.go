@@ -305,7 +305,10 @@ func (q *equeue) sendLoop() {
 						}
 					}
 					q._close(true, CLOSED_BY_ERR)
+					frm.free()
 					return
+				} else {
+					frm.free()
 				}
 			}
 		}
@@ -330,8 +333,8 @@ func (q *equeue) _close(force bool, close_code uint) {
 
 	for i, e := q.buffer.Len(), q.buffer.Front(); i > 0; i, e = i-1, e.Next() {
 		f := e.Value.(*frame)
-		if f != nil && f.length > 0 {
-			bytePool.Put(f.data)
+		if f != nil {
+			f.free()
 		}
 	}
 

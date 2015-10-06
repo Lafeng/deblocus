@@ -56,8 +56,8 @@ const (
 )
 
 var (
-	once     sync.Once
-	bytePool *bytepool.BytePool
+	bytePoolOnce sync.Once
+	bytePool     *bytepool.BytePool
 )
 
 // [1, 0xfffe]
@@ -208,6 +208,13 @@ func (f *frame) toNewBuffer() []byte {
 	return b
 }
 
+func (f *frame) free() {
+	if len(f.data) > 0 {
+		bytePool.Put(f.data)
+		f.data = nil
+	}
+}
+
 func initBytePool() {
 	bytePool = new(bytepool.BytePool)
 	bytePool.Init(time.Minute, 1<<20)
@@ -227,7 +234,7 @@ type multiplexer struct {
 }
 
 func newServerMultiplexer() *multiplexer {
-	once.Do(initBytePool)
+	bytePoolOnce.Do(initBytePool)
 	m := &multiplexer{
 		isClient: false,
 		pool:     NewConnPool(),
@@ -238,7 +245,7 @@ func newServerMultiplexer() *multiplexer {
 }
 
 func newClientMultiplexer() *multiplexer {
-	once.Do(initBytePool)
+	bytePoolOnce.Do(initBytePool)
 	m := &multiplexer{
 		isClient: true,
 		pool:     NewConnPool(),
