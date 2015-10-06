@@ -14,7 +14,7 @@ deblocus is a tunneling software that allows secure TCP connection through the s
 ## Features
 
 - Traffic encrypted with dynamic session key
-	* deblocus obeys [forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
+	* deblocus has [perfect forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
 - Tunnel's communication was provided with mildly obfuscated traffic based on special protocol
 	* Keep communications secure and privacy over untrusted networks.
 - TCP multiplexing inside tunnel and Fast-Open over application layer
