@@ -14,19 +14,19 @@ deblocus is a tunneling software that allows secure TCP connection through the s
 ## Features
 
 - Traffic encrypted with dynamic session key
-	* deblocus has [forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
+	* deblocus obeys [forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
 - Tunnel's communication was provided with mildly obfuscated traffic based on special protocol
 	* Keep communications secure and privacy over untrusted networks.
 - TCP multiplexing inside tunnel and Fast-Open over application layer
 	* Optimized connectivity for massive short requests, latency greatly reduced to nearly 1-RTT.
 - Filtering traffic to specified country (using GeoLite2 data)
 	* You can avoid the proxy was used for some inappropriate purposes.
-- Use high-performance encryption implementation
+- Use High-performance encryption implementation
 	* Could enjoy high throughput and low resource consumption.
 
 ## Quickstart
 
-Available for the amd64 architecture on Windows, Linux and OS X.
+Available on AMD64 of Windows, Linux and OS X.
 
 1. Download [executables](https://github.com/Lafeng/deblocus/releases) or compile it from source.
 2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki) to learn more.
@@ -46,10 +46,8 @@ This product includes GeoLite2 data created by MaxMind, available from <http://w
 
 ## 介绍
 
-建立与远端网关的加密通道，为本地应用提供安全高效的局部代理(Socks5/HTTP)服务。
-
-可以满足在企业网络/公共Wifi等情景下通信被窃听或拦截时高保密、高隐私的通信需要。
+安全高效的局部代理(Socks5/HTTP)工具，可满足在企业网络/公共WiFi等场景下安全通信的需要。
 
 ## 使用
 
-详见 [Wiki](https://github.com/Lafeng/deblocus/wiki)，程序可从项目Releases直接下载.
+首先阅读 [Wiki](https://github.com/Lafeng/deblocus/wiki)，从项目Releases下载程序，或自行编译。
