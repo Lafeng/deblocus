@@ -220,7 +220,7 @@ func (c *Client) ClientServe(conn net.Conn) {
 }
 
 func (t *Client) IsReady() bool {
-	return atomic.LoadInt32(&t.State) >= 0
+	return atomic.LoadInt32(&t.State) == CLT_WORKING
 }
 
 // must catch exceptions and return

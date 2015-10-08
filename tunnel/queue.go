@@ -347,7 +347,7 @@ func (q *equeue) _close(force bool, close_code uint) {
 	}
 }
 
-func sendFrame(frm *frame) (werr bool) {
+func sendFrame(frm *frame) bool {
 	dst := frm.conn.conn
 	if log.V(5) {
 		log.Infoln("SEND queue", frm)
@@ -355,10 +355,11 @@ func sendFrame(frm *frame) (werr bool) {
 	dst.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
 	nw, ew := dst.Write(frm.data)
 	if nw == int(frm.length) && ew == nil {
-		return
+		return false
 	}
-	werr = true
 	// an error occured
-	log.Warningf("Write edge(%s) error(%v). %s\n", frm.conn.dest, ew, frm)
-	return
+	if log.V(1) {
+		log.Warningf("Write edge(%s) error(%v). %s\n", frm.conn.dest, ew, frm)
+	}
+	return true
 }
