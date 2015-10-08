@@ -1,6 +1,6 @@
 # deblocus
 
-Current version is v0.11.2770-beta
+Current version is v0.11.2810-beta
 
 [![Build Status](https://travis-ci.org/Lafeng/deblocus.svg?branch=master)](https://travis-ci.org/Lafeng/deblocus)
 [![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)
