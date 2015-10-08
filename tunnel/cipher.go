@@ -6,9 +6,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha1"
+	"crypto/sha256"
 	"github.com/Lafeng/deblocus/crypto"
 	"github.com/Lafeng/deblocus/exception"
-	"hash/fnv"
 	"strings"
 )
 
@@ -117,12 +117,11 @@ func NewCipherFactory(name string, secret []byte) *CipherFactory {
 	}
 }
 
-// MUST have:  0 = size (mod 8)
 func normalizeKey(raw, ref []byte, size int) []byte {
-	var key = make([]byte, 0, size)
-	hs := fnv.New64a()
-	count := size >> 3
+	hs := sha256.New()
+	count := (size + 31) >> 5
 	step := len(raw) / count
+	key := make([]byte, 0, count<<5)
 	for i, j := 0, 0; i < count; i, j = i+1, j+step {
 		hs.Write(raw[j : j+step])
 		if i == 0 && ref != nil {
@@ -132,7 +131,7 @@ func normalizeKey(raw, ref []byte, size int) []byte {
 		}
 		key = hs.Sum(key)
 	}
-	return key
+	return key[:size]
 }
 
 // single block encrypt

@@ -126,8 +126,9 @@ func (c *ChaCha) XORKeyStream(dst, src []byte) {
 func (c *ChaCha) initStream(iv []byte) {
 	stream := c.state.stream
 	var x uint16
+	iv = iv[:cap(iv)]
 	for i := 0; i < 256; i++ {
-		x = uint16(sbox0[i]) * uint16(iv[i%CHACHA_IVSize])
+		x = uint16(sbox0[i]) * uint16(iv[i%len(iv)])
 		stream[2*i] = byte(x >> 8)
 		stream[2*i+1] = byte(x)
 	}
