@@ -19,7 +19,7 @@ void *__wrap_memcpy(void *dest, const void *src, size_t n)
 #endif
 
 #define	CHACHA_BLOCK_SIZE  64
-#define	CHACHA_STREAM_SIZE 256
+#define	CHACHA_STREAM_SIZE 512
 
 typedef struct chacha_key_t {
 	unsigned char b[32];
@@ -49,22 +49,6 @@ typedef struct chacha_state_internal_t {
 # define uint8_t unsigned char
 #endif
 
-const size_t wordSize = sizeof(void*);
-
-INLINE void 
-fastXORBytes(size_t *dst, size_t *a, size_t *b, size_t n)
-{
-	size_t i = n, w = n / wordSize;
-	if (w > 0) {
-		for (i = w; i--; *dst++ = *a++ ^ *b++);
-		i = n - w*wordSize;
-	}
-	if (i > 0) {
-		uint8_t *d8 = (uint8_t *)dst, *a8 = (uint8_t *)a, *b8 = (uint8_t *)b;
-		for (; i--; *d8++ = *a8++ ^ *b8++);
-	}
-}
-
 int chacha_startup(void);
 
 size_t chacha_update(chacha_state_internal *S, const unsigned char *in, unsigned char *out, size_t inlen);
@@ -73,22 +57,41 @@ size_t chacha_final(chacha_state_internal *S, unsigned char *out);
 
 void chacha(const chacha_key *key, const chacha_iv *iv, const  unsigned char *in,  unsigned char *out, size_t inlen, size_t rounds);
 
-void chacha_xor(chacha_state_internal *state, unsigned char *in, unsigned char *out, const size_t inlen)
+const size_t wordSize = sizeof(void*);
+
+INLINE void 
+fastXORBytes(size_t *dst, size_t *a, size_t *b, size_t n)
 {
-	size_t i, j, rem, step;
-	j = state->offset;
-	for (i = 0; i < inlen; ) {
+	size_t w = n / wordSize;
+	uint8_t *d8, *a8, *b8;
+	if (w > 0) {
+		n -= w*wordSize;
+		while (w--) *dst++ = *a++ ^ *b++;
+	}
+	if (n > 0) {
+		d8 = (uint8_t *)dst, a8 = (uint8_t *)a, b8 = (uint8_t *)b;
+		while (n--) *d8++ = *a8++ ^ *b8++;
+	}
+}
+
+void chacha_xor(chacha_state_internal *state, unsigned char *in, unsigned char *out, size_t inlen)
+{
+	size_t *sw_p, rem, step, j = state->offset;
+	while (inlen > 0) {
 		rem = CHACHA_STREAM_SIZE - j;
-		step = rem <= (inlen-i) ? rem : (inlen-i);
+		step = rem <= inlen ? rem : inlen;
+		inlen -= step;
 		
 		fastXORBytes((size_t *)out, (size_t *)in, (size_t *)(state->stream + j), step);
-		i += step;
-		j += step;
 		out += step;
 		in += step;
+		j += step;
 	
 		if (j == CHACHA_STREAM_SIZE) {
 			chacha_update(state, state->stream, state->stream, CHACHA_STREAM_SIZE);
+			sw_p = (size_t *)state->stream;
+			for (j /= wordSize; j--; )
+				(*sw_p++)++;
 			j = state->offset = 0;
 		} else {
 			state->offset = j;

@@ -20,13 +20,11 @@ func initChaCha(rounds uint) (*ChaCha, *ChaCha) {
 	sample = bytes.Repeat([]byte("abcdefghijklmnopqrstovwxyz1234567890"), 320)
 	origin = append([]byte(nil), sample...)
 
-	key := make([]byte, 32)
-	iv := make([]byte, 8)
+	key := make([]byte, 40)
 	io.ReadFull(rand.Reader, key)
-	io.ReadFull(rand.Reader, iv)
-	chacha20_1, _ := NewChaCha(key, iv, rounds)
-	chacha20_2, _ := NewChaCha(key, iv, rounds)
-	return chacha20_1, chacha20_2
+	chacha_1, _ := NewChaCha(key[:32], key[32:], rounds)
+	chacha_2, _ := NewChaCha(key[:32], key[32:], rounds)
+	return chacha_1, chacha_2
 }
 
 func Benchmark_ChaCha8_xor(b *testing.B) {
@@ -95,60 +93,58 @@ func Benchmark_AES256_cfb(b *testing.B) {
 	}
 }
 
-func Benchmark_ChaCha20_block(b *testing.B) {
-	ec, _ := initChaCha(20)
-	blockLen := len(sample) >> 6 << 6
-	block := sample[:blockLen]
-	b.SetBytes(int64(len(block)))
+func test_correctness(t *testing.T, ec, dc *ChaCha, sample2, origin2 []byte) {
+	// n-times encrypt, then decrypt all onetime.
+	randSlice(sample2, ec.XORKeyStream)
+	dc.XORKeyStream(sample2, sample2)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		ec.Encrypt(block, block)
+	// assertion
+	if dumpDiff(origin2, sample2) {
+		t.Fatalf("Incorrect result")
+	}
+
+	// encrypt all onetime. then n-times decrypt
+	ec.XORKeyStream(sample2, sample2)
+	randSlice(sample2, dc.XORKeyStream)
+
+	// assertion
+	if dumpDiff(origin2, sample2) {
+		t.Fatalf("Incorrect result")
 	}
 }
 
-func Benchmark_AES256_block(b *testing.B) {
-	key := sample[:32]
-	b.SetBytes(int64(len(sample)))
-	ec, _ := aes.NewCipher(key)
-	var tmp []byte
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		for j := 0; j < len(sample); j += 16 {
-			tmp = sample[j : j+16]
-			ec.Encrypt(tmp, tmp) // one-block encryptBlockAsm()
+func TestChaChaStreamCorrectness(t *testing.T) {
+	ec, dc := initChaCha(20)
+	origin2 := bytes.Repeat(origin, 100)
+	sample2 := append([]byte(nil), origin2...)
+
+	for i := 0; i < 1e3; i++ {
+		test_correctness(t, ec, dc, sample2, origin2)
+	}
+}
+
+func dumpDiff(a, b []byte) bool {
+	if string(a) == string(b) {
+		return false
+	}
+	var j = -1
+	for i := 0; i < len(a); i++ {
+		if a[i] != b[i] {
+			j = i
+			break
 		}
 	}
-}
-
-func TestChaChaCorrectness(t *testing.T) {
-	ec, dc := initChaCha(20)
-	sample = bytes.Repeat(origin, 100)
-	origin = bytes.Repeat(origin, 100)
-
-	randChip("dec", sample, func(chip []byte) {
-		ec.XORKeyStream(chip, chip)
-	})
-
-	dc.XORKeyStream(sample, sample)
-
-	if !bytes.Equal(origin, sample) {
-		dumpHex(sample, "result")
-		dumpHex(origin, "origin")
-		t.Fatalf("Incorrect result")
+	j1 := j - 32
+	if j1 < 0 {
+		j1 = 0
 	}
-
-	ec.XORKeyStream(sample, sample)
-
-	randChip("dec", sample, func(chip []byte) {
-		dc.XORKeyStream(chip, chip)
-	})
-
-	if !bytes.Equal(origin, sample) {
-		dumpHex(sample, "result")
-		dumpHex(origin, "origin")
-		t.Fatalf("Incorrect result")
+	j2 := j + 32
+	if j2 > len(a) {
+		j2 = len(a)
 	}
+	dumpHex(a[j1:j2], "origin")
+	dumpHex(b[j1:j2], "result")
+	return true
 }
 
 func dumpHex(data []byte, label string) {
@@ -156,7 +152,7 @@ func dumpHex(data []byte, label string) {
 	fmt.Fprintln(os.Stdout, hex.Dump(data))
 }
 
-func randChip(label string, sample []byte, call func(chip []byte)) {
+func randSlice(sample []byte, call func(a, b []byte)) {
 	mrand.Seed(int64(time.Now().Nanosecond()))
 
 	for i := 0; i < len(sample); {
@@ -166,8 +162,7 @@ func randChip(label string, sample []byte, call func(chip []byte)) {
 			s = rem
 		}
 		smp := sample[i : i+s]
-		call(smp)
-		//		dumpHex(smp, label+" chip")
+		call(smp, smp)
 		i += s
 	}
 }

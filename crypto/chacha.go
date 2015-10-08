@@ -27,7 +27,7 @@ const (
 )
 
 const (
-	_CHACHA_StreamSize = 256
+	_CHACHA_StreamSize = 512
 )
 
 type KeySizeError int
@@ -83,7 +83,7 @@ func NewChaCha(key, iv []byte, rounds uint) (*ChaCha, error) {
 		statePtr: statePtr,
 		state:    &state,
 	}
-	chacha.initStream()
+	chacha.initStream(iv)
 	return chacha, nil
 }
 
@@ -123,8 +123,14 @@ func (c *ChaCha) XORKeyStream(dst, src []byte) {
 	C.chacha_xor(c.statePtr, cIn, cOut, C.size_t(len(dst)))
 }
 
-func (c *ChaCha) initStream() {
-	copy(c.state.stream[:], sbox0)
+func (c *ChaCha) initStream(iv []byte) {
+	stream := c.state.stream
+	var x uint16
+	for i := 0; i < 256; i++ {
+		x = uint16(sbox0[i]) * uint16(iv[i%CHACHA_IVSize])
+		stream[2*i] = byte(x >> 8)
+		stream[2*i+1] = byte(x)
+	}
 	buf := make([]byte, _CHACHA_StreamSize)
 	c.XORKeyStream(buf, buf)
 }
