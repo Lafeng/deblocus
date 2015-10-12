@@ -9,7 +9,10 @@ import (
 
 //#cgo CFLAGS: -O3 -Wall -I.
 //#cgo LDFLAGS: -L.
-//#cgo windows LDFLAGS: -lcrypto_windows_amd64
+//#cgo darwin,amd64 LDFLAGS: -lcrypto_darwin_amd64
+//#cgo linux,amd64 LDFLAGS: -lcrypto_linux_amd64
+//#cgo linux,aarch64 LDFLAGS: -lcrypto_linux_aarch64
+//#cgo windows,amd64 LDFLAGS: -lcrypto_windows_amd64
 //#include "openssl.h"
 import "C"
 
