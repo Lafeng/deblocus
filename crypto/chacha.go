@@ -1,4 +1,5 @@
-// +build cgo AND amd64
+// +build amd64
+// +build cgo
 
 package crypto
 
