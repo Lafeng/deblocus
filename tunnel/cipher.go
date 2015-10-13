@@ -1,7 +1,6 @@
 package tunnel
 
 import (
-	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
@@ -54,9 +53,11 @@ var nullCipherKit = new(NullCipherKit)
 var availableCiphers = []interface{}{
 	"CHACHA12", &cipherDecr{32, 8, new_ChaCha12},
 	"CHACHA20", &cipherDecr{32, 8, new_ChaCha20},
-	"AES128CFB", &cipherDecr{16, 16, new_AES_CFB},
-	"AES192CFB", &cipherDecr{24, 16, new_AES_CFB},
-	"AES256CFB", &cipherDecr{32, 16, new_AES_CFB},
+	"AES128OFB", &cipherDecr{16, 16, new_AES_OFB},
+	"AES256OFB", &cipherDecr{32, 16, new_AES_OFB},
+	"AES128CTR", &cipherDecr{16, 16, new_AES_CTR},
+	"AES192CTR", &cipherDecr{24, 16, new_AES_CTR},
+	"AES256CTR", &cipherDecr{32, 16, new_AES_CTR},
 }
 
 func GetAvailableCipher(wants string) (*cipherDecr, error) {
@@ -71,10 +72,17 @@ func GetAvailableCipher(wants string) (*cipherDecr, error) {
 	return nil, UNSUPPORTED_CIPHER.Apply(wants)
 }
 
-func new_AES_CFB(key, iv []byte) *XORCipherKit {
-	block, _ := aes.NewCipher(key)
-	ec := cipher.NewCFBEncrypter(block, iv)
-	dc := cipher.NewCFBDecrypter(block, iv)
+func new_AES_CTR(key, iv []byte) *XORCipherKit {
+	block, _ := crypto.NewAESCipher(key, crypto.MODE_CTR)
+	ec, _ := crypto.NewAESEncrypter(block, iv)
+	dc, _ := crypto.NewAESDecrypter(block, iv)
+	return &XORCipherKit{ec, dc}
+}
+
+func new_AES_OFB(key, iv []byte) *XORCipherKit {
+	block, _ := crypto.NewAESCipher(key, crypto.MODE_OFB)
+	ec, _ := crypto.NewAESEncrypter(block, iv)
+	dc, _ := crypto.NewAESDecrypter(block, iv)
 	return &XORCipherKit{ec, dc}
 }
 
