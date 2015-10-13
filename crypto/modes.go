@@ -1,0 +1,27 @@
+package crypto
+
+import (
+	"errors"
+)
+
+type BLOCK_MODE uint32
+
+const (
+	MODE_ENCRYPT BLOCK_MODE = 0x1 << 16
+	MODE_DECRYPT BLOCK_MODE = 0x2 << 16
+	MODE_CTR     BLOCK_MODE = 0x1
+	MODE_OFB     BLOCK_MODE = 0x2
+	MODE_CFB     BLOCK_MODE = 0x3
+	MODE_CBC     BLOCK_MODE = 0x11
+	MODE_AEAD    BLOCK_MODE = 0x21
+)
+
+const (
+	AES_BLOCK_SIZE = 16
+)
+
+var (
+	ERR_BAD_KEY_LENGTH  = errors.New("BAD_KEY_LENGTH")
+	ERR_BAD_IV_LENGTH   = errors.New("BAD_IV_LENGTH")
+	ERR_NOT_IMPLEMENTED = errors.New("ERR_NOT_IMPLEMENTED")
+)

@@ -1,3 +1,6 @@
+// +build amd64 arm64
+// +build cgo
+
 package crypto
 
 import (
@@ -8,10 +11,10 @@ import (
 )
 
 //#cgo CFLAGS: -O3 -Wall -I.
-//#cgo LDFLAGS: -L.
+//#cgo LDFLAGS: -L${SRCDIR}
 //#cgo darwin,amd64 LDFLAGS: -lcrypto_darwin_amd64
 //#cgo linux,amd64 LDFLAGS: -lcrypto_linux_amd64
-//#cgo linux,aarch64 LDFLAGS: -lcrypto_linux_aarch64
+//#cgo linux,arm64 LDFLAGS: -lcrypto_linux_arm64
 //#cgo windows,amd64 LDFLAGS: -lcrypto_windows_amd64
 //#include "openssl.h"
 import "C"
@@ -34,17 +37,6 @@ type AESDecrypter struct {
 	ctx evp_ctx_ptr
 }
 
-type BLOCK_MODE int
-
-const (
-	MODE_CTR BLOCK_MODE = 0
-	MODE_OFB BLOCK_MODE = 1
-)
-
-var (
-	ERR_BAD_KEY_LENGTH = fmt.Errorf("BAD_KEY_LENGTH")
-)
-
 var aes_ciphers []evp_cipher_ptr
 
 func init() {
@@ -60,6 +52,7 @@ func init() {
 
 func NewAESCipher(key []byte, mode BLOCK_MODE) (*aesCipher, error) {
 	var cipher evp_cipher_ptr
+	mode = (mode & 0xff) - 1
 	switch len(key) {
 	case 16:
 		cipher = aes_ciphers[mode]
@@ -74,10 +67,15 @@ func NewAESCipher(key []byte, mode BLOCK_MODE) (*aesCipher, error) {
 }
 
 func NewAESEncrypter(aes *aesCipher, iv []byte) (cipher.Stream, error) {
+	if len(iv) < AES_BLOCK_SIZE {
+		return nil, ERR_BAD_IV_LENGTH
+	}
+
 	var ctx C.EVP_CIPHER_CTX
 	c_key := (*C.uint8_t)(unsafe.Pointer(&aes.key[0]))
 	c_iv := (*C.uint8_t)(unsafe.Pointer(&iv[0]))
 	ret := C.EVP_CipherInit_ex(&ctx, aes.cipher, nil, c_key, c_iv, 1)
+
 	if ret == bssl_ok {
 		return &AESEncrypter{
 			aesCipher: aes,
@@ -89,10 +87,15 @@ func NewAESEncrypter(aes *aesCipher, iv []byte) (cipher.Stream, error) {
 }
 
 func NewAESDecrypter(aes *aesCipher, iv []byte) (cipher.Stream, error) {
+	if len(iv) < AES_BLOCK_SIZE {
+		return nil, ERR_BAD_IV_LENGTH
+	}
+
 	var ctx C.EVP_CIPHER_CTX
 	c_key := (*C.uint8_t)(unsafe.Pointer(&aes.key[0]))
 	c_iv := (*C.uint8_t)(unsafe.Pointer(&iv[0]))
 	ret := C.EVP_CipherInit_ex(&ctx, aes.cipher, nil, c_key, c_iv, 0)
+
 	if ret == bssl_ok {
 		return &AESDecrypter{
 			aesCipher: aes,
@@ -167,6 +170,7 @@ func (a *AES_GCM) Overhead() int {
 }
 
 func (a *AES_GCM) Seal(dst, nonce, plaintext, data []byte) []byte {
+	// TODO check args
 	c_in := (*C.uint8_t)(unsafe.Pointer(&plaintext[0]))
 	c_out := (*C.uint8_t)(unsafe.Pointer(&dst[0]))
 	c_nonce := (*C.uint8_t)(unsafe.Pointer(&nonce[0]))
@@ -188,6 +192,7 @@ func (a *AES_GCM) Seal(dst, nonce, plaintext, data []byte) []byte {
 }
 
 func (a *AES_GCM) Open(dst, nonce, ciphertext, data []byte) ([]byte, error) {
+	// TODO check args
 	c_in := (*C.uint8_t)(unsafe.Pointer(&ciphertext[0]))
 	c_out := (*C.uint8_t)(unsafe.Pointer(&dst[0]))
 	c_nonce := (*C.uint8_t)(unsafe.Pointer(&nonce[0]))
@@ -220,6 +225,18 @@ func get_error() string {
 	}
 }
 
+/* This implementation is by Ted Krovetz and was submitted to SUPERCOP and
+ * marked as public domain. It was been altered to allow for non-aligned inputs
+ * and to allow the block counter to be passed in specifically. */
+// Just for testing
+func crypto_chacha20(key, nonce, out, in []byte) {
+	c_in := (*C.uint8_t)(unsafe.Pointer(&in[0]))
+	c_out := (*C.uint8_t)(unsafe.Pointer(&out[0]))
+	c_key := (*C.uint8_t)(unsafe.Pointer(&key[0]))
+	c_nonce := (*C.uint8_t)(unsafe.Pointer(&nonce[0]))
+	C.CRYPTO_chacha_20(c_out, c_in, C.size_t(len(out)), c_key, c_nonce, C.size_t(0))
+}
+
 func has_aes_hardware() int {
 	return int(C.EVP_has_aes_hardware())
 }
@@ -228,8 +245,13 @@ func is_NEON_capable() int {
 	return int(C.CRYPTO_is_NEON_capable())
 }
 
-func dumpCPUID() []uint32 {
-	var cpuid [4]uint32
-	cpuid = *(*[4]uint32)(unsafe.Pointer(&C.OPENSSL_ia32cap_P))
-	return cpuid[:]
+func dump_cpu_features() []uint32 {
+	cpuid_ptr := (*[4]uint32)(unsafe.Pointer(C.CPU_features()))
+	if cpuid_ptr == nil {
+		return nil
+	} else {
+		// auto copy
+		var cpuid = *cpuid_ptr
+		return cpuid[:]
+	}
 }

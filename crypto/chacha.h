@@ -38,16 +38,10 @@ typedef struct chacha_state_internal_t {
 	size_t offset;
 } chacha_state_internal;
 
-#ifndef INLINE
-# if __GNUC__ && !__GNUC_STDC_INLINE__
-#  define INLINE extern inline
-# else
-#  define INLINE inline
-# endif
-#endif
 #ifndef uint8_t
 # define uint8_t unsigned char
 #endif
+#define U8P(x) ((uint8_t *)x)
 
 int chacha_startup(void);
 
@@ -59,39 +53,53 @@ void chacha(const chacha_key *key, const chacha_iv *iv, const  unsigned char *in
 
 const size_t wordSize = sizeof(void*);
 
-INLINE void 
-fastXORBytes(size_t *dst, size_t *a, size_t *b, size_t n)
+int is_aligned(const void* addr, size_t n) {
+	return ((size_t)addr) & (n-1);
+}
+
+#if __SSE2__
+
+#include <emmintrin.h>
+#define VEC __m128i
+#define VECP(x) ((__m128i *)(x))
+#define LOAD128(m) _mm_loadu_si128(m)
+#define XOR128(a, b) _mm_xor_si128(LOAD128(a), LOAD128(b))
+#define STORE128(m, r) _mm_storeu_si128(m, r)
+#define V16XOR(d, a, b) STORE128(d, XOR128(a, b))
+
+#endif
+
+
+static inline void 
+fastXORBytes(uint8_t *dst, uint8_t *a, uint8_t *b, size_t rem)
 {
-	size_t w = n / wordSize;
-	uint8_t *d8, *a8, *b8;
-	if (w > 0) {
-		n -= w*wordSize;
-		while (w--) *dst++ = *a++ ^ *b++;
-	}
+	size_t n = rem/16;
+	VEC *v0 = VECP(dst), *v1 = VECP(a), *v2 = VECP(b);
 	if (n > 0) {
-		d8 = (uint8_t *)dst, a8 = (uint8_t *)a, b8 = (uint8_t *)b;
-		while (n--) *d8++ = *a8++ ^ *b8++;
+		rem -= n*16;
+		while (n--) V16XOR(v0++, v1++, v2++);
+	}
+	if (rem > 0) {
+		dst = U8P(v0), a = U8P(v1), b = U8P(v2);
+		while (rem--) *dst++ = *a++ ^ *b++;
 	}
 }
 
 void chacha_xor(chacha_state_internal *state, unsigned char *in, unsigned char *out, size_t inlen)
 {
-	size_t *sw_p, rem, step, j = state->offset;
+	size_t rem, step, j = state->offset;
 	while (inlen > 0) {
 		rem = CHACHA_STREAM_SIZE - j;
 		step = rem <= inlen ? rem : inlen;
 		inlen -= step;
 		
-		fastXORBytes((size_t *)out, (size_t *)in, (size_t *)(state->stream + j), step);
+		fastXORBytes(out, in, state->stream + j, step);
 		out += step;
 		in += step;
 		j += step;
 	
 		if (j == CHACHA_STREAM_SIZE) {
 			chacha_update(state, state->stream, state->stream, CHACHA_STREAM_SIZE);
-			sw_p = (size_t *)state->stream;
-			for (j /= wordSize; j--; )
-				(*sw_p++)++;
 			j = state->offset = 0;
 		} else {
 			state->offset = j;

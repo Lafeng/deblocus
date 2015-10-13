@@ -33,7 +33,7 @@ func init() {
 	fmt.Fprintf(os.Stderr, "Testing with sample.length=%d\n", len(sample))
 }
 
-func initChaCha(rounds uint) (*ChaCha, *ChaCha) {
+func new_ChaCha(rounds uint) (cipher.Stream, cipher.Stream) {
 	key := make([]byte, 40)
 	io.ReadFull(rand.Reader, key)
 	chacha_1, _ := NewChaCha(key[:32], key[32:], rounds)
@@ -41,7 +41,7 @@ func initChaCha(rounds uint) (*ChaCha, *ChaCha) {
 	return chacha_1, chacha_2
 }
 
-func initAES(bitlen int, mode BLOCK_MODE) (cipher.Stream, cipher.Stream) {
+func new_aes(bitlen int, mode BLOCK_MODE) (cipher.Stream, cipher.Stream) {
 	key := make([]byte, bitlen>>3)
 	io.ReadFull(rand.Reader, key)
 	aes, _ := NewAESCipher(key, mode)
@@ -58,7 +58,7 @@ func new_aes_gcm(bitlen int) (cipher.AEAD, cipher.AEAD, []byte) {
 }
 
 func Benchmark_ChaCha8_xor(b *testing.B) {
-	ec, _ := initChaCha(8)
+	ec, _ := new_ChaCha(8)
 	b.SetBytes(int64(len(sample)))
 
 	b.ResetTimer()
@@ -68,7 +68,7 @@ func Benchmark_ChaCha8_xor(b *testing.B) {
 }
 
 func Benchmark_ChaCha12_xor(b *testing.B) {
-	ec, _ := initChaCha(12)
+	ec, _ := new_ChaCha(12)
 	b.SetBytes(int64(len(sample)))
 
 	b.ResetTimer()
@@ -78,7 +78,7 @@ func Benchmark_ChaCha12_xor(b *testing.B) {
 }
 
 func Benchmark_ChaCha20_xor(b *testing.B) {
-	ec, _ := initChaCha(20)
+	ec, _ := new_ChaCha(20)
 	b.SetBytes(int64(len(sample)))
 
 	b.ResetTimer()
@@ -87,9 +87,21 @@ func Benchmark_ChaCha20_xor(b *testing.B) {
 	}
 }
 
+// Krovetz version
+func Benchmark_ChaCha20_crypto(b *testing.B) {
+	b.SetBytes(int64(len(sample)))
+	keys := make([]byte, 40)
+	key, iv := keys[:32], keys[32:]
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		crypto_chacha20(key, iv, sample, sample)
+	}
+}
+
 func Benchmark_AES128_ctr(b *testing.B) {
 	b.SetBytes(int64(len(sample)))
-	ec, _ := initAES(128, MODE_CTR)
+	ec, _ := new_aes(128, MODE_CTR)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -99,7 +111,7 @@ func Benchmark_AES128_ctr(b *testing.B) {
 
 func Benchmark_AES192_ctr(b *testing.B) {
 	b.SetBytes(int64(len(sample)))
-	ec, _ := initAES(192, MODE_CTR)
+	ec, _ := new_aes(192, MODE_CTR)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -109,7 +121,7 @@ func Benchmark_AES192_ctr(b *testing.B) {
 
 func Benchmark_AES256_ctr(b *testing.B) {
 	b.SetBytes(int64(len(sample)))
-	ec, _ := initAES(256, MODE_CTR)
+	ec, _ := new_aes(256, MODE_CTR)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -119,7 +131,7 @@ func Benchmark_AES256_ctr(b *testing.B) {
 
 func Benchmark_AES128_ofb(b *testing.B) {
 	b.SetBytes(int64(len(sample)))
-	ec, _ := initAES(128, MODE_OFB)
+	ec, _ := new_aes(128, MODE_OFB)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -129,7 +141,7 @@ func Benchmark_AES128_ofb(b *testing.B) {
 
 func Benchmark_AES256_ofb(b *testing.B) {
 	b.SetBytes(int64(len(sample)))
-	ec, _ := initAES(256, MODE_OFB)
+	ec, _ := new_aes(256, MODE_OFB)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -163,24 +175,28 @@ func test_cpu_internal() {
 	var msg = func(format string, args ...interface{}) {
 		fmt.Fprintf(os.Stderr, "CPU "+format+"\n", args...)
 	}
+	code := dump_cpu_features()
 	features := make([]string, 0, 32)
-	code := dumpCPUID()
+	if len(code) <= 0 {
+		goto capability
+	}
 	for j, v := range _features_table {
 		i, bit := v[1].(int), uint(v[2].(int))
 		if code[3-i]&(1<<bit) > 0 {
 			features = append(features, v[0].(string))
 		}
-		if len(features)%0xa == 0 || j+1 == len(_features_table) {
+		if (len(features)+1)%0xb == 0 || j+1 == len(_features_table) {
 			msg("features:  %s", strings.Join(features, " "))
 			features = features[:0]
 		}
 	}
 
+capability:
 	msg("AES-hardware=%d NEON-capable=%d", has_aes_hardware(), is_NEON_capable())
 }
 
 func Test_ChaCha_Stream(t *testing.T) {
-	ec, dc := initChaCha(20)
+	ec, dc := new_ChaCha(20)
 	origin2 := bytes.Repeat(origin, 10)
 	sample2 := append([]byte(nil), origin2...)
 
@@ -192,15 +208,14 @@ func Test_ChaCha_Stream(t *testing.T) {
 }
 
 func Test_AES_Stream(t *testing.T) {
-	ec, dc := initAES(128, MODE_CTR)
+	ec, dc := new_aes(128, MODE_CTR)
 	origin2 := bytes.Repeat(origin, 10)
 	sample2 := append([]byte(nil), origin2...)
 
 	for i := 0; i < 1e3; i++ {
 		test_correctness(t, ec, dc, sample2, origin2)
 	}
-	n2 := min(len(sample2), 0xfff)
-	test_correctness2(t, ec, dc, sample2[:n2], origin2[:n2])
+	test_correctness2(t, ec, dc, sample2, origin2)
 }
 
 func Test_AES_GCM(t *testing.T) {
@@ -325,7 +340,7 @@ func test_correctness(t *testing.T, ec, dc cipher.Stream, sample2, origin2 []byt
 }
 
 func test_correctness2(t *testing.T, ec, dc cipher.Stream, sample2, origin2 []byte) {
-	n := mrand.Int() & 0xffff
+	n := mrand.Int() & 0xff
 	for i := 0; i < n; i++ {
 		ec.XORKeyStream(sample2, sample2)
 	}
@@ -351,8 +366,8 @@ func dumpDiff(a, b []byte) bool {
 	}
 	j1 := max(j-32, 0)
 	j2 := j + 32
-	dumpHex(a[j1:min(j2, len(a))], "origin")
-	dumpHex(b[j1:min(j2, len(b))], "result")
+	dumpHex(a[j1:min(j2, len(a))], fmt.Sprintf("origin :0x%x/0x%x", j1, len(a)))
+	dumpHex(b[j1:min(j2, len(b))], fmt.Sprintf("result :0x%x/0x%x", j1, len(b)))
 	return true
 }
 
