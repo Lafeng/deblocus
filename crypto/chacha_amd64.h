@@ -1,4 +1,4 @@
-// +build cgo
+// +build amd64
 
 #ifndef CHACHA_H
 #define CHACHA_H
@@ -18,6 +18,21 @@ void *__wrap_memcpy(void *dest, const void *src, size_t n)
 }
 #endif
 
+#if __SSE2__
+#include <emmintrin.h>
+#define VEC __m128i
+#define VECP(x) ((__m128i *)(x))
+#define LOAD128(m) _mm_loadu_si128(m)
+#define XOR128(a, b) _mm_xor_si128(LOAD128(a), LOAD128(b))
+#define STORE128(m, r) _mm_storeu_si128(m, r)
+#define V16XOR(d, a, b) STORE128(d, XOR128(a, b))
+#endif
+
+#ifndef uint8_t
+# define uint8_t unsigned char
+#endif
+
+#define U8P(x) ((uint8_t *)x)
 #define	CHACHA_BLOCK_SIZE  64
 #define	CHACHA_STREAM_SIZE 512
 
@@ -38,11 +53,6 @@ typedef struct chacha_state_internal_t {
 	size_t offset;
 } chacha_state_internal;
 
-#ifndef uint8_t
-# define uint8_t unsigned char
-#endif
-#define U8P(x) ((uint8_t *)x)
-
 int chacha_startup(void);
 
 size_t chacha_update(chacha_state_internal *S, const unsigned char *in, unsigned char *out, size_t inlen);
@@ -56,19 +66,6 @@ const size_t wordSize = sizeof(void*);
 int is_aligned(const void* addr, size_t n) {
 	return ((size_t)addr) & (n-1);
 }
-
-#if __SSE2__
-
-#include <emmintrin.h>
-#define VEC __m128i
-#define VECP(x) ((__m128i *)(x))
-#define LOAD128(m) _mm_loadu_si128(m)
-#define XOR128(a, b) _mm_xor_si128(LOAD128(a), LOAD128(b))
-#define STORE128(m, r) _mm_storeu_si128(m, r)
-#define V16XOR(d, a, b) STORE128(d, XOR128(a, b))
-
-#endif
-
 
 static inline void 
 fastXORBytes(uint8_t *dst, uint8_t *a, uint8_t *b, size_t rem)

@@ -3,8 +3,8 @@
 
 #include "openssl/base.h"
 #include "openssl/aead.h"
-#include "openssl/cipher.h"
 #include "openssl/chacha.h"
+#include "openssl/cipher.h"
 #include "openssl/cpu.h"
 #include "openssl/err.h"
 

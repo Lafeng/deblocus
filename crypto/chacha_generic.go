@@ -1,4 +1,4 @@
-// +build !amd64 !cgo
+// +build !amd64,!arm64 !cgo
 
 package crypto
 
@@ -42,35 +42,6 @@ func (c *chacha_generic) Decrypt(dst, in []byte) {
 // These methods: chacha_init quarterround chacha_core
 // From Romain Jacotin
 // Ref: https://github.com/romain-jacotin/ChaCha/blob/master/ChaCha.go
-
-func chacha_init(chachaGrid *[16]uint32, key []byte, nonce []byte) {
-	var i, j uint
-
-	chachaGrid[0] = 0x61707865
-	chachaGrid[1] = 0x3320646e
-	chachaGrid[2] = 0x79622d32
-	chachaGrid[3] = 0x6b206574
-
-	// 256 bits key as 8 Little Endian uint32
-	for j = 0; j < 8; j++ {
-		chachaGrid[j+4] = 0
-		for i = 0; i < 4; i++ {
-			chachaGrid[j+4] += uint32(key[j*4+i]) << (8 * i)
-		}
-	}
-
-	// block counter
-	chachaGrid[12] = 0
-	chachaGrid[13] = 0
-
-	// nonce as 2 consecutives Little Endian uint32
-	for j = 0; j < 2; j++ {
-		chachaGrid[j+14] = 0
-		for i = 0; i < 4; i++ {
-			chachaGrid[j+14] += uint32(nonce[j*4+i]) << (8 * i)
-		}
-	}
-}
 
 func quarterround(a, b, c, d uint32) (uint32, uint32, uint32, uint32) {
 
@@ -125,10 +96,8 @@ func chacha_core(stream, state *[16]uint32, rounds int) {
 	stream[14] = x[14] + state[14]
 	stream[15] = x[15] + state[15]
 
-	/*
-		state[12]++
-		if state[12] == 0 {
-			state[13]++
-		}
-	*/
+	state[12]++
+	if state[12] == 0 {
+		state[13]++
+	}
 }
