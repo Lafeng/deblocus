@@ -87,18 +87,6 @@ func Benchmark_ChaCha20_xor(b *testing.B) {
 	}
 }
 
-// Krovetz version
-func Benchmark_ChaCha20_crypto(b *testing.B) {
-	b.SetBytes(int64(len(sample)))
-	keys := make([]byte, 40)
-	key, iv := keys[:32], keys[32:]
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		crypto_chacha20(key, iv, sample, sample)
-	}
-}
-
 func Benchmark_AES128_ctr(b *testing.B) {
 	b.SetBytes(int64(len(sample)))
 	ec, _ := new_aes(128, MODE_CTR)

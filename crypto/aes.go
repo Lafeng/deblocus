@@ -225,18 +225,6 @@ func get_error() string {
 	}
 }
 
-/* This implementation is by Ted Krovetz and was submitted to SUPERCOP and
- * marked as public domain. It was been altered to allow for non-aligned inputs
- * and to allow the block counter to be passed in specifically. */
-// Just for testing
-func crypto_chacha20(key, nonce, out, in []byte) {
-	c_in := (*C.uint8_t)(unsafe.Pointer(&in[0]))
-	c_out := (*C.uint8_t)(unsafe.Pointer(&out[0]))
-	c_key := (*C.uint8_t)(unsafe.Pointer(&key[0]))
-	c_nonce := (*C.uint8_t)(unsafe.Pointer(&nonce[0]))
-	C.CRYPTO_chacha_20(c_out, c_in, C.size_t(len(out)), c_key, c_nonce, C.size_t(0))
-}
-
 func has_aes_hardware() int {
 	return int(C.EVP_has_aes_hardware())
 }

@@ -5,7 +5,6 @@ package crypto
 
 import (
 	"crypto/cipher"
-	"fmt"
 	"unsafe"
 )
 
@@ -54,5 +53,18 @@ func NewChaCha(key, iv []byte, rounds uint) (cipher.Stream, error) {
 func (c *ChaCha) XORKeyStream(dst, src []byte) {
 	cIn := (*C.uint8_t)(unsafe.Pointer(&src[0]))
 	cOut := (*C.uint8_t)(unsafe.Pointer(&dst[0]))
-	C.CRYPTO_neon_chacha_xor(c.state, cOut, cIn, C.size_t(len(dst)))
+	C.CRYPTO_neon_chacha_xor(c.cState, cOut, cIn, C.size_t(len(dst)))
+}
+
+func (c *ChaCha) initStream(iv []byte) {
+	stream := (*[_CHACHA_STREAM_SIZE]byte)(unsafe.Pointer(&c.tState.stream[0]))
+	var x uint16
+	iv = iv[:cap(iv)]
+	for i := 0; i < 256; i++ {
+		x = uint16(sbox0[i]) * uint16(iv[i%len(iv)])
+		stream[2*i] = byte(x >> 8)
+		stream[2*i+1] = byte(x)
+	}
+	buf := make([]byte, _CHACHA_STREAM_SIZE)
+	c.XORKeyStream(buf, buf)
 }
