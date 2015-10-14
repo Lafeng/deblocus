@@ -66,7 +66,7 @@ func NewChaCha(key, iv []byte, rounds uint) (*ChaCha, error) {
 		statePtr: statePtr,
 		state:    &state,
 	}
-	chacha.initStream(iv)
+	initStream(chacha)
 	return chacha, nil
 }
 
@@ -104,17 +104,4 @@ func (c *ChaCha) XORKeyStream(dst, src []byte) {
 	var cIn = (*C.uchar)(unsafe.Pointer(&src[0]))
 	var cOut = (*C.uchar)(unsafe.Pointer(&dst[0]))
 	C.chacha_xor(c.statePtr, cIn, cOut, C.size_t(len(dst)))
-}
-
-func (c *ChaCha) initStream(iv []byte) {
-	stream := c.state.stream
-	var x uint16
-	iv = iv[:cap(iv)]
-	for i := 0; i < 256; i++ {
-		x = uint16(sbox0[i]) * uint16(iv[i%len(iv)])
-		stream[2*i] = byte(x >> 8)
-		stream[2*i+1] = byte(x)
-	}
-	buf := make([]byte, _CHACHA_STREAM_SIZE)
-	c.XORKeyStream(buf, buf)
 }

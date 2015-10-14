@@ -96,7 +96,7 @@ void chacha_xor(chacha_state_internal *state, unsigned char *in, unsigned char *
 		j += step;
 	
 		if (j == CHACHA_STREAM_SIZE) {
-			chacha_update(state, state->stream, state->stream, CHACHA_STREAM_SIZE);
+			chacha_update(state, NULL, state->stream, CHACHA_STREAM_SIZE);
 			j = state->offset = 0;
 		} else {
 			state->offset = j;

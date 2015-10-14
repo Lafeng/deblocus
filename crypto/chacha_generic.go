@@ -10,18 +10,19 @@ import (
 type chacha_generic struct {
 	state     [16]uint32
 	state_ptr *[16]uint32
+	stream    [_CHACHA_STREAM_SIZE]byte
 	rounds    int
+	offset    int
 }
 
 func NewChaCha(key, nonce []byte, rounds uint) (cipher.Stream, error) {
-	var block chacha_generic
-	block.rounds = int(rounds >> 1)
-	block.state_ptr = &block.state
+	var chacha chacha_generic
+	chacha.rounds = int(rounds >> 1)
+	chacha.state_ptr = &chacha.state
 
-	chacha_init(block.state_ptr, key, nonce)
-
-	iv_arr := *(*[64]byte)(unsafe.Pointer(block.state_ptr))
-	return cipher.NewCTR(&block, iv_arr[:]), nil
+	chacha_init(chacha.state_ptr, key, nonce)
+	initStream(&chacha)
+	return &chacha, nil
 }
 
 func (c *chacha_generic) BlockSize() int {
@@ -36,6 +37,46 @@ func (c *chacha_generic) Encrypt(dst, in []byte) {
 func (c *chacha_generic) Decrypt(dst, in []byte) {
 	out := (*[16]uint32)(unsafe.Pointer(&dst[0]))
 	chacha_core(out, c.state_ptr, c.rounds)
+}
+
+func safeXORBytes(dst, a, b []byte) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		dst[i] = a[i] ^ b[i]
+	}
+	return n
+}
+
+func (c *chacha_generic) XORKeyStream(dst, in []byte) {
+	var rem, step, j, inlen int
+	j = c.offset
+	for inlen = len(dst); inlen > 0; {
+		rem = _CHACHA_STREAM_SIZE - j
+		if rem <= inlen {
+			step = rem
+		} else {
+			step = inlen
+		}
+		inlen -= step
+
+		safeXORBytes(dst, in, c.stream[j:])
+		dst = dst[step:]
+		in = in[step:]
+		j += step
+
+		if j == _CHACHA_STREAM_SIZE {
+			j, c.offset = 0, 0
+			for i := 0; i < _CHACHA_STREAM_SIZE/64; i++ {
+				stream_p := (*[16]uint32)(unsafe.Pointer(&c.stream[i*64]))
+				chacha_core(stream_p, c.state_ptr, c.rounds)
+			}
+		} else {
+			c.offset = j
+		}
+	}
 }
 
 //

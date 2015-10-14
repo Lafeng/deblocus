@@ -206,6 +206,64 @@ func Test_AES_Stream(t *testing.T) {
 	test_correctness2(t, ec, dc, sample2, origin2)
 }
 
+func Test_ChaCha_Standard(t *testing.T) {
+	chacha_std_test(t,
+		"0000000000000000000000000000000000000000000000000000000000000000",
+		"0000000000000000",
+		"76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7da41597c5157488d7724e03fb8d84a376a43b8f41518a11cc387b669b2ee6586",
+	)
+	chacha_std_test(t,
+		"0000000000000000000000000000000000000000000000000000000000000001",
+		"0000000000000000",
+		"4540f05a9f1fb296d7736e7b208e3c96eb4fe1834688d2604f450952ed432d41bbe2a0b6ea7566d2a5d1e7e20d42af2c53d792b1c43fea817e9ad275ae546963",
+	)
+	chacha_std_test(t,
+		"0000000000000000000000000000000000000000000000000000000000000000",
+		"0000000000000001",
+		"de9cba7bf3d69ef5e786dc63973f653a0b49e015adbff7134fcb7df137821031e85a050278a7084527214f73efc7fa5b5277062eb7a0433e445f41e31afab757",
+	)
+	chacha_std_test(t,
+		"0000000000000000000000000000000000000000000000000000000000000000",
+		"0100000000000000",
+		"ef3fdfd6c61578fbf5cf35bd3dd33b8009631634d21e42ac33960bd138e50d32111e4caf237ee53ca8ad6426194a88545ddc497a0b466e7d6bbdb0041b2f586b",
+	)
+	chacha_std_test(t,
+		"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+		"0001020304050607",
+		"f798a189f195e66982105ffb640bb7757f579da31602fc93ec01ac56f85ac3c134a4547b733b46413042c9440049176905d3be59ea1c53f15916155c2be8241a",
+	)
+
+}
+
+func chacha_std_test(t *testing.T, _key, _iv, _expected string) {
+	var key, iv, in, out, expected []byte
+	in = make([]byte, 64) // zero xor
+	out = make([]byte, len(in))
+
+	key = decode_hex(_key)
+	iv = decode_hex(_iv)
+	c, e := NewChaCha(key, iv, 20)
+	if e != nil {
+		t.Fatal(e)
+	}
+	c.XORKeyStream(out, in)
+	expected = decode_hex(_expected)
+	if dumpDiff(expected, out) {
+		t.Fatalf("Incorrect result")
+	}
+}
+
+func decode_hex(s string) []byte {
+	code, err := hex.DecodeString(s)
+	if err != nil {
+		panic(err)
+	}
+	if len(code) != len(s)/2 {
+		panic("decode error")
+	}
+	return code
+}
+
 func Test_AES_GCM(t *testing.T) {
 	plain := append([]byte(nil), origin...)
 	out1 := make([]byte, len(plain)+16)

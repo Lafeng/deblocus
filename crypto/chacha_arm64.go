@@ -20,7 +20,7 @@ type ChaCha struct {
 
 type chacha_state_t struct {
 	state  [16]uint32
-	stream [_CHACHA_STREAM_SIZE / 4]uint32
+	stream [_CHACHA_STREAM_SIZE]byte
 	rounds uint
 	offset uint
 }
@@ -41,30 +41,19 @@ func NewChaCha(key, iv []byte, rounds uint) (cipher.Stream, error) {
 	var s chacha_state_t
 	chacha_init(&s.state, key, iv)
 	s.rounds = rounds
+	s.offset = 0
 
 	cState := (*C.chacha_state)(unsafe.Pointer(&s))
 	var chacha = &ChaCha{
 		tState: &s,
 		cState: cState,
 	}
+	initStream(chacha)
 	return chacha, nil
 }
 
 func (c *ChaCha) XORKeyStream(dst, src []byte) {
 	cIn := (*C.uint8_t)(unsafe.Pointer(&src[0]))
 	cOut := (*C.uint8_t)(unsafe.Pointer(&dst[0]))
-	C.CRYPTO_neon_chacha_xor(c.cState, cOut, cIn, C.size_t(len(dst)))
-}
-
-func (c *ChaCha) initStream(iv []byte) {
-	stream := (*[_CHACHA_STREAM_SIZE]byte)(unsafe.Pointer(&c.tState.stream[0]))
-	var x uint16
-	iv = iv[:cap(iv)]
-	for i := 0; i < 256; i++ {
-		x = uint16(sbox0[i]) * uint16(iv[i%len(iv)])
-		stream[2*i] = byte(x >> 8)
-		stream[2*i+1] = byte(x)
-	}
-	buf := make([]byte, _CHACHA_STREAM_SIZE)
-	c.XORKeyStream(buf, buf)
+	C.CRYPTO_neon_chacha_xor(c.cState, cIn, cOut, C.size_t(len(dst)))
 }
