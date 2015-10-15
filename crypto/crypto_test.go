@@ -206,6 +206,7 @@ func Test_AES_Stream(t *testing.T) {
 	test_correctness2(t, ec, dc, sample2, origin2)
 }
 
+// Ref: https://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-04#page-11
 func Test_ChaCha_Standard(t *testing.T) {
 	chacha_std_test(t,
 		"0000000000000000000000000000000000000000000000000000000000000000",
