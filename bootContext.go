@@ -39,13 +39,10 @@ func (c *bootContext) parse() {
 		c.isServ = c.ccc || t.DetectRunAsServ()
 	}
 	if c.config == "" && !c.csc {
-		var e bool
-		c.config, e = t.DetectFile(c.isServ)
-		if !e {
-			fmt.Fprintln(os.Stderr, "No such file", c.config)
-			fmt.Fprintln(os.Stderr, "Create/put config in typical path or indicate it explicitly.")
-			os.Exit(1)
-		}
+		var ok bool
+		c.config, ok = t.DetectFile(c.isServ)
+		fatalIf(!ok, "No such file "+c.config+
+			"\nCreate/put config in typical path or indicate it explicitly.")
 	}
 	// inject parameters into sub-packages
 	t.VERSION = version
@@ -87,38 +84,40 @@ func (c *bootContext) cscHandler(output string) {
 	case 1:
 		rsaParam = flag.Arg(0)
 	default:
-		fmt.Fprintln(os.Stderr, "Incorrect arguments")
-		return
+		fatal("Incorrect arguments")
 	}
-	if e := t.GenerateD5sTemplate(output, rsaParam); e != nil {
-		fmt.Fprintln(os.Stderr, e)
-	}
+	err := t.GenerateD5sTemplate(output, rsaParam)
+	fatalIf(err != nil, err)
 }
 
 func (c *bootContext) cccHandler(output string) {
 	// ./deblocus -ccc SERV_ADDR:PORT USER
 	if flag.NArg() == 2 {
 		addr := flag.Arg(0)
-		if v, e := t.IsValidHost(addr); !v {
-			fmt.Fprintln(os.Stderr, e)
-			return
-		}
-		var d5sc = t.Parse_d5s_file(c.config)
+		v, err := t.IsValidHost(addr)
+		fatalIf(!v, err)
+
+		d5sc, err := t.Parse_d5s_file(c.config)
+		fatalIf(err != nil, advice(err))
+
 		d5sc.Listen = addr
-		if e := t.CreateClientConfig(output, d5sc, flag.Arg(1)); e != nil {
-			fmt.Fprintln(os.Stderr, e)
-		}
+		err = t.CreateClientConfig(output, d5sc, flag.Arg(1))
+		fatalIf(err != nil, err)
 	} else {
-		fmt.Fprintln(os.Stderr, "Incorrect arguments")
+		fatal("Incorrect arguments")
 	}
 }
 
 func (context *bootContext) startClient() {
 	defer func() {
-		ex.CatchException(warning(recover()))
+		ex.CatchException(advice(recover()))
 		sigChan <- t.Bye
 	}()
-	var conf = t.Parse_d5c_file(context.config)
+	conf, err := t.Parse_d5c_file(context.config)
+	if err != nil {
+		log.Fatalln(advice(err))
+	}
+
 	context.setLogVerbose(conf.Verbose)
 	log.Infoln(versionString())
 	log.Infoln("Socks5/Http is working at", conf.ListenAddr)
@@ -128,6 +127,7 @@ func (context *bootContext) startClient() {
 		log.Fatalln(err)
 	}
 	defer ln.Close()
+
 	dhKey, _ := c.NewDHKey(DH_METHOD)
 	client := t.NewClient(conf, dhKey)
 	context.components = append(context.components, client)
@@ -150,10 +150,14 @@ func (context *bootContext) startClient() {
 
 func (context *bootContext) startServer() {
 	defer func() {
-		ex.CatchException(warning(recover()))
+		ex.CatchException(advice(recover()))
 		sigChan <- t.Bye
 	}()
-	var conf = t.Parse_d5s_file(context.config)
+	conf, err := t.Parse_d5s_file(context.config)
+	if err != nil {
+		log.Fatalln(advice(err))
+	}
+
 	context.setLogVerbose(conf.Verbose)
 	log.Infoln(versionString())
 	log.Infoln("Server is listening on", conf.ListenAddr)
@@ -177,11 +181,41 @@ func (context *bootContext) startServer() {
 	}
 }
 
-func warning(e interface{}) interface{} {
+func fatalIf(cond bool, args ...interface{}) {
+	if cond {
+		fatal(args...)
+	}
+}
+
+func fatalf(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	if !strings.HasSuffix(msg, "\n") {
+		msg += "\n"
+	}
+	fmt.Fprint(os.Stderr, msg)
+	os.Exit(1)
+}
+
+func fatal(args ...interface{}) {
+	msg := fmt.Sprint(args...)
+	if !strings.HasSuffix(msg, "\n") {
+		msg += "\n"
+	}
+	fmt.Fprint(os.Stderr, msg)
+	os.Exit(1)
+}
+
+func advice(e interface{}) interface{} {
 	if err, y := e.(error); y {
-		// 0.9.x to 0.10.x config error
-		if strings.HasPrefix(err.Error(), "Unrecognized directives") {
-			log.Warningf("Please read %s/wiki to learn more.", project_url)
+		var incompatible bool
+		// 0.10 altered config field names
+		incompatible = incompatible || strings.HasPrefix(err.Error(), t.UNRECOGNIZED_DIRECTIVES.Error())
+		// 0.12 altered cipher
+		incompatible = incompatible || strings.HasPrefix(err.Error(), t.UNSUPPORTED_CIPHER.Error())
+
+		if incompatible {
+			fmt.Fprintf(os.Stderr, " * Maybe there is an issue of some incompatible alterations caused.\n")
+			fmt.Fprintf(os.Stderr, " * Please read %s/wiki to learn more.\n", project_url)
 		}
 	}
 	return e

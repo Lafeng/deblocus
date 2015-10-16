@@ -123,7 +123,7 @@ func IsValidHost(hostport string) (ok bool, err error) {
 type D5ServConf struct {
 	Listen     string `importable:":9008"`
 	Auth       string `importable:"file://_USER_PASS_FILE_PATH_"`
-	Cipher     string `importable:"AES128CFB"`
+	Cipher     string `importable:"AES128CTR"`
 	ServerName string `importable:"SERVER_NAME"`
 	Verbose    int    `importable:"1"`
 	DenyDest   string `importable:"OFF"`
@@ -145,7 +145,9 @@ func (d *D5ServConf) validate() error {
 		return CONF_MISS.Apply("Auth")
 	}
 	d.AuthSys, e = auth.GetAuthSysImpl(d.Auth)
-	ThrowErr(e)
+	if e != nil {
+		return e
+	}
 	if len(d.Cipher) < 1 {
 		return CONF_MISS.Apply("Cipher")
 	}
@@ -286,15 +288,21 @@ func parse_d5p(fc []byte) *D5Params {
 }
 
 // public for external
-func Parse_d5c_file(path string) *D5ClientConf {
+func Parse_d5c_file(path string) (*D5ClientConf, error) {
+	var err error
+	defer func() {
+		if e, y := exception.ErrorOf(recover()); y {
+			err = e
+		}
+	}()
 	var d5c = new(D5ClientConf)
 	var kParse = func(buf []byte) {
 		d5c.d5p = parse_d5p(buf)
 	}
 	desc := getImportableDesc(d5c)
 	parseConfigFile(path, desc, kParse)
-	ThrowErr(d5c.validate())
-	return d5c
+	err = d5c.validate()
+	return d5c, err
 }
 
 func parseRSAPrivateKey(pemData []byte) *RSAKeyPair {
@@ -314,15 +322,21 @@ func parseRSAPrivateKey(pemData []byte) *RSAKeyPair {
 }
 
 // public for external
-func Parse_d5s_file(path string) *D5ServConf {
+func Parse_d5s_file(path string) (*D5ServConf, error) {
+	var err error
+	defer func() {
+		if e, y := exception.ErrorOf(recover()); y {
+			err = e
+		}
+	}()
 	var d5s = new(D5ServConf)
 	var kParse = func(buf []byte) {
 		d5s.rsaKey = parseRSAPrivateKey(buf)
 	}
 	desc := getImportableDesc(d5s)
 	parseConfigFile(path, desc, kParse)
-	ThrowErr(d5s.validate())
-	return d5s
+	err = d5s.validate()
+	return d5s, err
 }
 
 type keyParser func([]byte)
