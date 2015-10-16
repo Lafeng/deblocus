@@ -63,12 +63,11 @@ func chacha_init(chachaGrid *[16]uint32, key []byte, nonce []byte) {
 	chachaGrid[12] = 0
 	chachaGrid[13] = 0
 	// nonce as 2 consecutives Little Endian uint32
-	for j := 0; j < 2; j++ {
-		chachaGrid[j+14] = binary.LittleEndian.Uint32(nonce[j*4:])
-	}
+	chachaGrid[14] = binary.LittleEndian.Uint32(nonce)
+	chachaGrid[15] = binary.LittleEndian.Uint32(nonce[4:])
 }
 
-// force fill xor buffer
+// force filling xor buffer
 func initStream(chacha cipher.Stream) {
 	tmp := make([]byte, _CHACHA_STREAM_SIZE)
 	chacha.XORKeyStream(tmp, tmp)

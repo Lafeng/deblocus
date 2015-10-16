@@ -26,16 +26,16 @@ type chacha_state_t struct {
 }
 
 func NewChaCha(key, iv []byte, rounds uint) (cipher.Stream, error) {
-	if ks := len(key); ks != CHACHA_KeySize {
+	if ks := len(key); ks != CHACHA_KEY_SIZE {
 		return nil, KeySizeError(ks)
 	}
 	ivLen := len(iv)
 	switch {
-	case ivLen < CHACHA_IVSize:
+	case ivLen < CHACHA_IV_SIZE:
 		return nil, KeySizeError(ivLen)
-	case ivLen == CHACHA_IVSize:
+	case ivLen == CHACHA_IV_SIZE:
 	default:
-		iv = iv[:CHACHA_IVSize]
+		iv = iv[:CHACHA_IV_SIZE]
 	}
 
 	var s chacha_state_t
@@ -59,7 +59,7 @@ func (c *ChaCha) XORKeyStream(dst, src []byte) {
 }
 
 func (c *ChaCha) Close() error {
-	if c != nil && c.state != nil {
+	if c != nil && c.tState != nil {
 		Memset(&c.tState.state, 64)
 		Memset(&c.tState.stream, _CHACHA_STREAM_SIZE)
 	}
