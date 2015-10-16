@@ -52,18 +52,20 @@ func init() {
 
 func NewAESCipher(key []byte, mode BLOCK_MODE) (*aesCipher, error) {
 	var cipher evp_cipher_ptr
-	mode = (mode & 0xff) - 1
+	var x, y int
+	x = int(mode&0xff) - 1
+	y = len(key)/8 - 2
 	switch len(key) {
-	case 16:
-		cipher = aes_ciphers[mode]
-	case 24:
-		cipher = aes_ciphers[2+mode]
-	case 32:
-		cipher = aes_ciphers[4+mode]
-	default:
-		return nil, ERR_BAD_KEY_LENGTH
+	case 16, 24, 32:
+		x += y * 2
+		if x >= 0 && x < len(aes_ciphers) {
+			cipher = aes_ciphers[x]
+			// key copy
+			dupKey := append([]byte(nil), key...)
+			return &aesCipher{cipher, dupKey}, nil
+		}
 	}
-	return &aesCipher{cipher, key}, nil
+	return nil, ERR_BAD_KEY_LENGTH
 }
 
 func NewAESEncrypter(aes *aesCipher, iv []byte) (cipher.Stream, error) {
@@ -74,6 +76,7 @@ func NewAESEncrypter(aes *aesCipher, iv []byte) (cipher.Stream, error) {
 	var ctx C.EVP_CIPHER_CTX
 	c_key := (*C.uint8_t)(unsafe.Pointer(&aes.key[0]))
 	c_iv := (*C.uint8_t)(unsafe.Pointer(&iv[0]))
+	// malloc in the function
 	ret := C.EVP_CipherInit_ex(&ctx, aes.cipher, nil, c_key, c_iv, 1)
 
 	if ret == bssl_ok {
@@ -120,6 +123,27 @@ func (a *AESDecrypter) XORKeyStream(dst, src []byte) {
 	c_in := (*C.uint8_t)(unsafe.Pointer(&src[0]))
 	c_out := (*C.uint8_t)(unsafe.Pointer(&dst[0]))
 	C.EVP_DecryptUpdate(a.ctx, c_out, c_out_len, c_in, (C.int)(len(dst)))
+}
+
+// implement io.Closer to cleanup memory
+func (a *AESEncrypter) Close() error {
+	aes_cleanup(a.ctx, a.aesCipher)
+	return nil
+}
+
+// implement io.Closer to cleanup memory
+func (a *AESDecrypter) Close() error {
+	aes_cleanup(a.ctx, a.aesCipher)
+	return nil
+}
+
+func aes_cleanup(ctx evp_ctx_ptr, c *aesCipher) {
+	if ctx != nil {
+		C.EVP_CIPHER_CTX_cleanup(ctx)
+	}
+	if c != nil && c.key != nil {
+		Memset(c.key, 0)
+	}
 }
 
 const (
@@ -225,6 +249,9 @@ func get_error() string {
 	}
 }
 
+// The following 3 methods
+// provided by ASM in libcrypto-boringssl
+// Only available on amd64
 func has_aes_hardware() int {
 	return int(C.EVP_has_aes_hardware())
 }

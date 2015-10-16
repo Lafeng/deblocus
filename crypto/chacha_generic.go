@@ -39,6 +39,14 @@ func (c *chacha_generic) Decrypt(dst, in []byte) {
 	chacha_core(out, c.state_ptr, c.rounds)
 }
 
+func (c *chacha_generic) Close() error {
+	if c != nil {
+		Memset(&c.state, 16*4)
+		Memset(&c.stream, _CHACHA_STREAM_SIZE)
+	}
+	return nil
+}
+
 func safeXORBytes(dst, a, b []byte) int {
 	n := len(a)
 	if len(b) < n {

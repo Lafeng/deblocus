@@ -83,36 +83,33 @@ func (t *Session) tokensHandle(args []byte) {
 	}
 }
 
-func (t *Session) DataTunServe(fconn *Conn, isNewSession bool) {
+func (t *Session) DataTunServe(tun *Conn, isNewSession bool) {
 	atomic.AddInt32(&t.activeCnt, 1)
 	defer func() {
-		var (
-			offline bool
-			err     = recover()
-		)
+		tun.cipher.Cleanup()
 		if atomic.AddInt32(&t.activeCnt, -1) <= 0 {
-			offline = true
-			t.mgr.clearTokens(t)
-			t.mux.destroy()
-		}
-		if log.V(1) {
-			log.Infof("Tun=%s was disconnected. %v\n", fconn.identifier, nvl(err, NULL))
-			if offline {
-				log.Infof("Client=%s was offline\n", t.cid)
-			}
-		}
-		if DEBUG {
-			ex.CatchException(err)
+			t.destroy()
 		}
 	}()
-	if isNewSession {
-		log.Infof("Client=%s is online\n", t.cid)
-	}
 
-	if log.V(1) {
-		log.Infof("Tun=%s is established\n", fconn.identifier)
+	if isNewSession {
+		log.Infof("Client %s is online", t.cid)
 	}
-	t.mux.Listen(fconn, t.eventHandler, DT_PING_INTERVAL)
+	if log.V(1) {
+		log.Infof("Tun %s is established", tun.identifier)
+	}
+	// mux will output error log
+	t.mux.Listen(tun, t.eventHandler, DT_PING_INTERVAL)
+	if log.V(1) {
+		log.Infof("Tun %s was disconnected", tun.identifier)
+	}
+}
+
+func (t *Session) destroy() {
+	t.cipherFactory.Cleanup()
+	t.mgr.clearTokens(t)
+	t.mux.destroy()
+	log.Infof("Client %s was offline", t.cid)
 }
 
 //

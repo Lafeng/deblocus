@@ -4,7 +4,6 @@ Current version is v0.11.2810-beta
 
 [![Build Status](https://travis-ci.org/Lafeng/deblocus.svg?branch=master)](https://travis-ci.org/Lafeng/deblocus)
 [![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)
-[![Issues](https://img.shields.io/github/issues/Lafeng/deblocus.svg)](https://github.com/Lafeng/deblocus/issues)
 [![Comment-on-Github.Party](https://img.shields.io/badge/Comment%20on-Github.Party-yellow.svg)](https://github.party/item?id=46)
 
 ## Introduction
@@ -26,14 +25,21 @@ deblocus is a tunneling software that allows secure TCP connection through the s
 
 ## Quickstart
 
-Available on AMD64 of Windows, Linux and OS X.
-
 1. Download [executables](https://github.com/Lafeng/deblocus/releases) or compile it from source.
 2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki) to learn more.
 
+## System requirements
+
+Supported architectures and operating systems:
+
+- amd64(64-bit x86 processor), OS:  Linux, Mac OS X, Windows
+- aarch64(64-bit ARMv8 processor), OS: Linux
+
+Binary distributions are available for amd64 machines.
+
 ## Acknowledgements
 
-Thanks to these projects: [qtunnel](https://github.com/getqujing/qtunnel), [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx), [glog](https://github.com/golang/glog), [siphash](https://github.com/dchest/siphash) and [chacha-opt](https://github.com/floodyberry/chacha-opt).
+Thanks to these projects: [qtunnel](https://github.com/getqujing/qtunnel), [osext](https://bitbucket.org/kardianos/osext), [dhkx](https://github.com/monnand/dhkx), [glog](https://github.com/golang/glog), [siphash](https://github.com/dchest/siphash), [chacha-opt](https://github.com/floodyberry/chacha-opt), [chacha](https://github.com/romain-jacotin/ChaCha/), [golibs](https://github.com/cloudflare/golibs), [borringssl](https://boringssl.googlesource.com/boringssl/), [minimal-crypto](https://github.com/spance/minimal-crypto).
 
 This product includes GeoLite2 data created by MaxMind, available from <http://www.maxmind.com>.
 

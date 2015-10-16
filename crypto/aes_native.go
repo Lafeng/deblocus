@@ -46,3 +46,16 @@ func NewAESEncrypter(block cipher.Block, iv []byte) (cipher.Stream, error) {
 	}
 	return nil, ERR_NOT_IMPLEMENTED
 }
+
+// compat impl.
+func has_aes_hardware() int {
+	return 0
+}
+
+func is_NEON_capable() int {
+	return 0
+}
+
+func dump_cpu_features() []uint32 {
+	return nil
+}

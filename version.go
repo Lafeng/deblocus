@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -15,7 +16,7 @@ const (
 	project_url        = "https://github.com/Lafeng/delocus"
 	ver_major   uint8  = 0
 	ver_minor   uint8  = 11
-	ver_build   uint16 = 2810
+	ver_build   uint16 = 2890
 )
 
 var build_flag string // -ldflags "-X main.build_flag=-beta"
@@ -43,6 +44,7 @@ type CArg struct {
 func showUsage() {
 	fmt.Printf("Usage: %s [-OPTION=VALUE]...\n", filepath.Base(os.Args[0]))
 	fmt.Printf("%s project: <%s>\n", app_name, project_url)
+	fmt.Printf("Built with %s %s for %s/%s\n", runtime.Compiler, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	fmt.Println(versionString() + "\n")
 
 	var group = map[string][]*CArg{}

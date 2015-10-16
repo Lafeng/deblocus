@@ -57,3 +57,11 @@ func (c *ChaCha) XORKeyStream(dst, src []byte) {
 	cOut := (*C.uint8_t)(unsafe.Pointer(&dst[0]))
 	C.CRYPTO_neon_chacha_xor(c.cState, cIn, cOut, C.size_t(len(dst)))
 }
+
+func (c *ChaCha) Close() error {
+	if c != nil && c.state != nil {
+		Memset(&c.tState.state, 64)
+		Memset(&c.tState.stream, _CHACHA_STREAM_SIZE)
+	}
+	return nil
+}

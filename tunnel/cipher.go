@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"github.com/Lafeng/deblocus/crypto"
 	"github.com/Lafeng/deblocus/exception"
+	"io"
 	"strings"
 )
 
@@ -26,6 +27,7 @@ type cipherDecr struct {
 type cipherKit interface {
 	encrypt(dst, src []byte)
 	decrypt(dst, src []byte)
+	Cleanup()
 }
 
 type XORCipherKit struct {
@@ -41,11 +43,20 @@ func (c *XORCipherKit) decrypt(dst, src []byte) {
 	c.dec.XORKeyStream(dst, src)
 }
 
+func (c *XORCipherKit) Cleanup() {
+	if clean, y := c.enc.(io.Closer); y {
+		clean.Close()
+	}
+	if clean, y := c.dec.(io.Closer); y {
+		clean.Close()
+	}
+}
+
 type NullCipherKit byte
 
 func (c *NullCipherKit) encrypt(dst, src []byte) {}
-
 func (c *NullCipherKit) decrypt(dst, src []byte) {}
+func (c *NullCipherKit) Cleanup()                {}
 
 var nullCipherKit = new(NullCipherKit)
 
@@ -114,6 +125,11 @@ func (c *CipherFactory) InitCipher(iv []byte) *XORCipherKit {
 		iv = normalizeKey(iv, c.ref, c.decr.ivLen)
 	}
 	return c.decr.builder(c.key, iv)
+}
+
+func (f *CipherFactory) Cleanup() {
+	crypto.Memset(f.key, 0)
+	crypto.Memset(f.ref, 0)
 }
 
 func NewCipherFactory(name string, secret []byte) *CipherFactory {

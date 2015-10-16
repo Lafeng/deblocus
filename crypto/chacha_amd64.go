@@ -30,7 +30,7 @@ type chacha_state struct {
 	s        [48]byte
 	rounds   uintptr
 	leftover uintptr
-	buffer   [CHACHA_BlockSize]byte
+	buffer   [CHACHA_BLOCK_SIZE]byte
 	stream   [_CHACHA_STREAM_SIZE]byte
 	offset   uintptr
 }
@@ -41,16 +41,16 @@ type ChaCha struct {
 }
 
 func NewChaCha(key, iv []byte, rounds uint) (*ChaCha, error) {
-	if ks := len(key); ks != CHACHA_KeySize {
+	if ks := len(key); ks != CHACHA_KEY_SIZE {
 		return nil, KeySizeError(ks)
 	}
 	ivLen := len(iv)
 	switch {
-	case ivLen < CHACHA_IVSize:
+	case ivLen < CHACHA_IV_SIZE:
 		return nil, KeySizeError(ivLen)
-	case ivLen == CHACHA_IVSize:
+	case ivLen == CHACHA_IV_SIZE:
 	default:
-		iv = iv[:CHACHA_IVSize]
+		iv = iv[:CHACHA_IV_SIZE]
 	}
 
 	// create chacha_state_internal like chacha_init()
@@ -72,7 +72,7 @@ func NewChaCha(key, iv []byte, rounds uint) (*ChaCha, error) {
 
 // implement cipher.Block interface
 func (c *ChaCha) BlockSize() int {
-	return CHACHA_BlockSize
+	return CHACHA_BLOCK_SIZE
 }
 
 // implement cipher.Block interface
@@ -104,4 +104,12 @@ func (c *ChaCha) XORKeyStream(dst, src []byte) {
 	var cIn = (*C.uchar)(unsafe.Pointer(&src[0]))
 	var cOut = (*C.uchar)(unsafe.Pointer(&dst[0]))
 	C.chacha_xor(c.statePtr, cIn, cOut, C.size_t(len(dst)))
+}
+
+func (c *ChaCha) Close() error {
+	if c != nil && c.state != nil {
+		Memset(&c.state.s, 48)
+		Memset(&c.state.stream, _CHACHA_STREAM_SIZE)
+	}
+	return nil
 }
