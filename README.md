@@ -25,17 +25,12 @@ deblocus is a tunneling software that allows secure TCP connection through the s
 
 ## Quickstart
 
-1. Download [executables](https://github.com/Lafeng/deblocus/releases) or compile it from source.
-2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki) to learn more.
-
-## System requirements
-
-Supported architectures and operating systems:
-
-- amd64(64-bit x86 processor), OS:  Linux, Mac OS X, Windows
-- aarch64(64-bit ARMv8 processor), OS: Linux
+Supported architectures and operating systems: [Wiki](https://github.com/Lafeng/deblocus/wiki)
 
 Binary distributions are available for amd64 machines.
+
+1. Download [executables](https://github.com/Lafeng/deblocus/releases) or compile it from source.
+2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki) to learn more.
 
 ## Acknowledgements
 
