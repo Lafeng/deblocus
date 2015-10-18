@@ -26,10 +26,17 @@ void *__wrap_memcpy(void *dest, const void *src, size_t n)
 #define XOR128(a, b) _mm_xor_si128(LOAD128(a), LOAD128(b))
 #define STORE128(m, r) _mm_storeu_si128(m, r)
 #define V16XOR(d, a, b) STORE128(d, XOR128(a, b))
+#else
+#error SSE2 required
 #endif
 
 #ifndef uint8_t
 # define uint8_t unsigned char
+#endif
+#ifdef __GNUC__
+#define FORCE_INLINE __attribute__((always_inline)) inline
+#else
+#define FORCE_INLINE inline
 #endif
 
 #define U8P(x) ((uint8_t *)x)
@@ -61,23 +68,26 @@ size_t chacha_final(chacha_state_internal *S, unsigned char *out);
 
 void chacha(const chacha_key *key, const chacha_iv *iv, const  unsigned char *in,  unsigned char *out, size_t inlen, size_t rounds);
 
-const size_t wordSize = sizeof(void*);
-
 int is_aligned(const void* addr, size_t n) {
 	return ((size_t)addr) & (n-1);
 }
 
-static inline void 
+static FORCE_INLINE void 
 fastXORBytes(uint8_t *dst, uint8_t *a, uint8_t *b, size_t rem)
 {
-	size_t n = rem/16;
+	size_t n = rem/16, *dw, *aw, *bw;
 	VEC *v0 = VECP(dst), *v1 = VECP(a), *v2 = VECP(b);
 	if (n > 0) {
 		rem -= n*16;
 		while (n--) V16XOR(v0++, v1++, v2++);
 	}
+	dw = (size_t *)v0, aw = (size_t *)v1, bw = (size_t *)v2;
+	if (rem >= 8) {
+		rem -= 8;
+		*dw++ = *aw++ ^ *bw++;
+	}
 	if (rem > 0) {
-		dst = U8P(v0), a = U8P(v1), b = U8P(v2);
+		dst = U8P(dw), a = U8P(aw), b = U8P(bw);
 		while (rem--) *dst++ = *a++ ^ *b++;
 	}
 }

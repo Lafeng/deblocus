@@ -179,8 +179,10 @@ func randArray(arrayLen int) []byte {
 	array := make([]byte, newLen)
 
 	myRand.Lock()
+	ptr := (uintptr)(unsafe.Pointer(&array[0]))
 	for i := 0; i < newLen; i += 8 {
-		binary.LittleEndian.PutUint64(array[i:i+8], uint64(myRand.Int63()))
+		*(*int64)(unsafe.Pointer(ptr)) = myRand.Int63()
+		ptr += 8
 	}
 	myRand.Unlock()
 

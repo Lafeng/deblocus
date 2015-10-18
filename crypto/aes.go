@@ -260,13 +260,8 @@ func is_NEON_capable() int {
 	return int(C.CRYPTO_is_NEON_capable())
 }
 
-func dump_cpu_features() []uint32 {
-	cpuid_ptr := (*[4]uint32)(unsafe.Pointer(C.CPU_features()))
-	if cpuid_ptr == nil {
-		return nil
-	} else {
-		// auto copy
-		var cpuid = *cpuid_ptr
-		return cpuid[:]
-	}
+func get_cpuid() []uint32 {
+	var cpuid [4]uint32
+	n := C.read_cpuid((*C.uint32_t)(unsafe.Pointer(&cpuid[0])))
+	return cpuid[:int(n)]
 }

@@ -26,11 +26,11 @@ func initAddonArgs(defVal int) int {
 
 func init() {
 	b := initAddonArgs(320 * 36)
-	b = (b + 63) >> 6 << 6
+	//b = (b + 63) >> 6 << 6
 	sample = bytes.Repeat([]byte("abcdefghijklmnopqrstovwxyz1234567890"), ((b+35)/36)*36)[:b]
 	origin = append([]byte(nil), sample...)
 	test_cpu_internal()
-	fmt.Fprintf(os.Stderr, "Testing with sample.length=%d\n", len(sample))
+	fmt.Fprintf(os.Stderr, "Testing block.length=%d\n", len(sample))
 }
 
 func new_ChaCha(rounds uint) (cipher.Stream, cipher.Stream) {
@@ -161,19 +161,25 @@ func Benchmark_AES256_gcm(b *testing.B) {
 
 func test_cpu_internal() {
 	var msg = func(format string, args ...interface{}) {
-		fmt.Fprintf(os.Stderr, "CPU "+format+"\n", args...)
+		fmt.Fprintf(os.Stderr, "> CPU "+format+"\n", args...)
 	}
-	code := dump_cpu_features()
+	code := get_cpuid()
 	features := make([]string, 0, 32)
-	if len(code) <= 0 {
+	var features_table [][]interface{}
+	switch len(code) {
+	case 4:
+		features_table = x86_features
+	case 1:
+		features_table = armv8_features
+	default:
 		goto capability
 	}
-	for j, v := range _features_table {
+	for j, v := range features_table {
 		i, bit := v[1].(int), uint(v[2].(int))
-		if code[3-i]&(1<<bit) > 0 {
+		if code[i]&(1<<bit) > 0 {
 			features = append(features, v[0].(string))
 		}
-		if (len(features)+1)%0xb == 0 || j+1 == len(_features_table) {
+		if (len(features)+1)%0xb == 0 || j+1 == len(features_table) {
 			msg("features:  %s", strings.Join(features, " "))
 			features = features[:0]
 		}
@@ -206,34 +212,10 @@ func Test_AES_Stream(t *testing.T) {
 	test_correctness2(t, ec, dc, sample2, origin2)
 }
 
-// Ref: https://tools.ietf.org/html/draft-agl-tls-chacha20poly1305-04#page-11
 func Test_ChaCha_Standard(t *testing.T) {
-	chacha_std_test(t,
-		"0000000000000000000000000000000000000000000000000000000000000000",
-		"0000000000000000",
-		"76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7da41597c5157488d7724e03fb8d84a376a43b8f41518a11cc387b669b2ee6586",
-	)
-	chacha_std_test(t,
-		"0000000000000000000000000000000000000000000000000000000000000001",
-		"0000000000000000",
-		"4540f05a9f1fb296d7736e7b208e3c96eb4fe1834688d2604f450952ed432d41bbe2a0b6ea7566d2a5d1e7e20d42af2c53d792b1c43fea817e9ad275ae546963",
-	)
-	chacha_std_test(t,
-		"0000000000000000000000000000000000000000000000000000000000000000",
-		"0000000000000001",
-		"de9cba7bf3d69ef5e786dc63973f653a0b49e015adbff7134fcb7df137821031e85a050278a7084527214f73efc7fa5b5277062eb7a0433e445f41e31afab757",
-	)
-	chacha_std_test(t,
-		"0000000000000000000000000000000000000000000000000000000000000000",
-		"0100000000000000",
-		"ef3fdfd6c61578fbf5cf35bd3dd33b8009631634d21e42ac33960bd138e50d32111e4caf237ee53ca8ad6426194a88545ddc497a0b466e7d6bbdb0041b2f586b",
-	)
-	chacha_std_test(t,
-		"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-		"0001020304050607",
-		"f798a189f195e66982105ffb640bb7757f579da31602fc93ec01ac56f85ac3c134a4547b733b46413042c9440049176905d3be59ea1c53f15916155c2be8241a",
-	)
-
+	for _, vec := range chacha_test_vectors {
+		chacha_std_test(t, vec[0], vec[1], vec[2])
+	}
 }
 
 func chacha_std_test(t *testing.T, _key, _iv, _expected string) {
@@ -279,91 +261,6 @@ func Test_AES_GCM(t *testing.T) {
 		t.Logf("plain=%d Seal=%d Open=%d", len(plain), len(out1), len(out2))
 		t.Fatalf("Incorrect result %v", err)
 	}
-}
-
-var _features_table = [][]interface{}{
-	{"fpu", 3, 0},
-	{"vme", 3, 1},
-	{"de", 3, 2},
-	{"pse", 3, 3},
-	{"tsc", 3, 4},
-	{"msr", 3, 5},
-	{"pae", 3, 6},
-	{"mce", 3, 7},
-	{"cx8", 3, 8},
-	{"apic", 3, 9},
-	{"sep", 3, 11},
-	{"mtrr", 3, 12},
-	{"pge", 3, 13},
-	{"mca", 3, 14},
-	{"cmov", 3, 15},
-	{"pat", 3, 16},
-	{"pse-36", 3, 17},
-	{"psn", 3, 18},
-	{"clflsh", 3, 19},
-	{"ds", 3, 21},
-	{"acpi", 3, 22},
-	{"mmx", 3, 23},
-	{"fxsr", 3, 24},
-	{"sse", 3, 25},
-	{"sse2", 3, 26},
-	{"ss", 3, 27},
-	{"htt", 3, 28},
-	{"tm", 3, 29},
-	{"pbe", 3, 31},
-	{"sse3", 2, 0},
-	{"pclmuldq", 2, 1},
-	{"dtes64", 2, 2},
-	{"monitor", 2, 3},
-	{"ds-cpl", 2, 4},
-	{"vmx", 2, 5},
-	{"smx", 2, 6},
-	{"est", 2, 7},
-	{"tm2", 2, 8},
-	{"ssse3", 2, 9},
-	{"cnxt-id", 2, 10},
-	{"cx16", 2, 13},
-	{"xtpr", 2, 14},
-	{"pdcm", 2, 15},
-	{"dca", 2, 18},
-	{"sse4.1", 2, 19},
-	{"sse4.2", 2, 20},
-	{"x2apic", 2, 21},
-	{"movbe", 2, 22},
-	{"popcnt", 2, 23},
-	{"aes", 2, 25},
-	{"xsave", 2, 26},
-	{"osxsave", 2, 27},
-	{"avx", 2, 28},
-	{"f16c", 2, 29},
-	{"rdrnd", 2, 30},
-	{"hypervisor", 2, 31},
-	{"fsgsbase", 1, 0},
-	{"bmi1", 1, 3},
-	{"hle", 1, 4},
-	{"avx2", 1, 5},
-	{"smep", 1, 7},
-	{"bmi2", 1, 8},
-	{"erms", 1, 9},
-	{"invpcid", 1, 10},
-	{"rtm", 1, 11},
-	{"mpx", 1, 14},
-	{"avx512f", 1, 16},
-	{"avx512f", 1, 16},
-	{"avx512dq", 1, 17},
-	{"rdseed", 1, 18},
-	{"adx", 1, 19},
-	{"smap", 1, 20},
-	{"avx512ifma", 1, 21},
-	{"pcommit", 1, 22},
-	{"clflushopt", 1, 23},
-	{"clwb", 1, 24},
-	{"avx512pf", 1, 26},
-	{"avx512er", 1, 27},
-	{"avx512cd", 1, 28},
-	{"sha", 1, 29},
-	{"avx512bw", 1, 30},
-	{"avx512vl", 1, 31},
 }
 
 func test_correctness(t *testing.T, ec, dc cipher.Stream, sample2, origin2 []byte) {

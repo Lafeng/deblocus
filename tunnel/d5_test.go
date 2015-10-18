@@ -8,26 +8,26 @@ import (
 	"time"
 )
 
-func TestRandFilling(t *testing.T) {
-	t1 := time.Now()
-	var count int = 5e2
-	for i := 0; i < count; i++ {
-		randArray(1 << 20)
+func Benchmark_randarray(b *testing.B) {
+	size := 1024
+	b.SetBytes(int64(size))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		randArray(size)
 	}
-	tu := time.Since(t1).Nanoseconds() / 1e6
-	t.Logf("total=%dms speed=%.2fm/s", tu, float64(count*1e3)/float64(tu))
 }
 
-func TestSiphash(t *testing.T) {
+func Benchmark_Siphash(b *testing.B) {
+	size := 1024
 	k1, k2 := uint64(rand.Int63()), uint64(rand.Int63())
-	msg := randArray(1 << 9) // 512B
-	var loop int = 2e6
-	t1 := time.Now()
-	for i := 0; i < loop; i++ {
+	msg := randArray(size)
+	b.SetBytes(int64(size))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
 		siphash.Hash(k1, k2, msg)
 	}
-	tu := float64(time.Since(t1).Nanoseconds()) / 1e9
-	t.Logf("tu=%.2fms speed=%.2fm", tu*1e3, float64(loop*len(msg))/float64(1<<20)/tu)
 }
 
 // Test correctness of generating and verification
