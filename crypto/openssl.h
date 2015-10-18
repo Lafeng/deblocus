@@ -7,6 +7,9 @@
 #include "openssl/cipher.h"
 #include "openssl/cpu.h"
 #include "openssl/err.h"
+#if defined(OPENSSL_ARM) || defined(OPENSSL_AARCH64)
+#include "openssl/arm_arch.h"
+#endif
 
 //
 // cpu.h

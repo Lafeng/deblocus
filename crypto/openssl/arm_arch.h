@@ -132,5 +132,8 @@ extern uint32_t OPENSSL_armcap_P;
 /* ARMV8_PMULL indicates support for carryless multiplication. */
 #define ARMV8_PMULL (1 << 5)
 
+/* HWCAP_CRC32 = 1<<7 */
+#define ARMV8_CRC32 (1 << 6)
+
 
 #endif  /* OPENSSL_HEADER_ARM_ARCH_H */
