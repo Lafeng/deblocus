@@ -315,8 +315,6 @@ func (t *Server) Stats() string {
 // implement Close()
 func (t *Server) Close() {
 	uniqSession := make(map[string]byte)
-	t.sessionMgr.lock.Lock()
-	defer t.sessionMgr.lock.Unlock()
 	for _, s := range t.sessionMgr.container {
 		if _, y := uniqSession[s.cid]; !y {
 			uniqSession[s.cid] = 1

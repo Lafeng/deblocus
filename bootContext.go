@@ -63,13 +63,13 @@ func (c *bootContext) doStats() {
 }
 
 func (c *bootContext) doClose() {
-	if c.components != nil {
-		for _, t := range c.components {
+	if c.closeable != nil {
+		for _, t := range c.closeable {
 			t.Close()
 		}
 	}
-	if c.closeable != nil {
-		for _, t := range c.closeable {
+	if c.components != nil {
+		for _, t := range c.components {
 			t.Close()
 		}
 	}
