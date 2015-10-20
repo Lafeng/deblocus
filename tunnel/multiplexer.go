@@ -262,7 +262,7 @@ func (p *multiplexer) destroy() {
 	}
 	defer func() {
 		if !ex.CatchException(recover()) {
-			atomic.StoreInt32(&p.status, MUX_PENDING_CLOSE)
+			atomic.StoreInt32(&p.status, MUX_CLOSED)
 		}
 	}()
 	atomic.StoreInt32(&p.status, MUX_PENDING_CLOSE)
