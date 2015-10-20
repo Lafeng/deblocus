@@ -84,11 +84,11 @@ func (t *Session) tokensHandle(args []byte) {
 }
 
 func (t *Session) DataTunServe(tun *Conn, isNewSession bool) {
-	atomic.AddInt32(&t.activeCnt, 1)
 	defer func() {
 		tun.cipher.Cleanup()
 		if atomic.AddInt32(&t.activeCnt, -1) <= 0 {
 			t.destroy()
+			log.Infof("Client %s was offline", t.cid)
 		}
 	}()
 
@@ -98,8 +98,9 @@ func (t *Session) DataTunServe(tun *Conn, isNewSession bool) {
 	if log.V(1) {
 		log.Infof("Tun %s is established", tun.identifier)
 	}
+	cnt := atomic.AddInt32(&t.activeCnt, 1)
 	// mux will output error log
-	t.mux.Listen(tun, t.eventHandler, DT_PING_INTERVAL)
+	t.mux.Listen(tun, t.eventHandler, DT_PING_INTERVAL+int(cnt))
 	if log.V(1) {
 		log.Infof("Tun %s was disconnected", tun.identifier)
 	}
@@ -109,7 +110,6 @@ func (t *Session) destroy() {
 	t.cipherFactory.Cleanup()
 	t.mgr.clearTokens(t)
 	t.mux.destroy()
-	log.Infof("Client %s was offline", t.cid)
 }
 
 //
@@ -315,14 +315,14 @@ func (t *Server) Stats() string {
 // implement Close()
 func (t *Server) Close() {
 	uniqSession := make(map[string]byte)
-	t.sessionMgr.lock.RLock()
+	t.sessionMgr.lock.Lock()
+	defer t.sessionMgr.lock.Unlock()
 	for _, s := range t.sessionMgr.container {
 		if _, y := uniqSession[s.cid]; !y {
 			uniqSession[s.cid] = 1
-			s.mux.destroy()
+			s.destroy()
 		}
 	}
-	t.sessionMgr.lock.RUnlock()
 }
 
 //

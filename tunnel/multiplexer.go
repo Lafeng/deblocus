@@ -36,17 +36,23 @@ const (
 )
 
 const (
+	FRAME_HEADER_LEN = 8
+	FRAME_MAX_LEN    = 0xffff
+)
+const (
+	MUX_PENDING_CLOSE int32 = -1
+	MUX_CLOSED        int32 = -2
+)
+
+const (
 	FAST_OPEN              = true
 	FAST_OPEN_BUF_MAX_SIZE = 1 << 13 // 8k
 )
 
 const (
 	WAITING_OPEN_TIMEOUT = time.Second * 30
+	WRITE_TUN_TIMEOUT    = time.Second * 15
 	READ_TMO_IN_FASTOPEN = time.Millisecond * 1500
-	FRAME_HEADER_LEN     = 8
-	FRAME_MAX_LEN        = 0xffff
-	MUX_PENDING_CLOSE    = -1
-	MUX_CLOSED           = -2
 )
 
 const (
@@ -56,7 +62,11 @@ const (
 	ERR_UNKNOWN      = 0x0
 )
 
+const sid_max uint32 = 0xffff
+
 var (
+	// [1, 0xfffe]
+	sid_seq      uint32
 	bytePoolOnce sync.Once
 	bytePool     *bytepool.BytePool
 )
@@ -64,11 +74,6 @@ var (
 var (
 	ERR_DATA_TAMPERED = ex.NewW("data tampered")
 )
-
-// [1, 0xfffe]
-var sid_seq uint32
-
-const sid_max uint32 = 0xffff
 
 // --------------------
 // event_handler
@@ -93,7 +98,7 @@ type idler struct {
 }
 
 func NewIdler(interval int, isClient bool) *idler {
-	if interval > 0 && (interval > 300 || interval < 30) {
+	if interval > 0 && (interval > 600 || interval < 60) {
 		interval = DT_PING_INTERVAL
 	}
 	i := &idler{
@@ -101,11 +106,11 @@ func NewIdler(interval int, isClient bool) *idler {
 		enabled:  interval > 0,
 	}
 	if isClient {
-		i.interval -= GENERAL_SO_TIMEOUT
+		delta := myRand.Int63n(int64(GENERAL_SO_TIMEOUT) * 2)
+		i.interval -= time.Duration(delta)
 	} else { // server ping will be behind
 		i.interval += GENERAL_SO_TIMEOUT
 	}
-	i.interval += time.Duration(randomRange(int64(time.Second), int64(GENERAL_SO_TIMEOUT)))
 	return i
 }
 
@@ -155,9 +160,9 @@ func (i *idler) pong(tun *Conn) error {
 }
 
 func (i *idler) verify() (r bool) {
-	r = i.waiting
 	if i.waiting {
 		i.waiting = false
+		r = true
 	}
 	return
 }
@@ -223,7 +228,7 @@ type multiplexer struct {
 	pool     *ConnPool
 	router   *egressRouter
 	role     string
-	status   int
+	status   int32
 	pingCnt  int32 // received ping count
 	filter   Filterable
 }
@@ -252,16 +257,15 @@ func newClientMultiplexer() *multiplexer {
 
 // destroy each listener of all pooled tun, and destroy egress queues
 func (p *multiplexer) destroy() {
-	if p.status < 0 {
+	if atomic.LoadInt32(&p.status) < 0 {
 		return
 	}
 	defer func() {
 		if !ex.CatchException(recover()) {
-			p.status = MUX_CLOSED
+			atomic.StoreInt32(&p.status, MUX_PENDING_CLOSE)
 		}
 	}()
-	// will not send evt_dt_closed while pending_close was indicated
-	p.status = MUX_PENDING_CLOSE
+	atomic.StoreInt32(&p.status, MUX_PENDING_CLOSE)
 	p.router.destroy() // destroy queue
 	p.pool.destroy()
 	p.router = nil
@@ -295,11 +299,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 	tun.priority = &TSPriority{0, 1e9}
 	p.pool.Push(tun)
 	defer p.onTunDisconnected(tun, handler)
-	if p.isClient {
-		tun.SetSockOpt(1, 2, 1)
-	} else {
-		tun.SetSockOpt(1, 0, 1)
-	}
+	tun.SetSockOpt(1, 0, 1)
 	var (
 		header = make([]byte, FRAME_HEADER_LEN)
 		idle   = NewIdler(interval, p.isClient)
@@ -326,6 +326,11 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 			}
 		}
 		if er != nil {
+			// shutdown
+			if atomic.LoadInt32(&p.status) < 0 {
+				time.Sleep(time.Second)
+				return
+			}
 			switch idle.consumeError(er) {
 			case ERR_NEW_PING:
 				if idle.ping(tun) == nil {
@@ -572,7 +577,7 @@ func (p *multiplexer) bestSend(data []byte, action_desc string) bool {
 	pack(buf, FRAME_ACTION_TOKENS, 0, data)
 
 	for i := 1; i <= 3; i++ {
-		if p.status < 0 /* MUX_CLOSED */ || p.pool == nil {
+		if atomic.LoadInt32(&p.status) < 0 /* MUX_CLOSED */ || p.pool == nil {
 			log.Warningln("abandon sending data of", action_desc)
 			break
 		}
@@ -592,7 +597,7 @@ func (p *multiplexer) bestSend(data []byte, action_desc string) bool {
 // frame writer
 func frameWriteBuffer(tun *Conn, origin []byte) (err error) {
 	// default timeout is 10s
-	err = tun.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
+	err = tun.SetWriteDeadline(time.Now().Add(WRITE_TUN_TIMEOUT))
 	if err == nil {
 		var nw int
 		buf := frameTransform(origin)

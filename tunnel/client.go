@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	DT_PING_INTERVAL = 90
+	DT_PING_INTERVAL = 110
 	RETRY_INTERVAL   = time.Second * 5
 	REST_INTERVAL    = RETRY_INTERVAL
 )
@@ -157,8 +157,8 @@ func (c *Client) StartTun(mustRestart bool) {
 				log.Infof("Tun %s is established\n", tun.sign())
 			}
 
-			atomic.AddInt32(&c.dtCnt, 1)
-			c.mux.Listen(tun, c.eventHandler, c.params.pingInterval)
+			cnt := atomic.AddInt32(&c.dtCnt, 1)
+			c.mux.Listen(tun, c.eventHandler, c.params.pingInterval+int(cnt))
 			dtcnt := atomic.AddInt32(&c.dtCnt, -1)
 
 			log.Errorf("Tun %s was disconnected, Reconnect after %s\n", tun.sign(), RETRY_INTERVAL)
@@ -289,9 +289,14 @@ func (t *Client) Stats() string {
 }
 
 func (t *Client) Close() {
-	t.mux.destroy()
-	if f := t.params.cipherFactory; f != nil {
-		f.Cleanup()
+	if t.mux != nil {
+		t.mux.destroy()
+	}
+	if t.params != nil {
+		f := t.params.cipherFactory
+		if f != nil {
+			f.Cleanup()
+		}
 	}
 }
 
