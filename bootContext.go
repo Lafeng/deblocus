@@ -202,6 +202,7 @@ func fatalf(format string, args ...interface{}) {
 		msg += "\n"
 	}
 	fmt.Fprint(os.Stderr, msg)
+	context.doClose()
 	os.Exit(1)
 }
 
@@ -211,6 +212,7 @@ func fatal(args ...interface{}) {
 		msg += "\n"
 	}
 	fmt.Fprint(os.Stderr, msg)
+	context.doClose()
 	os.Exit(1)
 }
 

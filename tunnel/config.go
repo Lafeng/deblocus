@@ -288,21 +288,20 @@ func parse_d5p(fc []byte) *D5Params {
 }
 
 // public for external
-func Parse_d5c_file(path string) (*D5ClientConf, error) {
-	var err error
+func Parse_d5c_file(path string) (d5c *D5ClientConf, err error) {
+	d5c = new(D5ClientConf)
 	defer func() {
 		if e, y := exception.ErrorOf(recover()); y {
 			err = e
 		}
 	}()
-	var d5c = new(D5ClientConf)
 	var kParse = func(buf []byte) {
 		d5c.d5p = parse_d5p(buf)
 	}
 	desc := getImportableDesc(d5c)
 	parseConfigFile(path, desc, kParse)
 	err = d5c.validate()
-	return d5c, err
+	return
 }
 
 func parseRSAPrivateKey(pemData []byte) *RSAKeyPair {
@@ -322,21 +321,20 @@ func parseRSAPrivateKey(pemData []byte) *RSAKeyPair {
 }
 
 // public for external
-func Parse_d5s_file(path string) (*D5ServConf, error) {
-	var err error
+func Parse_d5s_file(path string) (d5s *D5ServConf, err error) {
+	d5s = new(D5ServConf)
 	defer func() {
 		if e, y := exception.ErrorOf(recover()); y {
 			err = e
 		}
 	}()
-	var d5s = new(D5ServConf)
 	var kParse = func(buf []byte) {
 		d5s.rsaKey = parseRSAPrivateKey(buf)
 	}
 	desc := getImportableDesc(d5s)
 	parseConfigFile(path, desc, kParse)
 	err = d5s.validate()
-	return d5s, err
+	return
 }
 
 type keyParser func([]byte)

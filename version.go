@@ -13,7 +13,7 @@ import (
 
 const (
 	app_name           = "deblocus"
-	project_url        = "https://github.com/Lafeng/delocus"
+	project_url        = "https://github.com/Lafeng/deblocus"
 	ver_major   uint8  = 0
 	ver_minor   uint8  = 11
 	ver_build   uint16 = 2890
