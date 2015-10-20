@@ -9,7 +9,6 @@ import (
 	log "github.com/Lafeng/deblocus/golang/glog"
 	"io"
 	"net"
-	"os"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -26,19 +25,16 @@ var (
 	server  *multiplexer
 )
 
+func initAddonArgs(defVal int) int {
+	var v int
+	flag.IntVar(&v, "vv", defVal, "log verbose")
+	flag.Parse()
+	return v
+}
+
 func init() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
-	flag.Int("vv", 0, "vv")
-	var fs = flag.NewFlagSet("deblocus", flag.ErrorHandling(0xffff))
-	var null, _ = os.Open(os.DevNull)
-	defer null.Close()
-	fs.SetOutput(null)
-	var v int
-	fs.IntVar(&v, "vv", 0, "log verbose")
-	var deblocusArgs []string
-	deblocusArgs = append(deblocusArgs, os.Args[1:]...)
-	fs.Parse(deblocusArgs)
-
+	v := initAddonArgs(0)
 	log.SetLogOutput("")
 	log.SetLogVerbose(v)
 	cltAddr += strconv.FormatInt(randomRange(1, 1<<13)+3e4, 10)

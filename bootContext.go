@@ -7,6 +7,7 @@ import (
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
 	t "github.com/Lafeng/deblocus/tunnel"
+	"io"
 	"net"
 	"os"
 	"runtime"
@@ -31,6 +32,7 @@ type bootContext struct {
 	vFlag      int
 	debug      bool
 	components []Component
+	closeable  []io.Closer
 }
 
 func (c *bootContext) parse() {
@@ -63,6 +65,11 @@ func (c *bootContext) doStats() {
 func (c *bootContext) doClose() {
 	if c.components != nil {
 		for _, t := range c.components {
+			t.Close()
+		}
+	}
+	if c.closeable != nil {
+		for _, t := range c.closeable {
 			t.Close()
 		}
 	}
@@ -131,6 +138,7 @@ func (context *bootContext) startClient() {
 	dhKey, _ := c.NewDHKey(DH_METHOD)
 	client := t.NewClient(conf, dhKey)
 	context.components = append(context.components, client)
+	context.closeable = append(context.closeable, ln)
 	go client.StartTun(true)
 
 	for {
@@ -171,6 +179,7 @@ func (context *bootContext) startServer() {
 	dhKey, _ := c.NewDHKey(DH_METHOD)
 	server := t.NewServer(conf, dhKey)
 	context.components = append(context.components, server)
+	context.closeable = append(context.closeable, ln)
 	for {
 		conn, err := ln.AcceptTCP()
 		if err == nil {

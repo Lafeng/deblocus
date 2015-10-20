@@ -39,6 +39,7 @@ type Client struct {
 	params      *tunParams
 	lock        sync.Locker
 	dtCnt       int32
+	reqCnt      int32
 	state       int32
 	round       int32
 	pendingConn *semaphore
@@ -196,6 +197,7 @@ func (c *Client) ClientServe(conn net.Conn) {
 		}
 	}()
 
+	reqNum := atomic.AddInt32(&c.reqCnt, 1)
 	pbConn := NewPushbackInputStream(conn)
 	proto, e := detectProtocol(pbConn)
 	if e != nil {
@@ -229,7 +231,10 @@ func (c *Client) ClientServe(conn net.Conn) {
 		log.Warningln("unrecognized request from", conn.RemoteAddr())
 		time.Sleep(REST_INTERVAL)
 	}
-
+	// client setSeed at every 32 req
+	if reqNum&0x1f == 0x1f {
+		myRand.setSeed(0)
+	}
 }
 
 func (t *Client) IsReady() bool {

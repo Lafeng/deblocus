@@ -22,13 +22,63 @@ const (
 
 var (
 	ZERO_TIME  = time.Time{}
-	SIZEOF_INT int
+	WORD_SIZE  int
+	BYTE_ORDER int // 0 is Little Endian, 1 is Big Endian
 )
 
 func init() {
+	// default global rand
 	rand.Seed(time.Now().UnixNano())
-	var aint int
-	SIZEOF_INT = int(unsafe.Sizeof(aint))
+	var one uint32 = 1
+	byte4 := (*[4]byte)(unsafe.Pointer(&one))
+	BYTE_ORDER = int(byte4[3])
+	WORD_SIZE = int(unsafe.Sizeof(uintptr(1)))
+}
+
+var myRand = &lockedSource{
+	rand.NewSource(time.Now().UnixNano()),
+	new(sync.Mutex),
+}
+
+type lockedSource struct {
+	rand.Source
+	*sync.Mutex
+}
+
+func (r *lockedSource) setSeed(seed int) {
+	r.Lock()
+	if seed > 0 {
+		r.Seed(int64(seed))
+	} else {
+		r.Seed(int64(time.Now().Nanosecond()))
+	}
+	r.Unlock()
+}
+
+func (r *lockedSource) Int63n(n int64) int64 {
+	r.Lock()
+	defer r.Unlock()
+	m := r.Int63()
+	if m < n {
+		return m
+	}
+	return m % n
+}
+
+// make len=arrayLen array, and filled with len=randLen pseudorandom
+func randArray(arrayLen int) []byte {
+	newLen := (arrayLen + 7) >> 3 << 3
+	array := make([]byte, newLen)
+
+	ptr := (uintptr)(unsafe.Pointer(&array[0]))
+	ptrEnd := ptr + uintptr(newLen)
+	myRand.Lock()
+	for ; ptr < ptrEnd; ptr += 8 {
+		*(*int64)(unsafe.Pointer(ptr)) = myRand.Int63()
+	}
+	myRand.Unlock()
+
+	return array[:arrayLen]
 }
 
 func nvl(v interface{}, def interface{}) interface{} {
@@ -72,7 +122,7 @@ func i64HumanSize(size int64) string {
 
 func randomRange(min, max int64) (n int64) {
 	for ; n < min; n %= max {
-		n = rand.Int63n(max)
+		n = myRand.Int63n(max)
 	}
 	return n
 }
@@ -155,38 +205,6 @@ func setRTimeout(conn net.Conn) {
 func setWTimeout(conn net.Conn) {
 	e := conn.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
 	ThrowErr(e)
-}
-
-var myRand = &lockedSource{
-	rand.NewSource(time.Now().UnixNano()),
-	new(sync.Mutex),
-}
-
-type lockedSource struct {
-	rand.Source
-	*sync.Mutex
-}
-
-func (r *lockedSource) setSeed(seed int) {
-	r.Lock()
-	r.Seed(int64(seed))
-	r.Unlock()
-}
-
-// make len=arrayLen array, and filled with len=randLen pseudorandom
-func randArray(arrayLen int) []byte {
-	newLen := (arrayLen + 7) >> 3 << 3
-	array := make([]byte, newLen)
-
-	myRand.Lock()
-	ptr := (uintptr)(unsafe.Pointer(&array[0]))
-	for i := 0; i < newLen; i += 8 {
-		*(*int64)(unsafe.Pointer(ptr)) = myRand.Int63()
-		ptr += 8
-	}
-	myRand.Unlock()
-
-	return array[:arrayLen]
 }
 
 func hash20(byteArray []byte) []byte {

@@ -3,6 +3,7 @@ package tunnel
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/Lafeng/deblocus/crypto"
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
 	"github.com/cloudflare/golibs/bytepool"
@@ -42,7 +43,7 @@ const (
 const (
 	WAITING_OPEN_TIMEOUT = time.Second * 30
 	READ_TMO_IN_FASTOPEN = time.Millisecond * 1500
-	FRAME_HEADER_LEN     = 5
+	FRAME_HEADER_LEN     = 8
 	FRAME_MAX_LEN        = 0xffff
 	MUX_PENDING_CLOSE    = -1
 	MUX_CLOSED           = -2
@@ -58,6 +59,10 @@ const (
 var (
 	bytePoolOnce sync.Once
 	bytePool     *bytepool.BytePool
+)
+
+var (
+	ERR_DATA_TAMPERED = ex.NewW("data tampered")
 )
 
 // [1, 0xfffe]
@@ -134,8 +139,8 @@ func (i *idler) ping(tun *Conn) error {
 		i.waiting = true
 		defer i.updateLast()
 		buf := make([]byte, FRAME_HEADER_LEN)
-		_frame(buf, FRAME_ACTION_PING, 0, nil)
-		return tunWrite1(tun, buf)
+		pack(buf, FRAME_ACTION_PING, 0, nil)
+		return frameWriteBuffer(tun, buf)
 	}
 	return nil
 }
@@ -143,8 +148,8 @@ func (i *idler) ping(tun *Conn) error {
 func (i *idler) pong(tun *Conn) error {
 	if i.enabled {
 		buf := make([]byte, FRAME_HEADER_LEN)
-		_frame(buf, FRAME_ACTION_PONG, 0, nil)
-		return tunWrite1(tun, buf)
+		pack(buf, FRAME_ACTION_PONG, 0, nil)
+		return frameWriteBuffer(tun, buf)
 	}
 	return nil
 }
@@ -190,22 +195,12 @@ type frame struct {
 	sid    uint16
 	length uint16
 	data   []byte
+	vary   byte
 	conn   *edgeConn
 }
 
 func (f *frame) String() string {
 	return fmt.Sprintf("Frame{sid=%d act=%x len=%d}", f.sid, f.action, f.length)
-}
-
-func (f *frame) toNewBuffer() []byte {
-	b := make([]byte, f.length+FRAME_HEADER_LEN)
-	b[0] = f.action
-	binary.BigEndian.PutUint16(b[1:], f.sid)
-	binary.BigEndian.PutUint16(b[3:], f.length)
-	if f.length > 0 {
-		copy(b[FRAME_HEADER_LEN:], f.data)
-	}
-	return b
 }
 
 func (f *frame) free() {
@@ -300,27 +295,34 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 	tun.priority = &TSPriority{0, 1e9}
 	p.pool.Push(tun)
 	defer p.onTunDisconnected(tun, handler)
-	tun.SetSockOpt(1, 2, 1)
+	if p.isClient {
+		tun.SetSockOpt(1, 2, 1)
+	} else {
+		tun.SetSockOpt(1, 0, 1)
+	}
 	var (
 		header = make([]byte, FRAME_HEADER_LEN)
-		router = p.router
 		idle   = NewIdler(interval, p.isClient)
+		router = p.router
 		nr     int
 		er     error
 		frm    *frame
 		key    string
 	)
 	if !p.isClient {
-		// first ping frame will let client to be aware of using a valid token.
+		// server first ping client
+		// make client aware of using a valid token.
 		idle.ping(tun)
 	}
 	for {
 		idle.newRound(tun)
 		nr, er = io.ReadFull(tun, header)
 		if nr == FRAME_HEADER_LEN {
-			frm = _parseFrameHeader(header)
-			if frm.length > 0 {
+			frm, er = parse_frame(header)
+			if er == nil && len(frm.data) > 0 {
+				// read All and discard tail random
 				nr, er = io.ReadFull(tun, frm.data)
+				frm.data = frm.data[:frm.length]
 			}
 		}
 		if er != nil {
@@ -330,15 +332,16 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 					continue
 				}
 			case ERR_PING_TIMEOUT:
-				if log.V(2) {
-					log.Warningln("Peer was unresponsive then close", tun.identifier)
+				if log.V(1) {
+					log.Errorln("Peer was unresponsive then close", tun.identifier)
 				}
 			default:
-				if log.V(2) {
-					log.Warningln("Read tunnel", tun.identifier, er)
+				if log.V(1) {
+					log.Errorln("Error", tun.identifier, er)
 				}
 			}
-			return // error, abandon tunnel
+			// abandon this connection
+			return
 		}
 		key = sessionKey(tun, frm.sid)
 
@@ -364,8 +367,8 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 					log.Warningln("peer send data to an unexisted socket.", key, frm)
 				}
 				// trigger sending close to notice peer.
-				_frame(header, FRAME_ACTION_CLOSE_R, frm.sid, nil)
-				if tunWrite1(tun, header) != nil {
+				pack(header, FRAME_ACTION_CLOSE_R, frm.sid, nil)
+				if frameWriteBuffer(tun, header) != nil {
 					return
 				}
 			}
@@ -439,7 +442,6 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 	if !denied {
 		dstConn, err = net.DialTimeout("tcp", target, GENERAL_SO_TIMEOUT)
 	}
-	frm.length = 0
 	if err != nil || denied {
 		p.router.removePreRegistered(key)
 		if denied {
@@ -449,7 +451,7 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 			frm.action = FRAME_ACTION_OPEN_N
 			log.Warningf("Cannot connect to [%s] for %s error: %s\n", target, key, err)
 		}
-		tunWrite2(tun, frm)
+		frameWriteHead(tun, frm)
 	} else {
 		edge := p.router.register(key, target, tun, dstConn, false) // write edge
 		if log.V(1) {
@@ -457,7 +459,7 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		}
 		dstConn.SetReadDeadline(ZERO_TIME)
 		frm.action = FRAME_ACTION_OPEN_Y
-		if tunWrite2(tun, frm) == nil {
+		if frameWriteHead(tun, frm) == nil {
 			p.relay(edge, tun, frm.sid) // read edge
 		} else { // send open_y failed
 			SafeClose(tun)
@@ -474,10 +476,10 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 	defer func() {
 		// positively close then notify peer
 		if edge.bitwiseCompareAndSet(TCP_CLOSE_R) && code != FRAME_ACTION_OPEN_DENIED {
-			_frame(buf, FRAME_ACTION_CLOSE_W, sid, nil)
+			pack(buf, FRAME_ACTION_CLOSE_W, sid, nil)
 			go func() {
 				// tell peer to closeW
-				tunWrite1(tun, buf[:FRAME_HEADER_LEN])
+				frameWriteBuffer(tun, buf[:FRAME_HEADER_LEN])
 				bytePool.Put(buf)
 			}()
 		} else {
@@ -498,8 +500,8 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		}
 	}()
 	if edge.positive { // for client
-		_len := _frame(buf, FRAME_ACTION_OPEN, sid, []byte(edge.dest[2:])) // dest with a leading mark
-		if tunWrite1(tun, buf[:_len]) != nil {
+		_len := pack(buf, FRAME_ACTION_OPEN, sid, []byte(edge.dest[2:])) // dest with a leading mark
+		if frameWriteBuffer(tun, buf[:_len]) != nil {
 			SafeClose(tun)
 			return
 		}
@@ -552,8 +554,8 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		nr, er = src.Read(buf[FRAME_HEADER_LEN:])
 		if nr > 0 {
 			tn += nr
-			_frame(buf, FRAME_ACTION_DATA, sid, uint16(nr))
-			if tunWrite1(tun, buf[:nr+FRAME_HEADER_LEN]) != nil {
+			pack(buf, FRAME_ACTION_DATA, sid, uint16(nr))
+			if frameWriteBuffer(tun, buf[:nr+FRAME_HEADER_LEN]) != nil {
 				SafeClose(tun)
 				return
 			}
@@ -567,16 +569,16 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 
 func (p *multiplexer) bestSend(data []byte, action_desc string) bool {
 	var buf = make([]byte, FRAME_HEADER_LEN+len(data))
-	_frame(buf, FRAME_ACTION_TOKENS, 0, data)
-	var tun *Conn
+	pack(buf, FRAME_ACTION_TOKENS, 0, data)
+
 	for i := 1; i <= 3; i++ {
 		if p.status < 0 /* MUX_CLOSED */ || p.pool == nil {
 			log.Warningln("abandon sending data of", action_desc)
 			break
 		}
-		tun = p.pool.Select()
+		tun := p.pool.Select()
 		if tun != nil {
-			if tunWrite1(tun, buf) == nil {
+			if frameWriteBuffer(tun, buf) == nil {
 				return true
 			}
 		} else {
@@ -587,36 +589,64 @@ func (p *multiplexer) bestSend(data []byte, action_desc string) bool {
 	return false
 }
 
-func tunWrite1(tun *Conn, buf []byte) (err error) {
-	err = tun.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT * 2))
-	if err != nil {
-		return
+// frame writer
+func frameWriteBuffer(tun *Conn, origin []byte) (err error) {
+	// default timeout is 10s
+	err = tun.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
+	if err == nil {
+		var nw int
+		buf := frameTransform(origin)
+		nw, err = tun.Write(buf)
+		if nw != len(buf) || err != nil {
+			log.Warningf("Write tun (%s) error (%v) buf.len=%d\n", tun.sign(), err, len(buf))
+			SafeClose(tun)
+			return
+		}
 	}
-	var nr, nw int
-	nr = len(buf)
-	nw, err = tun.Write(buf)
-	if nr != nw || err != nil {
-		log.Warningf("Write tun(%s) error(%v) when sending buf.len=%d\n", tun.sign(), err, nr)
-		SafeClose(tun)
-		return
-	}
-	return nil
+	return
 }
 
-func tunWrite2(tun *Conn, frm *frame) (err error) {
-	err = tun.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT * 2))
-	if err != nil {
-		return
+// frame writer
+func frameWriteHead(tun *Conn, frm *frame) (err error) {
+	b := make([]byte, FRAME_HEADER_LEN)
+	b[0] = frm.action
+	binary.BigEndian.PutUint16(b[2:], frm.sid)
+	b[4] = 0 // no body
+	b[5] = 0
+	return frameWriteBuffer(tun, b)
+}
+
+func frameTransform(buf []byte) []byte {
+	theLen := len(buf)
+	if theLen > 32 {
+		buf[1] = 0
+		crypto.SetHash16At6(buf)
+		return buf
+	} else {
+		box := randArray(theLen + 256)
+		copy(box, buf)
+		box[1] = box[len(box)-1]
+		crypto.SetHash16At6(box)
+		return box[:theLen+int(box[1])]
 	}
-	var nr, nw int
-	nr = int(frm.length) + FRAME_HEADER_LEN
-	nw, err = tun.Write(frm.toNewBuffer())
-	if nr != nw || err != nil {
-		log.Warningf("Write tun(%s) error(%v) when sending %s\n", tun.sign(), err, frm)
-		SafeClose(tun)
-		return
+}
+
+// frame reader
+func parse_frame(header []byte) (*frame, error) {
+	f := &frame{
+		action: header[0],
+		vary:   header[1],
+		sid:    binary.BigEndian.Uint16(header[2:]),
+		length: binary.BigEndian.Uint16(header[4:]),
 	}
-	return nil
+	if crypto.VerifyHash16At6(header) {
+		bodyLen := int(f.length) + int(f.vary)
+		if bodyLen > 0 {
+			f.data = bytePool.Get(bodyLen)
+		}
+		return f, nil
+	}
+	return nil, ERR_DATA_TAMPERED
 }
 
 // range: [1, sid_max)
@@ -631,40 +661,27 @@ func next_sid() uint16 {
 	}
 }
 
-func _parseFrameHeader(header []byte) *frame {
-	f := &frame{
-		header[0],
-		binary.BigEndian.Uint16(header[1:]),
-		binary.BigEndian.Uint16(header[3:]),
-		nil, nil,
-	}
-	if f.length > 0 {
-		f.data = bytePool.Get(int(f.length))
-	}
-	return f
-}
-
-func _frame(buf []byte, action byte, sid uint16, body_or_len interface{}) int {
-	var _len = FRAME_HEADER_LEN
+// 0 | 1 | 2-3 | 4-5
+func pack(buf []byte, action byte, sid uint16, body_or_len interface{}) int {
+	var _len uint16
 	buf[0] = action
-	binary.BigEndian.PutUint16(buf[1:], sid)
+	buf[1] = 0
+	binary.BigEndian.PutUint16(buf[2:], sid)
 	if body_or_len != nil {
 		switch body_or_len.(type) {
 		case []byte:
 			body := body_or_len.([]byte)
-			_len += len(body)
-			binary.BigEndian.PutUint16(buf[3:], uint16(len(body)))
+			_len = uint16(len(body))
 			copy(buf[FRAME_HEADER_LEN:], body)
 		case uint16:
-			blen := body_or_len.(uint16)
-			_len += int(blen)
-			binary.BigEndian.PutUint16(buf[3:], blen)
+			_len = body_or_len.(uint16)
 		default:
 			panic("unknown body_or_len")
 		}
+		binary.BigEndian.PutUint16(buf[4:], _len)
 	} else {
-		buf[3] = 0
 		buf[4] = 0
+		buf[5] = 0
 	}
-	return _len
+	return int(_len) + FRAME_HEADER_LEN
 }

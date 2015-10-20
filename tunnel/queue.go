@@ -299,9 +299,8 @@ func (q *equeue) sendLoop() {
 							tun = edge.mux.pool.Select()
 						}
 						if tun != nil {
-							frm.length = 0
 							frm.action = FRAME_ACTION_CLOSE_R
-							tunWrite2(tun, frm)
+							frameWriteHead(tun, frm)
 						}
 					}
 					q._close(true, CLOSED_BY_ERR)
