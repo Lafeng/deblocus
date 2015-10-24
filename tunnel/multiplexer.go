@@ -606,12 +606,12 @@ func frameWriteBuffer(tun *Conn, origin []byte) (err error) {
 		buf := frameTransform(origin)
 		nw, err = tun.Write(buf)
 		if nw != len(buf) || err != nil {
-			unresp := time.Now().UnixNano() - tun.priority.last
-			if unresp > int64(WRITE_TUN_TIMEOUT) {
+			idleLastR := time.Now().UnixNano() - tun.priority.last
+			if IsTimeout(err) && idleLastR < int64(WRITE_TUN_TIMEOUT) {
+				err = nil
+			} else {
 				log.Warningf("Write tun (%s) error (%v) buf.len=%d\n", tun.sign(), err, len(buf))
 				SafeClose(tun)
-			} else {
-				err = nil
 			}
 		}
 	}
