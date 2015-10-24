@@ -31,7 +31,7 @@ func Benchmark_Siphash(b *testing.B) {
 }
 
 // Test correctness of generating and verification
-func TestDbcHead(tt *testing.T) {
+func TestDbcHello(tt *testing.T) {
 	t := newTest(tt)
 	tc := calculateTimeCounter(true)
 	for i := 0; i < 1e5; i++ {
@@ -39,12 +39,12 @@ func TestDbcHead(tt *testing.T) {
 
 		// generate
 		data := pub[0]
-		head := makeDbcHead(data, pub)
+		head := makeDbcHello(data, pub)
 		len2 := byte(len(head) - DP_P2I)
 		//tt.Logf("randBuf len=%d len2=%d", len(randBuf), len2)
 
 		// verify
-		ok, _data, _len2 := verifyDbcHead(head, pub, tc)
+		ok, _data, _len2 := verifyDbcHello(head, pub, tc)
 		t.Assert(ok).Fatalf("verifyDbcHead failed")
 		t.Assert(len2 == _len2).Fatalf("expected len2=%d but _len2=%d", len2, _len2)
 		t.Assert(data == _data).Fatalf("expected data=%d but _data=%d", data, _data)
@@ -54,18 +54,18 @@ func TestDbcHead(tt *testing.T) {
 func timeErrorUnit(sp []byte, errors int) bool {
 	_, _, hk := extractKeys(sp)
 	// generate
-	head := makeDbcHead(1, sp)
+	head := makeDbcHello(1, sp)
 	// make error
 	tc := uint64(time.Now().Unix()/TIME_STEP + int64(errors))
 	errSum := siphash.Hash(hk, tc, head[:DP_LEN1])
 	binary.BigEndian.PutUint64(head[DP_LEN1:], errSum)
 	// verify
 	tcArr := calculateTimeCounter(true)
-	ok, _, _ := verifyDbcHead(head, sp, tcArr)
+	ok, _, _ := verifyDbcHello(head, sp, tcArr)
 	return ok
 }
 
-func TestDbcHeadTimeError(tt *testing.T) {
+func TestDbcHelloTimeError(tt *testing.T) {
 	t := newTest(tt)
 	sp := randArray(1 << 10)
 

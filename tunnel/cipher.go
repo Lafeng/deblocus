@@ -134,7 +134,7 @@ func (f *CipherFactory) Cleanup() {
 
 func NewCipherFactory(name string, secret []byte) *CipherFactory {
 	def, _ := GetAvailableCipher(name)
-	ref := hash20(secret)
+	ref := hash160(secret)
 	key := normalizeKey(secret, ref, def.keyLen)
 	return &CipherFactory{
 		key, ref, def,

@@ -207,7 +207,7 @@ func setWTimeout(conn net.Conn) {
 	ThrowErr(e)
 }
 
-func hash20(byteArray []byte) []byte {
+func hash160(byteArray []byte) []byte {
 	sha := sha1.New()
 	sha.Write(byteArray)
 	return sha.Sum(nil)

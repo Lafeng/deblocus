@@ -516,7 +516,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		tn         int // total
 		nr         int
 		er         error
-		_fast_open = /* FAST_OPEN && */ p.isClient
+		_fast_open = p.isClient
 	)
 	for {
 		if _fast_open {
@@ -567,6 +567,9 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		}
 		// timeout to recheck open signal
 		if er != nil && !(_fast_open && IsTimeout(er)) {
+			if er != io.EOF && DEBUG {
+				log.Infof("read to the end of edge total=%d err=%v", tn, er)
+			}
 			return
 		}
 	}
@@ -603,9 +606,12 @@ func frameWriteBuffer(tun *Conn, origin []byte) (err error) {
 		buf := frameTransform(origin)
 		nw, err = tun.Write(buf)
 		if nw != len(buf) || err != nil {
-			log.Warningf("Write tun (%s) error (%v) buf.len=%d\n", tun.sign(), err, len(buf))
-			SafeClose(tun)
-			return
+			unresp := time.Now().UnixNano() - tun.priority.last
+			if unresp > int64(WRITE_TUN_TIMEOUT) {
+				log.Warningf("Write tun (%s) error (%v) buf.len=%d\n", tun.sign(), err, len(buf))
+				SafeClose(tun)
+				return
+			}
 		}
 	}
 	return
@@ -636,7 +642,7 @@ func frameTransform(buf []byte) []byte {
 	}
 }
 
-// frame reader
+// unpack frame
 func parse_frame(header []byte) (*frame, error) {
 	f := &frame{
 		action: header[0],

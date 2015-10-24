@@ -371,7 +371,7 @@ func (n *dbcCltNego) negotiate(p *tunParams) (conn *Conn, err error) {
 // obf~256 | idBlockLen~2 | idBlock(enc)~? | dhPubLen~2 | dhPub~?
 func (n *dbcCltNego) requestAuthAndDHExchange(conn *hashedConn) {
 	// obfuscated header
-	obf := makeDbcHead(TYPE_NEW, n.rsaKey.SharedKey())
+	obf := makeDbcHello(TYPE_NEW, n.rsaKey.SharedKey())
 	buf := new(bytes.Buffer)
 	buf.Write(obf)
 
@@ -515,7 +515,7 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn, tcPool []uint64) (session *Ses
 	if nr == len(buf) {
 
 		nr = 0 // reset nr
-		ok, stype, len2 := verifyDbcHead(buf, n.sharedKey, tcPool)
+		ok, stype, len2 := verifyDbcHello(buf, n.sharedKey, tcPool)
 
 		if ok {
 			if len2 > 0 {
@@ -676,7 +676,7 @@ func (n *dbcCltNego) idBlockSerialize() (block []byte, e error) {
 	block = randArray(max)
 	block[0] = byte(idLen)
 	copy(block[1:], []byte(identity))
-	n.ibHash = hash20(block)
+	n.ibHash = hash160(block)
 	block, e = n.rsaKey.Encrypt(block)
 	return
 }
@@ -697,7 +697,7 @@ func (n *dbcSerNego) idBlockDeserialize(block []byte) (user, pass string, e erro
 		return
 	}
 	user, pass = fields[0], fields[1]
-	n.ibHash = hash20(block)
+	n.ibHash = hash160(block)
 	return
 }
 
@@ -732,7 +732,7 @@ func calculateTimeCounter(withTimeError bool) (tc []uint64) {
 	return tc
 }
 
-func makeDbcHead(data byte, secret []byte) []byte {
+func makeDbcHello(data byte, secret []byte) []byte {
 	randLen := rand.Int() % DP_LEN1 // 8bit
 	buf := randArray(randLen + DP_P2I)
 	pos, sKey, hKey := extractKeys(secret)
@@ -747,19 +747,19 @@ func makeDbcHead(data byte, secret []byte) []byte {
 	return buf
 }
 
-func verifyDbcHead(buf []byte, secret []byte, tc []uint64) (validated bool, data, len2 byte) {
+func verifyDbcHello(buf []byte, secret []byte, tc []uint64) (trusted bool, data, len2 byte) {
 	pos, sKey, hKey := extractKeys(secret)
 	p1 := buf[:DP_LEN1]
 
 	var sum, cltSum uint64
 	cltSum = binary.BigEndian.Uint64(buf[DP_LEN1:DP_P2I])
 
-	for i := 0; !validated && i < len(tc); i++ {
+	for i := 0; !trusted && i < len(tc); i++ {
 		sum = siphash.Hash(hKey, tc[i], p1)
-		validated = cltSum == sum
+		trusted = cltSum == sum
 	}
 
-	if !validated {
+	if !trusted {
 		return
 	}
 
