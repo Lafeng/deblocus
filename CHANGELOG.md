@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.12.2970-beta 15/10/24
+implement high-performance encryption;
+implement verifying packet header checksum;
+implement support for aarch64(armv8);
+and some improvements;
+
 ## 0.11.2810-beta 15/10/4
 improve compatibility of literal ipv6 address;
 improve security by update iv generation;

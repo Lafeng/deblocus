@@ -1,6 +1,6 @@
 # deblocus
 
-Current version is v0.11.2810-beta
+Current version is v0.12.2970-beta
 
 [![Build Status](https://travis-ci.org/Lafeng/deblocus.svg?branch=master)](https://travis-ci.org/Lafeng/deblocus)
 [![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)
@@ -13,7 +13,7 @@ deblocus is a tunneling software that allows secure TCP connection through the s
 ## Features
 
 - Traffic encrypted with dynamic session key
-	* deblocus has [perfect forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
+	* deblocus has perfect [forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
 - Tunnel's communication was provided with mildly obfuscated traffic based on special protocol
 	* Keep communications secure and privacy over untrusted networks.
 - TCP multiplexing inside tunnel and Fast-Open over application layer
@@ -25,12 +25,13 @@ deblocus is a tunneling software that allows secure TCP connection through the s
 
 ## Quickstart
 
-Supported architectures and operating systems: [Wiki](https://github.com/Lafeng/deblocus/wiki)
-
-Binary distributions are available for amd64 machines.
-
 1. Download [executables](https://github.com/Lafeng/deblocus/releases) or compile it from source.
 2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki) to learn more.
+
+Supported architectures and operating systems: 
+
+- Binary distributions: Linux/amd64, Mac OS X/amd64, Windows/amd64
+- Build from source: Linux/aarch64
 
 ## Acknowledgements
 

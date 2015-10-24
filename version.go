@@ -15,8 +15,8 @@ const (
 	app_name           = "deblocus"
 	project_url        = "https://github.com/Lafeng/deblocus"
 	ver_major   uint8  = 0
-	ver_minor   uint8  = 11
-	ver_build   uint16 = 2890
+	ver_minor   uint8  = 12
+	ver_build   uint16 = 2970
 )
 
 var build_flag string // -ldflags "-X main.build_flag=-beta"
