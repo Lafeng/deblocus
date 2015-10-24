@@ -568,7 +568,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		// timeout to recheck open signal
 		if er != nil && !(_fast_open && IsTimeout(er)) {
 			if er != io.EOF && DEBUG {
-				log.Infof("read to the end of edge total=%d err=%v", tn, er)
+				log.Infof("read to the end of edge total=%d err=(%v)", tn, er)
 			}
 			return
 		}
@@ -610,7 +610,8 @@ func frameWriteBuffer(tun *Conn, origin []byte) (err error) {
 			if unresp > int64(WRITE_TUN_TIMEOUT) {
 				log.Warningf("Write tun (%s) error (%v) buf.len=%d\n", tun.sign(), err, len(buf))
 				SafeClose(tun)
-				return
+			} else {
+				err = nil
 			}
 		}
 	}
