@@ -76,8 +76,10 @@ func (t *Session) tokensHandle(args []byte) {
 	switch cmd {
 	case FRAME_ACTION_TOKEN_REQUEST:
 		tokens := t.mgr.createTokens(t, GENERATE_TOKEN_NUM)
-		tokens[0] = FRAME_ACTION_TOKEN_REPLY
-		t.mux.bestSend(tokens, "replyTokens")
+		if tokens != nil {
+			tokens[0] = FRAME_ACTION_TOKEN_REPLY
+			t.mux.bestSend(tokens, "replyTokens")
+		}
 	default:
 		log.Warningf("Unrecognized command=%x packet=[% x]\n", cmd, args)
 	}
@@ -167,6 +169,13 @@ func (s *SessionMgr) clearTokens(session *Session) int {
 func (s *SessionMgr) createTokens(session *Session, many int) []byte {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+
+	// issue #35
+	// clearTokens() invoked prior to createTokens()
+	if session == nil || session.tokens == nil {
+		return nil
+	}
+
 	var (
 		tokens  = make([]byte, 1+many*TKSZ)
 		i64buf  = make([]byte, 8)
