@@ -15,7 +15,7 @@ var sigChan = make(chan os.Signal)
 
 func waitSignal() {
 	USR2 := syscall.Signal(12) // fake signal-USR2 for windows
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, USR2)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM, USR2)
 	for sig := range sigChan {
 		switch sig {
 		case t.Bye:
