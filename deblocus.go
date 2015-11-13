@@ -51,7 +51,7 @@ func main() {
 
 	if showVersion {
 		fmt.Println(versionString())
-		fmt.Println(buildInfo(), "\n")
+		fmt.Println(buildInfo())
 		return
 	}
 
