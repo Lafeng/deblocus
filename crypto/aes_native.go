@@ -34,7 +34,7 @@ func NewAESEncrypter(block cipher.Block, iv []byte) (cipher.Stream, error) {
 	return nil, ERR_NOT_IMPLEMENTED
 }
 
-func NewAESEncrypter(block cipher.Block, iv []byte) (cipher.Stream, error) {
+func NewAESDecrypter(block cipher.Block, iv []byte) (cipher.Stream, error) {
 	aes := block.(*aesNativeCipher)
 	switch aes.mode & 0xff {
 	case MODE_OFB:
