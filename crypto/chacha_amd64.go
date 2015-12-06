@@ -15,6 +15,7 @@ import (
 #cgo linux LDFLAGS: -Wl,--wrap=memcpy -lchacha_linux_amd64
 #cgo windows LDFLAGS: -lchacha_windows_amd64
 #cgo darwin LDFLAGS: -lchacha_darwin_amd64
+#cgo freebsd LDFLAGS: -lchacha_freebsd_amd64
 #include "chacha_amd64.h"
 */
 import "C"

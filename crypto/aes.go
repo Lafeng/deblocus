@@ -16,6 +16,7 @@ import (
 //#cgo linux,amd64 LDFLAGS: -lcrypto_linux_amd64
 //#cgo linux,arm64 LDFLAGS: -lcrypto_linux_arm64
 //#cgo windows,amd64 LDFLAGS: -lcrypto_windows_amd64
+//#cgo freebsd,amd64 LDFLAGS: -lcrypto_freebsd_amd64
 //#include "openssl.h"
 import "C"
 
