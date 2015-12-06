@@ -8,7 +8,6 @@ env:
   matrix:
     - TARGET_OS=linux
     - TARGET_OS=windows
-    - TARGET_OS=freebsd
 addons:
   apt:
     packages:
