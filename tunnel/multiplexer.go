@@ -231,6 +231,7 @@ type multiplexer struct {
 	status   int32
 	pingCnt  int32 // received ping count
 	filter   Filterable
+	wg       *sync.WaitGroup
 }
 
 func newServerMultiplexer() *multiplexer {
@@ -239,6 +240,7 @@ func newServerMultiplexer() *multiplexer {
 		isClient: false,
 		pool:     NewConnPool(),
 		role:     "SVR",
+		wg:       new(sync.WaitGroup),
 	}
 	m.router = newEgressRouter(m)
 	return m
@@ -250,6 +252,7 @@ func newClientMultiplexer() *multiplexer {
 		isClient: true,
 		pool:     NewConnPool(),
 		role:     "CLT",
+		wg:       new(sync.WaitGroup),
 	}
 	m.router = newEgressRouter(m)
 	return m
@@ -292,6 +295,8 @@ func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
 		p.pool.Remove(tun)
 	}
 	SafeClose(tun)
+	// waitting for child(w) goroutine to end
+	p.wg.Wait()
 }
 
 // TODO notify peer to slow down when queue increased too fast
@@ -379,6 +384,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 			}
 		case FRAME_ACTION_OPEN:
 			router.preRegister(key)
+			p.wg.Add(1)
 			go p.connectToDest(frm, key, tun)
 		case FRAME_ACTION_OPEN_N, FRAME_ACTION_OPEN_Y, FRAME_ACTION_OPEN_DENIED:
 			edge, _ := router.getRegistered(key)
@@ -433,6 +439,7 @@ func sessionKey(tun *Conn, sid uint16) string {
 
 func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 	defer func() {
+		p.wg.Done()
 		ex.CatchException(recover())
 	}()
 	var (
