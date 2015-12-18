@@ -2,6 +2,10 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.12.3520-beta 15/12/18
+bug fixes;
+build on go1.5.2;
+
 ## 0.12.2970-beta 15/10/24
 implement high-performance encryption;
 implement verifying packet header checksum;
