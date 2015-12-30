@@ -106,6 +106,8 @@ func (cman *ConfigMan) InitConfigByRole(expectedRole ServerRole) (r ServerRole, 
 		if _, err = cman.iniInstance.GetSection(CF_CLIENT); err == nil {
 			r |= SR_CLIENT
 			cman.cConf, err = cman.ParseClientConf()
+		} else if expectedRole == SR_AUTO { // AUTO ignore
+			err = nil
 		}
 		if err != nil {
 			goto abort
@@ -116,6 +118,8 @@ func (cman *ConfigMan) InitConfigByRole(expectedRole ServerRole) (r ServerRole, 
 		if _, err = cman.iniInstance.GetSection(CF_SERVER); err == nil {
 			r |= SR_SERVER
 			cman.sConf, err = cman.ParseServConf()
+		} else if expectedRole == SR_AUTO { // AUTO ignore
+			err = nil
 		}
 		if err != nil {
 			goto abort
