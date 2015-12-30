@@ -1,9 +1,7 @@
 package tunnel
 
 import (
-	"crypto/sha1"
 	"fmt"
-	"hash"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -96,52 +94,8 @@ func (c *Conn) Update() {
 	c.priority.last = t
 }
 
-func (c *Conn) sign() string {
-	return fmt.Sprintf("%s-L%d", SubstringBefore(c.identifier, "~"), c.LocalAddr().(*net.TCPAddr).Port)
-}
-
-func IdentifierOf(con net.Conn) string {
-	return con.LocalAddr().String() + con.RemoteAddr().String()
-}
-
-type hashedConn struct {
-	*Conn
-	rHash    hash.Hash
-	wHash    hash.Hash
-	hashSize int
-}
-
-func newHashedConn(conn net.Conn) (h *hashedConn, c *Conn) {
-	c = NewConn(conn, nullCipherKit)
-	h = &hashedConn{
-		Conn:     c,
-		rHash:    sha1.New(),
-		wHash:    sha1.New(),
-		hashSize: sha1.Size,
-	}
-	return
-}
-
-func (c *hashedConn) Read(b []byte) (n int, e error) {
-	n, e = c.Conn.Read(b)
-	if c.rHash != nil && n > 0 {
-		c.rHash.Write(b[:n])
-	}
-	return
-}
-
-func (c *hashedConn) Write(b []byte) (int, error) {
-	if c.wHash != nil {
-		c.wHash.Write(b)
-	}
-	return c.Conn.Write(b)
-}
-
-func (c *hashedConn) HashSum() (r, w []byte) {
-	r = c.rHash.Sum(nil)
-	w = c.wHash.Sum(nil)
-	c.rHash, c.wHash = nil, nil
-	return
+func (c *Conn) id() string {
+	return fmt.Sprintf("L%dR%d", c.LocalAddr().(*net.TCPAddr).Port, c.RemoteAddr().(*net.TCPAddr).Port)
 }
 
 //

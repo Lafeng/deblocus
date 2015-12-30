@@ -3,10 +3,11 @@
 package tunnel
 
 import (
-	log "github.com/Lafeng/deblocus/golang/glog"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	log "github.com/Lafeng/deblocus/golang/glog"
 )
 
 const (

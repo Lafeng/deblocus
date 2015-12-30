@@ -2,8 +2,10 @@ package tunnel
 
 import (
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
@@ -88,11 +90,11 @@ func nvl(v interface{}, def interface{}) interface{} {
 	return v
 }
 
-func SubstringBefore(str, sep string) string {
+func SubstringBefore(str, sep string) (string, string) {
 	if p := strings.Index(str, sep); p > 0 {
-		return str[:p]
+		return str[:p], str[p:]
 	} else {
-		return str
+		return str, NULL
 	}
 }
 
@@ -190,6 +192,17 @@ func closeW(conn net.Conn) {
 	}
 }
 
+func IsValidHost(hostport string) (ok bool, err error) {
+	var h, p string
+	h, p, err = net.SplitHostPort(hostport)
+	if h != NULL && p != NULL && err == nil {
+		ok = true
+	} else if err == nil {
+		err = errors.New("Invalid host address " + hostport)
+	}
+	return
+}
+
 func IsTimeout(e error) bool {
 	if err, y := e.(net.Error); y {
 		return err.Timeout()
@@ -210,6 +223,12 @@ func setWTimeout(conn net.Conn) {
 func hash160(byteArray []byte) []byte {
 	sha := sha1.New()
 	sha.Write(byteArray)
+	return sha.Sum(nil)
+}
+
+func hash256(msg []byte) []byte {
+	sha := sha256.New()
+	sha.Write(msg)
 	return sha.Sum(nil)
 }
 

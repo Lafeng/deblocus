@@ -2,13 +2,14 @@ package tunnel
 
 import (
 	"container/list"
-	ex "github.com/Lafeng/deblocus/exception"
-	log "github.com/Lafeng/deblocus/golang/glog"
 	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	ex "github.com/Lafeng/deblocus/exception"
+	log "github.com/Lafeng/deblocus/golang/glog"
 )
 
 const (
@@ -140,7 +141,7 @@ func (r *egressRouter) getRegistered(key string) (e *edgeConn, preRegistered boo
 
 func (r *egressRouter) clean() {
 	defer func() {
-		ex.CatchException(recover())
+		ex.Catch(recover(), nil)
 	}()
 	r.lock.Lock()
 	defer r.lock.Unlock()

@@ -1,10 +1,11 @@
 package tunnel
 
 import (
-	log "github.com/Lafeng/deblocus/golang/glog"
 	"sort"
 	"sync"
 	"sync/atomic"
+
+	log "github.com/Lafeng/deblocus/golang/glog"
 )
 
 type TSPriority struct {

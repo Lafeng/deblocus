@@ -3,5 +3,7 @@ bin
 *.exe
 *.d5c
 *.d5s
+*.bat
+*.ini
 *.conf
 debug.go

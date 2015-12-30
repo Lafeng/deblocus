@@ -1,16 +1,17 @@
 package auth
 
 import (
-	"github.com/Lafeng/deblocus/exception"
 	"strings"
+
+	"github.com/Lafeng/deblocus/exception"
 )
 
 var (
-	NO_SUCH_USER          = exception.NewW("No such user")
-	AUTH_FAILED           = exception.NewW("Auth failed")
-	UNIMPLEMENTED_AUTHSYS = exception.NewW("Unimplemented authsys")
-	INVALID_AUTH_CONF     = exception.NewW("Invalid Auth config")
-	INVALID_AUTH_PARAMS   = exception.NewW("Invalid Auth params")
+	NO_SUCH_USER          = exception.New("No such user")
+	AUTH_FAILED           = exception.New("Auth failed")
+	UNIMPLEMENTED_AUTHSYS = exception.New("Unimplemented authsys")
+	INVALID_AUTH_CONF     = exception.New("Invalid Auth config")
+	INVALID_AUTH_PARAMS   = exception.New("Invalid Auth params")
 )
 
 type AuthSys interface {

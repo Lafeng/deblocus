@@ -3,16 +3,17 @@ package tunnel
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/Lafeng/deblocus/crypto"
-	ex "github.com/Lafeng/deblocus/exception"
-	log "github.com/Lafeng/deblocus/golang/glog"
-	"github.com/cloudflare/golibs/bytepool"
 	"io"
 	"net"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Lafeng/deblocus/crypto"
+	ex "github.com/Lafeng/deblocus/exception"
+	log "github.com/Lafeng/deblocus/golang/glog"
+	"github.com/cloudflare/golibs/bytepool"
 )
 
 const (
@@ -72,7 +73,7 @@ var (
 )
 
 var (
-	ERR_DATA_TAMPERED = ex.NewW("data tampered")
+	ERR_DATA_TAMPERED = ex.New("data tampered")
 )
 
 // --------------------
@@ -264,7 +265,7 @@ func (p *multiplexer) destroy() {
 		return
 	}
 	defer func() {
-		if !ex.CatchException(recover()) {
+		if !ex.Catch(recover(), nil) {
 			atomic.StoreInt32(&p.status, MUX_CLOSED)
 		}
 	}()
@@ -347,7 +348,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 				}
 			default:
 				if log.V(1) {
-					log.Errorln("Error", tun.identifier, er)
+					log.Errorln("Read error", tun.identifier, er)
 				}
 			}
 			// abandon this connection
@@ -440,7 +441,7 @@ func sessionKey(tun *Conn, sid uint16) string {
 func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 	defer func() {
 		p.wg.Done()
-		ex.CatchException(recover())
+		ex.Catch(recover(), nil)
 	}()
 	var (
 		dstConn net.Conn
@@ -617,7 +618,7 @@ func frameWriteBuffer(tun *Conn, origin []byte) (err error) {
 			if IsTimeout(err) && idleLastR < int64(WRITE_TUN_TIMEOUT) {
 				err = nil
 			} else {
-				log.Warningf("Write tun (%s) error (%v) buf.len=%d\n", tun.sign(), err, len(buf))
+				log.Warningf("Write tun (%s) error (%v) buf.len=%d\n", tun.id(), err, len(buf))
 				SafeClose(tun)
 			}
 		}

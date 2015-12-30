@@ -2,10 +2,11 @@ package tunnel
 
 import (
 	"encoding/binary"
-	"github.com/dchest/siphash"
 	"math/rand"
 	"testing"
 	"time"
+
+	"github.com/dchest/siphash"
 )
 
 func Benchmark_randarray(b *testing.B) {
@@ -40,7 +41,7 @@ func TestDbcHello(tt *testing.T) {
 		// generate
 		data := pub[0]
 		head := makeDbcHello(data, pub)
-		len2 := byte(len(head) - DP_P2I)
+		len2 := byte(len(head) - DPH_P2)
 		//tt.Logf("randBuf len=%d len2=%d", len(randBuf), len2)
 
 		// verify
@@ -57,8 +58,8 @@ func timeErrorUnit(sp []byte, errors int) bool {
 	head := makeDbcHello(1, sp)
 	// make error
 	tc := uint64(time.Now().Unix()/TIME_STEP + int64(errors))
-	errSum := siphash.Hash(hk, tc, head[:DP_LEN1])
-	binary.BigEndian.PutUint64(head[DP_LEN1:], errSum)
+	errSum := siphash.Hash(hk, tc, head[:DPH_LEN1])
+	binary.BigEndian.PutUint64(head[DPH_LEN1:], errSum)
 	// verify
 	tcArr := calculateTimeCounter(true)
 	ok, _, _ := verifyDbcHello(head, sp, tcArr)

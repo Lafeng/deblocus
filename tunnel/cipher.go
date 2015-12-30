@@ -1,24 +1,30 @@
 package tunnel
 
 import (
+	stdcrypto "crypto"
 	"crypto/cipher"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/asn1"
+	"fmt"
+	"io"
+	"math/big"
+	"strings"
+
 	"github.com/Lafeng/deblocus/crypto"
 	"github.com/Lafeng/deblocus/exception"
-	"io"
-	"strings"
 )
 
 var (
-	UNSUPPORTED_CIPHER = exception.NewW("Unsupported cipher")
+	UNSUPPORTED_CIPHER = exception.New("Unsupported cipher")
 )
 
 type cipherBuilder func(k, iv []byte) *XORCipherKit
 
-type cipherDecr struct {
+type cipherDesc struct {
 	keyLen  int
 	ivLen   int
 	builder cipherBuilder
@@ -62,20 +68,20 @@ var nullCipherKit = new(NullCipherKit)
 
 // Uppercase Name
 var availableCiphers = []interface{}{
-	"CHACHA12", &cipherDecr{32, 8, new_ChaCha12},
-	"CHACHA20", &cipherDecr{32, 8, new_ChaCha20},
-	"AES128OFB", &cipherDecr{16, 16, new_AES_OFB},
-	"AES256OFB", &cipherDecr{32, 16, new_AES_OFB},
-	"AES128CTR", &cipherDecr{16, 16, new_AES_CTR},
-	"AES192CTR", &cipherDecr{24, 16, new_AES_CTR},
-	"AES256CTR", &cipherDecr{32, 16, new_AES_CTR},
+	"CHACHA12", &cipherDesc{32, 8, new_ChaCha12},
+	"CHACHA20", &cipherDesc{32, 8, new_ChaCha20},
+	"AES128OFB", &cipherDesc{16, 16, new_AES_OFB},
+	"AES256OFB", &cipherDesc{32, 16, new_AES_OFB},
+	"AES128CTR", &cipherDesc{16, 16, new_AES_CTR},
+	"AES192CTR", &cipherDesc{24, 16, new_AES_CTR},
+	"AES256CTR", &cipherDesc{32, 16, new_AES_CTR},
 }
 
-func GetAvailableCipher(wants string) (*cipherDecr, error) {
+func GetAvailableCipher(wants string) (*cipherDesc, error) {
 	wants = strings.ToUpper(wants)
 	for i := 0; i < len(availableCiphers); i += 2 {
 		name := availableCiphers[i].(string)
-		decr := availableCiphers[i+1].(*cipherDecr)
+		decr := availableCiphers[i+1].(*cipherDesc)
 		if name == wants {
 			return decr, nil
 		}
@@ -114,81 +120,128 @@ func new_ChaCha12(key, iv []byte) *XORCipherKit {
 }
 
 type CipherFactory struct {
-	key, ref []byte
-	decr     *cipherDecr
+	key  []byte
+	decr *cipherDesc
 }
 
 func (c *CipherFactory) InitCipher(iv []byte) *XORCipherKit {
 	if iv == nil {
-		iv = normalizeKey(c.key, c.ref, c.decr.ivLen)
+		panic("iv nil") // TODO test
+	}
+	if len(iv) < c.decr.ivLen {
+		iv = normalizeKey(c.decr.ivLen, iv)
 	} else {
-		iv = normalizeKey(iv, c.ref, c.decr.ivLen)
+		iv = iv[:c.decr.ivLen]
 	}
 	return c.decr.builder(c.key, iv)
 }
 
 func (f *CipherFactory) Cleanup() {
 	crypto.Memset(f.key, 0)
-	crypto.Memset(f.ref, 0)
 }
 
-func NewCipherFactory(name string, secret []byte) *CipherFactory {
-	def, _ := GetAvailableCipher(name)
-	ref := hash160(secret)
-	key := normalizeKey(secret, ref, def.keyLen)
-	return &CipherFactory{
-		key, ref, def,
-	}
+func NewCipherFactory(name string, secrets ...[]byte) *CipherFactory {
+	desc, _ := GetAvailableCipher(name)
+	key := normalizeKey(desc.keyLen, secrets...)
+	return &CipherFactory{key, desc}
 }
 
-func normalizeKey(raw, ref []byte, size int) []byte {
+func normalizeKey(size int, msg ...[]byte) []byte {
 	hs := sha256.New()
-	count := (size + 31) >> 5
-	step := len(raw) / count
-	key := make([]byte, 0, count<<5)
-	for i, j := 0, 0; i < count; i, j = i+1, j+step {
-		hs.Write(raw[j : j+step])
-		if i == 0 && ref != nil {
-			hs.Write(ref)
-		} else {
-			hs.Write(key)
-		}
-		key = hs.Sum(key)
+	for _, m := range msg {
+		hs.Write(m)
 	}
+	key := hs.Sum(nil)
 	return key[:size]
 }
 
-// single block encrypt
-// RSA1024-OAEP_sha1: msg.length <= 86byte
-// RSA2048-OAEP_sha1: msg.length <= 214byte
-func (k *RSAKeyPair) Encrypt(src []byte) (enc []byte, err error) {
-	return rsa.EncryptOAEP(sha1.New(), rand.Reader, k.pub, src, nil)
-}
-
-// single block decrypt
-func (k *RSAKeyPair) Decrypt(src []byte) (plain []byte, err error) {
-	return rsa.DecryptOAEP(sha1.New(), rand.Reader, k.priv, src, nil)
-}
-
-type RSAKeyPair struct {
-	priv *rsa.PrivateKey
-	pub  *rsa.PublicKey
-}
-
-// max length of encryption
-func (k *RSAKeyPair) BlockSize() int {
-	K := (k.pub.N.BitLen() + 7) / 8
-	return K - 2*sha1.Size - 2
-}
-
-func (k *RSAKeyPair) SharedKey() []byte {
-	return k.pub.N.Bytes()
-}
-
-func GenerateRSAKeyPair(keyBits int) *RSAKeyPair {
-	priv, _ := rsa.GenerateKey(rand.Reader, keyBits)
-	return &RSAKeyPair{
-		priv: priv,
-		pub:  &priv.PublicKey,
+func NameOfKey(v interface{}) string {
+	switch k := v.(type) {
+	case *ecdsa.PublicKey:
+		return fmt.Sprintf("ECC-P%d", k.Params().BitSize)
+	case *rsa.PublicKey:
+		return fmt.Sprintf("RSA-%d", k.N.BitLen())
 	}
+	return NULL
+}
+
+func GenerateECCKey(name string) (stdcrypto.PrivateKey, error) {
+	if name == NULL {
+		name = "ECC-P256"
+	}
+	curve, err := crypto.SelectCurve(name)
+	if err != nil {
+		return nil, err
+	}
+	return ecdsa.GenerateKey(curve, rand.Reader)
+}
+
+func MarshalPrivateKey(priv stdcrypto.PrivateKey) (b []byte) {
+	switch k := priv.(type) {
+	case *rsa.PrivateKey:
+		b = x509.MarshalPKCS1PrivateKey(k)
+	case *ecdsa.PrivateKey:
+		b, _ = x509.MarshalECPrivateKey(k)
+	}
+	return
+}
+
+func UnmarshalPrivateKey(b []byte) (stdcrypto.PrivateKey, error) {
+	if k, err := x509.ParseECPrivateKey(b); err == nil {
+		return k, nil
+	}
+	if k, err := x509.ParsePKCS1PrivateKey(b); err == nil {
+		return k, nil
+	}
+	return nil, UNRECOGNIZED_SYMBOLS
+}
+
+func preSharedKey(v interface{}) []byte {
+	switch k := v.(type) {
+	case *rsa.PublicKey:
+		return k.N.Bytes()
+	case *ecdsa.PublicKey:
+		return k.X.Bytes()
+	}
+	return nil
+}
+
+func MarshalPublicKey(v interface{}) ([]byte, error) {
+	return x509.MarshalPKIXPublicKey(v)
+}
+
+func UnmarshalPublicKey(b []byte) (stdcrypto.PublicKey, error) {
+	pub, err := x509.ParsePKIXPublicKey(b)
+	if pub == nil { //maybe pub==err==nil
+		return nil, nvl(err, UNRECOGNIZED_SYMBOLS).(error)
+	}
+	return pub.(stdcrypto.PublicKey), nil
+}
+
+type ecdsaSignature struct {
+	R, S *big.Int
+}
+
+func DS_Verify(pub stdcrypto.PublicKey, sig, msg []byte) bool {
+	switch k := pub.(type) {
+	case *rsa.PublicKey:
+		return nil == rsa.VerifyPKCS1v15(k, stdcrypto.SHA256, msg, sig)
+	case *ecdsa.PublicKey:
+		var es ecdsaSignature
+		_, err := asn1.Unmarshal(sig, &es)
+		if err != nil {
+			return false
+		}
+		return ecdsa.Verify(k, msg, es.R, es.S)
+	}
+	panic("unknow key")
+}
+
+func DS_Sign(priv stdcrypto.PrivateKey, msg []byte) []byte {
+	if signer, y := priv.(stdcrypto.Signer); y {
+		b, err := signer.Sign(rand.Reader, msg, nil)
+		ThrowErr(err)
+		return b
+	}
+	return nil
 }

@@ -1,18 +1,15 @@
 package tunnel
 
 import (
-	"bytes"
 	"fmt"
-	"github.com/Lafeng/deblocus/crypto"
-	ex "github.com/Lafeng/deblocus/exception"
-	log "github.com/Lafeng/deblocus/golang/glog"
 	"io"
 	"net"
-	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	ex "github.com/Lafeng/deblocus/exception"
+	log "github.com/Lafeng/deblocus/golang/glog"
 )
 
 const (
@@ -28,15 +25,15 @@ const (
 )
 
 var (
-	ERR_REQ_TK_TIMEOUT = ex.NewW("Request token timeout")
-	ERR_REQ_TK_ABORTED = ex.NewW("Requst token aborted")
+	ERR_REQ_TK_TIMEOUT = ex.New("Request token timeout")
+	ERR_REQ_TK_ABORTED = ex.New("Requst token aborted")
 )
 
 type Client struct {
 	mux         *multiplexer
 	token       []byte
-	nego        *dbcCltNego
 	params      *tunParams
+	connInfo    *connectionInfo
 	lock        sync.Locker
 	dtCnt       int32
 	reqCnt      int32
@@ -46,10 +43,10 @@ type Client struct {
 	pendingTK   *semaphore
 }
 
-func NewClient(d5c *D5ClientConf, dhKey crypto.DHKE) *Client {
+func NewClient(cman *ConfigMan) *Client {
 	clt := &Client{
 		lock:        new(sync.Mutex),
-		nego:        &dbcCltNego{D5Params: d5c.d5p, dhKey: dhKey},
+		connInfo:    cman.cConf.connInfo,
 		state:       CLT_WORKING,
 		pendingConn: NewSemaphore(true), // unestablished connection
 		pendingTK:   NewSemaphore(true), // waiting tokens
@@ -57,31 +54,23 @@ func NewClient(d5c *D5ClientConf, dhKey crypto.DHKE) *Client {
 	return clt
 }
 
-func (c *Client) initialNegotiation() (tun *Conn) {
+func (c *Client) initialConnect() (tun *Conn) {
 	var newParams = new(tunParams)
+	var man = &d5cman{connectionInfo: c.connInfo}
 	var err error
-	tun, err = c.nego.negotiate(newParams)
+	tun, err = man.Connect(newParams)
 	if err != nil {
 		if log.V(1) == true || DEBUG {
-			log.Errorf("Connection failed %s, Error: %s. Retry after %s",
-				c.nego.RemoteName(), err, RETRY_INTERVAL)
+			log.Errorf("Failed connect %s. Retry after %s. Error: %s", c.connInfo.RemoteName(), RETRY_INTERVAL, err)
 		} else {
-			log.Errorf("Connection failed %s. Retry after %s",
-				c.nego.RemoteName(), RETRY_INTERVAL)
-		}
-		if strings.Contains(err.Error(), "closed") {
-			log.Warningln(string(bytes.Repeat([]byte{'+'}, 30)))
-			log.Warningln("Maybe your clock is inaccurate, or your client credential is invalid.")
-			log.Warningln(string(bytes.Repeat([]byte{'+'}, 30)))
-			os.Exit(2)
+			log.Errorf("Failed connect %s. Retry after %s", c.connInfo.RemoteName(), RETRY_INTERVAL)
 		}
 		return nil
+	} else {
+		log.Infof("Login to server %s successfully", tun.identifier)
 	}
 	c.params = newParams
 	c.token = newParams.token
-
-	tun.identifier = c.nego.RemoteName()
-	log.Infof("Login to the gateway %s successfully", tun.identifier)
 	return
 }
 
@@ -100,7 +89,7 @@ func (c *Client) restart() (tun *Conn, rn int32) {
 		if i > 0 {
 			time.Sleep(RETRY_INTERVAL)
 		}
-		tun = c.initialNegotiation()
+		tun = c.initialConnect()
 	}
 	atomic.StoreInt32(&c.state, CLT_WORKING)
 	rn = atomic.AddInt32(&c.round, 1)
@@ -143,10 +132,10 @@ func (c *Client) StartTun(mustRestart bool) {
 				if err != nil {
 					if log.V(1) == true || DEBUG {
 						log.Errorf("Connection failed %s, Error: %s. Reconnect after %s",
-							c.nego.RemoteName(), err, RETRY_INTERVAL)
+							c.connInfo.RemoteName(), err, RETRY_INTERVAL)
 					} else {
 						log.Errorf("Connection failed %s. Reconnect after %s",
-							c.nego.RemoteName(), RETRY_INTERVAL)
+							c.connInfo.RemoteName(), RETRY_INTERVAL)
 					}
 					wait = true
 					continue
@@ -154,14 +143,14 @@ func (c *Client) StartTun(mustRestart bool) {
 			}
 
 			if log.V(1) {
-				log.Infof("Tun %s is established\n", tun.sign())
+				log.Infof("Tun %s is established\n", tun.id())
 			}
 
 			cnt := atomic.AddInt32(&c.dtCnt, 1)
 			c.mux.Listen(tun, c.eventHandler, c.params.pingInterval+int(cnt))
 			dtcnt := atomic.AddInt32(&c.dtCnt, -1)
 
-			log.Errorf("Tun %s was disconnected, Reconnect after %s\n", tun.sign(), RETRY_INTERVAL)
+			log.Errorf("Tun %s was disconnected, Reconnect after %s\n", tun.id(), RETRY_INTERVAL)
 
 			tun.cipher.Cleanup()
 			if atomic.LoadInt32(&c.mux.pingCnt) <= 0 {
@@ -189,9 +178,7 @@ func (c *Client) StartTun(mustRestart bool) {
 func (c *Client) ClientServe(conn net.Conn) {
 	var done bool
 	defer func() {
-		if e := recover(); e != nil {
-			log.Warningln(e)
-		}
+		ex.Catch(recover(), nil)
 		if !done {
 			SafeClose(conn)
 		}
@@ -199,31 +186,36 @@ func (c *Client) ClientServe(conn net.Conn) {
 
 	reqNum := atomic.AddInt32(&c.reqCnt, 1)
 	pbConn := NewPushbackInputStream(conn)
-	proto, e := detectProtocol(pbConn)
-	if e != nil {
+	proto, err := detectProtocol(pbConn)
+	if err != nil {
 		// chrome will make some advance connections and then aborted
 		// cause a EOF
-		if e != io.EOF && e != io.ErrUnexpectedEOF {
-			log.Warningln(e)
+		if err != io.EOF && err != io.ErrUnexpectedEOF {
+			log.Warningln(err)
 		}
 		return
 	}
+
 	switch proto {
-	case REQ_PROT_SOCKS5:
-		s5 := s5Handler{conn: pbConn}
-		s5.handshake()
-		if !s5.handshakeResponse() {
-			literalTarget := s5.parseRequest()
-			if !s5.finalResponse() {
+	case PROT_SOCKS5:
+		s5 := socks5Handler{pbConn}
+		if s5.handshake() {
+			if literalTarget, ok := s5.readRequest(); ok {
 				c.mux.HandleRequest("SOCKS5", conn, literalTarget)
 				done = true
 			}
 		}
-	case REQ_PROT_HTTP:
-		prot, literalTarget := httpProxyHandshake(pbConn)
-		if prot == REQ_PROT_HTTP { // plain http
+	case PROT_HTTP:
+		proto, literalTarget, err := httpProxyHandshake(pbConn)
+		if err != nil {
+			log.Warningln(err)
+			break
+		}
+		if proto == PROT_HTTP {
+			// plain http
 			c.mux.HandleRequest("HTTP", pbConn, literalTarget)
-		} else { // http tunnel
+		} else {
+			// http tunnel
 			c.mux.HandleRequest("HTTP/T", conn, literalTarget)
 		}
 		done = true
@@ -241,39 +233,14 @@ func (t *Client) IsReady() bool {
 	return atomic.LoadInt32(&t.dtCnt) > 0
 }
 
-// must catch exceptions and return
 func (t *Client) createDataTun() (c *Conn, err error) {
-	defer func() {
-		if e, y := ex.ErrorOf(recover()); y {
-			err = e
-		}
-	}()
-	conn, err := net.DialTimeout("tcp", t.nego.d5sAddrStr, GENERAL_SO_TIMEOUT)
-	if err != nil {
-		return nil, err
-	}
-
-	var buf = new(bytes.Buffer)
-	obf := makeDbcHello(TYPE_DAT, t.nego.rsaKey.SharedKey())
-	buf.Write(obf)
-
 	var token []byte
 	token, err = t.getToken()
 	if err != nil {
-		return nil, err
+		return
 	}
-	buf.Write(token)
-
-	setWTimeout(conn)
-	_, err = conn.Write(buf.Bytes())
-	if err != nil {
-		return nil, err
-	}
-
-	cipher := t.params.cipherFactory.InitCipher(token)
-	c = NewConn(conn.(*net.TCPConn), cipher)
-	c.identifier = t.nego.RemoteName()
-	return c, nil
+	man := &d5cman{connectionInfo: t.connInfo}
+	return man.ResumeSession(t.params, token)
 }
 
 func (c *Client) eventHandler(e event, msg ...interface{}) {
@@ -284,8 +251,8 @@ func (c *Client) eventHandler(e event, msg ...interface{}) {
 }
 
 func (t *Client) Stats() string {
-	return fmt.Sprintf("Client -> %s Conn=%d TK=%d", t.nego.d5sAddrStr,
-		atomic.LoadInt32(&t.dtCnt), len(t.token)/TKSZ)
+	return fmt.Sprintf("Client -> %s Conn=%d TK=%d",
+		t.connInfo.sAddr, atomic.LoadInt32(&t.dtCnt), len(t.token)/TKSZ)
 }
 
 func (t *Client) Close() {

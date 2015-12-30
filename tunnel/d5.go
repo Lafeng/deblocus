@@ -1,54 +1,41 @@
 package tunnel
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
+	"io"
+	"math/rand"
+	"net"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/Lafeng/deblocus/auth"
 	"github.com/Lafeng/deblocus/crypto"
 	"github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
 	"github.com/dchest/siphash"
-	"io"
-	"math/rand"
-	"net"
-	"net/http"
-	"strconv"
-	"strings"
-	"time"
 )
 
 const (
-	IPV4        byte = 1
-	DOMAIN      byte = 3
-	IPV6        byte = 4
-	S5_VER      byte = 5
-	AUTH_FAILED byte = 0xff
-	TYPE_NEW    byte = 0xfb
-	TYPE_DAT    byte = 0xf1
+	AUTH_PASS byte = 0xff
+	TYPE_NEW  byte = 0xfb
+	TYPE_RES  byte = 0xf1
 )
 
 const (
 	GENERAL_SO_TIMEOUT = 10 * time.Second
-	TUN_PARAMS_LEN     = 32
 
-	DP_LEN1    = 256
-	DP_P2I     = 256 + 8
-	DP_MOD     = 65536
+	DPH_LEN1   = 256
+	DPH_P2     = 256 + 8 // part-2 offset
+	DPH_MOD    = 65536
 	TIME_STEP  = 60 // seconds
 	TIME_ERROR = 1  // minutes
 
-	REQ_PROT_UNKNOWN    = 1
-	REQ_PROT_SOCKS5     = 2
-	REQ_PROT_HTTP       = 3
-	REQ_PROT_HTTP_T     = 4
-	NULL                = ""
-	CRLF                = "\r\n"
-	IDENTITY_SEP        = "\x00"
-	HTTP_PROXY_VER_LINE = "HTTP/1.1 200 Connection established"
-	HTTP_PROXY_AGENT    = "Proxy-Agent: "
+	NULL         = ""
+	CRLF         = "\r\n"
+	IDENTITY_SEP = "\x00"
 )
 
 var (
@@ -59,26 +46,16 @@ var (
 )
 
 var (
-	// socks5 exceptions
-	INVALID_SOCKS5_HEADER  = exception.New(0xff, "Invalid socks5 header")
-	INVALID_SOCKS5_REQUEST = exception.New(0x07, "Invalid socks5 request")
-	GENERAL_FAILURE        = exception.New(0x01, "General failure")
-	HOST_UNREACHABLE       = exception.New(0x04, "Host is unreachable")
-)
-
-var (
 	// D5 exceptions
-	INVALID_D5PARAMS     = exception.NewW("Invalid D5Params")
-	D5SER_UNREACHABLE    = exception.NewW("D5Server is unreachable")
-	VALIDATION_FAILED    = exception.NewW("Validation failed")
-	NEGOTIATION_FAILED   = exception.NewW("Negotiation failed")
-	DATATUN_SESSION      = exception.NewW("DT")
-	INCONSISTENT_HASH    = exception.NewW("Inconsistent hash")
-	INCOMPATIBLE_VERSION = exception.NewW("Incompatible version")
-	UNRECOGNIZED_REQ     = exception.NewW("Unrecognized Request")
+	ILLEGAL_STATE        = exception.New("Invalid State")
+	VALIDATION_FAILED    = exception.New("Validation Failed")
+	INCONSISTENT_HASH    = exception.New("Inconsistent Hashsum")
+	INCOMPATIBLE_VERSION = exception.New("Incompatible Version")
+	UNRECOGNIZED_REQ     = exception.New("Unrecognized Request")
+	ERR_TIME_ERROR       = exception.New("Time Error")
 )
 
-// len_inByte: first segment length of bytes, enum: 1,2,4
+// len_inByte enum: 1,2,4
 func ReadFullByLen(len_inByte int, reader io.Reader) (buf []byte, err error) {
 	lb := make([]byte, len_inByte)
 	_, err = io.ReadFull(reader, lb)
@@ -97,211 +74,6 @@ func ReadFullByLen(len_inByte int, reader io.Reader) (buf []byte, err error) {
 	return
 }
 
-// socks5 protocol handler on client side
-type s5Handler struct {
-	conn net.Conn
-	err  error
-}
-
-// step1
-func (s *s5Handler) handshake() {
-	var buf = make([]byte, 2)
-	setRTimeout(s.conn)
-	_, err := io.ReadFull(s.conn, buf)
-	if err != nil {
-		s.err = INVALID_SOCKS5_HEADER.Apply(err)
-		return
-	}
-
-	ver, nmethods := buf[0], int(buf[1])
-	if ver != S5_VER || nmethods < 1 {
-		s.err = INVALID_SOCKS5_HEADER.Apply(fmt.Sprintf("[% x]", buf[:2]))
-		return
-	}
-
-	buf = make([]byte, nmethods+1) // consider method non-00
-	setRTimeout(s.conn)
-	n, err := io.ReadAtLeast(s.conn, buf, nmethods)
-	if err != nil || n != nmethods {
-		s.err = INVALID_SOCKS5_HEADER
-		log.Warningln("invalid socks5 header:", hex.EncodeToString(buf))
-	}
-}
-
-// step1 response
-// return: True=Denied
-func (s *s5Handler) handshakeResponse() bool {
-	msg := []byte{5, 0}
-	if s.err != nil {
-		// handshake error feedback
-		log.Warningln(s.err)
-		if ex, y := s.err.(*exception.Exception); y {
-			msg[1] = byte(ex.Code())
-		} else {
-			msg[1] = 0xff
-		}
-		setWTimeout(s.conn)
-		s.conn.Write(msg)
-		return true
-	}
-
-	// accept
-	setWTimeout(s.conn)
-	_, err := s.conn.Write(msg)
-	if err != nil {
-		log.Warningln(err)
-		return true
-	}
-	return false
-}
-
-// step2
-func (s *s5Handler) parseRequest() string {
-	var (
-		buf  = make([]byte, 262) // 4+(1+255)+2
-		host string
-		ofs  int
-	)
-
-	setRTimeout(s.conn)
-	_, err := s.conn.Read(buf)
-	ThrowErr(err)
-	ver, cmd, atyp := buf[0], buf[1], buf[3]
-	if ver != S5_VER || cmd != 1 {
-		s.err = INVALID_SOCKS5_REQUEST
-		return NULL
-	}
-
-	buf = buf[4:]
-	switch atyp {
-	case IPV4:
-		host = net.IP(buf[:net.IPv4len]).String()
-		ofs = net.IPv4len
-	case IPV6:
-		host = "[" + net.IP(buf[:net.IPv6len]).String() + "]"
-		ofs = net.IPv6len
-	case DOMAIN:
-		dlen := int(buf[0])
-		ofs = dlen + 1
-		host = string(buf[1:ofs])
-		// literal IPv6
-		if strings.Count(host, ":") >= 2 && !strings.HasPrefix(host, "[") {
-			host = "[" + host + "]"
-		}
-	default:
-		s.err = INVALID_SOCKS5_REQUEST
-		return NULL
-	}
-	var dst_port = binary.BigEndian.Uint16(buf[ofs : ofs+2])
-	return host + ":" + strconv.Itoa(int(dst_port))
-}
-
-// step2 response
-// return True=Denied
-func (s *s5Handler) finalResponse() bool {
-	var msg = []byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0}
-	if s.err != nil {
-		// handshake error feedback
-		if ex, y := s.err.(*exception.Exception); y {
-			msg[1] = byte(ex.Code())
-		} else {
-			msg[1] = 0x1
-		}
-		setWTimeout(s.conn)
-		s.conn.Write(msg)
-		return true
-	}
-	// accept
-	setWTimeout(s.conn)
-	_, err := s.conn.Write(msg)
-	if err != nil {
-		log.Warningln(err)
-		return true
-	}
-	return false
-}
-
-// http proxy
-
-func detectProtocol(pbconn *pushbackInputStream) (int, error) {
-	var b = make([]byte, 2)
-	setRTimeout(pbconn)
-	n, e := io.ReadFull(pbconn, b)
-	if n != 2 {
-		return 0, io.ErrUnexpectedEOF
-	}
-	if e != nil {
-		return 0, e
-	}
-
-	defer pbconn.Unread(b)
-	var head = b[0]
-
-	if head <= 5 {
-		return REQ_PROT_SOCKS5, nil
-		// hex 0x41-0x5a=A-Z 0x61-0x7a=a-z
-	} else if head >= 0x41 && head <= 0x7a {
-		return REQ_PROT_HTTP, nil
-	} else {
-		return REQ_PROT_UNKNOWN, nil
-	}
-}
-
-// throw errors
-func httpProxyHandshake(conn *pushbackInputStream) (proto uint, target string) {
-	reader := bufio.NewReader(conn)
-	setRTimeout(conn)
-	req, err := http.ReadRequest(reader)
-	if err != nil {
-		panic(err)
-	}
-	buf := new(bytes.Buffer)
-
-	// http tunnel, direct into tunnel
-	if req.Method == "CONNECT" {
-		proto = REQ_PROT_HTTP_T
-		target = req.Host
-
-		// response http header
-		buf.WriteString(HTTP_PROXY_VER_LINE)
-		buf.WriteString(CRLF)
-		buf.WriteString(HTTP_PROXY_AGENT + "/" + VER_STRING)
-		buf.WriteString(CRLF + CRLF)
-		setWTimeout(conn)
-		conn.Write(buf.Bytes())
-
-	} else { // plain http request
-		proto = REQ_PROT_HTTP
-		target = req.Host
-
-		// delete http header Proxy-xxx
-		for k, _ := range req.Header {
-			if strings.HasPrefix(k, "Proxy") {
-				delete(req.Header, k)
-			}
-		}
-		// serialize modified request to buffer
-		req.Write(buf)
-		// rollback
-		conn.Unread(buf.Bytes())
-	}
-
-	if target == NULL {
-		panic("missing host in address")
-	}
-
-	_, _, err = net.SplitHostPort(target)
-	if err != nil {
-		// plain http request: the header.Host without port
-		if strings.Contains(err.Error(), "port") && req.Method != "CONNECT" {
-			target += ":80"
-		} else {
-			panic(err)
-		}
-	}
-	return
-}
-
 type tunParams struct {
 	cipherFactory *CipherFactory
 	token         []byte
@@ -311,120 +83,24 @@ type tunParams struct {
 
 // write to buf
 // for server
-func (p *tunParams) serialize(buf []byte) (offset int) {
+func (p *tunParams) serialize() []byte {
+	var buf = make([]byte, 4)
 	binary.BigEndian.PutUint16(buf, uint16(p.pingInterval))
-	offset = 2
-
-	buf[offset] = byte(p.parallels)
-	offset++
-	return
+	binary.BigEndian.PutUint16(buf[2:], uint16(p.parallels))
+	return buf
 }
 
 // read from raw buf
 // for client
-func (p *tunParams) deserialize(buf []byte, offset int) {
-	p.pingInterval = int(binary.BigEndian.Uint16(buf[offset:]))
-	offset += 2
-
-	p.parallels = int(buf[offset])
-	//offset++
-
-	// absolute offset
-	p.token = buf[TUN_PARAMS_LEN:]
-	return
+func (p *tunParams) deserialize(buf []byte) {
+	p.pingInterval = int(binary.BigEndian.Uint16(buf))
+	p.parallels = int(binary.BigEndian.Uint16(buf[2:]))
 }
 
-//
-// client negotiation
-//
-type dbcCltNego struct {
-	*D5Params
-	dhKey  crypto.DHKE
-	ibHash []byte
-}
-
-func (n *dbcCltNego) negotiate(p *tunParams) (conn *Conn, err error) {
-	var rawConn net.Conn
-	defer func() {
-		// free ibHash
-		n.ibHash = nil
-		if e, y := exception.ErrorOf(recover()); y {
-			SafeClose(rawConn)
-			err = e
-		}
-	}()
-	rawConn, err = net.DialTimeout("tcp", n.d5sAddrStr, GENERAL_SO_TIMEOUT)
-	ThrowIf(err != nil, D5SER_UNREACHABLE)
-
-	var hConn *hashedConn
-	hConn, conn = newHashedConn(rawConn)
-	n.requestAuthAndDHExchange(hConn)
-
-	p.cipherFactory = n.finishDHExThenSetupCipher(hConn)
-	hConn.cipher = p.cipherFactory.InitCipher(n.ibHash)
-
-	n.validateAndGetTokens(hConn, p)
-	return
-}
-
-// send
-// obf~256 | idBlockLen~2 | idBlock(enc)~? | dhPubLen~2 | dhPub~?
-func (n *dbcCltNego) requestAuthAndDHExchange(conn *hashedConn) {
-	// obfuscated header
-	obf := makeDbcHello(TYPE_NEW, n.rsaKey.SharedKey())
-	buf := new(bytes.Buffer)
-	buf.Write(obf)
-
-	// send identity using rsa
-	idBlock, err := n.idBlockSerialize()
-	ThrowErr(err)
-
-	// idBlock
-	idBlockLen := uint16(len(idBlock))
-	binary.BigEndian.PutUint16(obf, idBlockLen)
-	buf.Write(obf[:2])
-	buf.Write(idBlock)
-
-	// dhke
-	pub := n.dhKey.ExportPubKey()
-	binary.BigEndian.PutUint16(obf, uint16(len(pub)))
-	buf.Write(obf[:2])
-	buf.Write(pub)
-
-	setWTimeout(conn)
-	_, err = conn.Write(buf.Bytes())
-	ThrowErr(err)
-}
-
-func (n *dbcCltNego) finishDHExThenSetupCipher(conn *hashedConn) *CipherFactory {
-	// recv: rhPub~2+256 or ecdhPub~2+32
-	setRTimeout(conn)
-	buf, err := ReadFullByLen(2, conn)
-	ThrowErr(err)
-
-	if len(buf) == 1 { // failed
-		switch buf[0] {
-		case AUTH_FAILED:
-			err = auth.AUTH_FAILED
-		default:
-			ThrowErr(VALIDATION_FAILED.Apply("indentity"))
-		}
-	}
-
-	key, err := n.dhKey.ComputeKey(buf)
-	ThrowErr(err)
-	return NewCipherFactory(n.cipher, key)
-}
-
-func (n *dbcCltNego) validateAndGetTokens(hConn *hashedConn, t *tunParams) {
-	setRTimeout(hConn)
-	buf, err := ReadFullByLen(2, hConn)
-	ThrowErr(err)
-
+func compareVersion(buf []byte) error {
 	// compare version with remote
 	myVer := VERSION
 	rVer := binary.BigEndian.Uint32(buf)
-	ofs := 4
 	if rVer > myVer {
 		rVerStr := fmt.Sprintf("%d.%d.%04d", rVer>>24, (rVer>>16)&0xFF, rVer&0xFFFF)
 		myVer >>= 16
@@ -432,85 +108,255 @@ func (n *dbcCltNego) validateAndGetTokens(hConn *hashedConn, t *tunParams) {
 		if myVer == rVer {
 			log.Warningf("Caution !!! Please upgrade to new version, remote is v%s\n", rVerStr)
 		} else {
-			ThrowErr(INCOMPATIBLE_VERSION.Apply(rVerStr))
-			// return
+			return INCOMPATIBLE_VERSION.Apply(rVerStr)
+		}
+	}
+	return nil
+}
+
+const (
+	DH_METHOD = "ECC-P256"
+)
+
+//
+// d5 client handshake protocol
+//
+type d5cman struct {
+	*connectionInfo
+	dhKey    crypto.DHKE
+	dbcHello []byte
+	sRand    []byte
+}
+
+func (n *d5cman) Connect(p *tunParams) (conn *Conn, err error) {
+	var rawConn net.Conn
+	defer func() {
+		n.dbcHello, n.sRand = nil, nil
+		if exception.Catch(recover(), &err) {
+			SafeClose(rawConn)
+			if err == ERR_TIME_ERROR {
+				line := string(bytes.Repeat([]byte{'+'}, 30))
+				log.Warningln(line)
+				log.Warningln("Maybe your clock is inaccurate, or your client credential is invalid.")
+				log.Warningln(line)
+				os.Exit(2)
+			}
+		}
+	}()
+	rawConn, err = net.DialTimeout("tcp", n.sAddr, GENERAL_SO_TIMEOUT)
+	n.dhKey, _ = crypto.NewDHKey(DH_METHOD)
+	if err != nil {
+		return
+	}
+
+	conn = NewConn(rawConn, nullCipherKit)
+	if err = n.requestDHExchange(conn); err != nil {
+		return
+	}
+	var cf *CipherFactory
+	cf, err = n.finishDHExchange(conn)
+	if err != nil {
+		return
+	}
+	if err = n.validate(conn); err != nil {
+		return
+	}
+	if err = n.authThenFinishSetting(conn, p); err != nil {
+		return
+	}
+	p.cipherFactory = cf
+	conn.identifier = n.RemoteName()
+	return
+}
+
+func (n *d5cman) ResumeSession(p *tunParams, token []byte) (conn *Conn, err error) {
+	var rawConn net.Conn
+	rawConn, err = net.DialTimeout("tcp", n.sAddr, GENERAL_SO_TIMEOUT)
+	if err != nil {
+		exception.Spawn(&err, "resume: connnecting")
+		return
+	}
+	conn = NewConn(rawConn, nullCipherKit)
+	obf := makeDbcHello(TYPE_RES, preSharedKey(n.sPubKey))
+	w := newMsgWriter()
+	w.WriteMsg(obf)
+	w.WriteMsg(token)
+
+	err = w.WriteTo(conn)
+	if err != nil {
+		exception.Spawn(&err, "resume: write")
+		return
+	}
+
+	conn.cipher = p.cipherFactory.InitCipher(token)
+	conn.identifier = n.RemoteName()
+	return conn, nil
+}
+
+// 1-send dbcHello,dhPub
+// dbcHello~256 | dhPubLen~2 | dhPub~?
+func (n *d5cman) requestDHExchange(conn *Conn) (err error) {
+	// obfuscated header
+	obf := makeDbcHello(TYPE_NEW, preSharedKey(n.sPubKey))
+	w := newMsgWriter().WriteMsg(obf)
+	if len(obf) > DPH_P2 {
+		n.dbcHello = obf[DPH_P2:]
+	} else {
+		n.dbcHello = obf
+	}
+
+	// dhke
+	pub := n.dhKey.ExportPubKey()
+	w.WriteL2Msg(pub)
+
+	setWTimeout(conn)
+	err = w.WriteTo(conn)
+	exception.Spawn(&err, "dh: write connection")
+	return
+}
+
+// read dhPub from server and verify sign
+// dhPubLen~1 | dhPub~? | signLen~1 | sign~? | rand
+func (n *d5cman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
+	var dhk, dhkSign []byte
+	// recv: rhPub~2+256 or ecdhPub~2+32
+	setRTimeout(conn)
+	dhk, err = ReadFullByLen(1, conn)
+	if err != nil {
+		// maybe: use closed conn error caused by dbcHello
+		if strings.Contains(err.Error(), "closed") {
+			return nil, ERR_TIME_ERROR
+		} else {
+			exception.Spawn(&err, "dh: read response")
+			return
 		}
 	}
 
-	// check ibHash
-	_ibHash := buf[ofs : ofs+20]
-	ofs += 20
-	if !bytes.Equal(n.ibHash, _ibHash) {
-		// S->C is polluted.
-		ThrowErr(INCONSISTENT_HASH.Apply("MitM attack"))
+	setRTimeout(conn)
+	dhkSign, err = ReadFullByLen(1, conn)
+	if err != nil {
+		exception.Spawn(&err, "dh: read sign")
+		return
+	}
+
+	if !DS_Verify(n.sPubKey, dhkSign, dhk) {
+		// MITM ?
+		return nil, VALIDATION_FAILED
+	}
+
+	key, err := n.dhKey.ComputeKey(dhk)
+	if err != nil {
+		exception.Spawn(&err, "dh: compute")
+		return
+	}
+
+	n.sRand, err = ReadFullByLen(1, conn)
+	if err != nil {
+		exception.Spawn(&err, "srand: read connection")
+		return
+	}
+
+	// setup cipher
+	cf = NewCipherFactory(n.cipher, key, n.dbcHello)
+	conn.cipher = cf.InitCipher(n.sRand)
+	return
+}
+
+// verify encrypted message
+// hashHello, version
+func (n *d5cman) validate(conn *Conn) error {
+	setRTimeout(conn)
+	hashHello, err := ReadFullByLen(1, conn)
+	if err != nil {
+		return exception.Spawn(&err, "validate: read connection")
+	}
+
+	myHashHello := hash256(n.dbcHello)
+	if !bytes.Equal(hashHello, myHashHello) {
+		// MITM ?
+		return INCONSISTENT_HASH
+	}
+
+	ver, err := ReadFullByLen(1, conn)
+	if err != nil {
+		return exception.Spawn(&err, "ver: read connection")
+	}
+	if err = compareVersion(ver); err != nil {
+		return err
+	}
+	return nil
+}
+
+// report hashRand0 then request authentication
+// get tun params and tokens
+func (n *d5cman) authThenFinishSetting(conn *Conn, t *tunParams) error {
+	var err error
+	w := newMsgWriter()
+	// hash sRand
+	w.WriteL1Msg(hash256(n.sRand))
+	// identity
+	w.WriteL1Msg(n.serializeIdentity())
+
+	setWTimeout(conn)
+	err = w.WriteTo(conn)
+	if err != nil {
+		return exception.Spawn(&err, "auth: write connection")
+	}
+
+	setRTimeout(conn)
+	var buf, params []byte
+	buf, err = ReadFullByLen(1, conn)
+	if err != nil {
+		return exception.Spawn(&err, "auth: read connection")
+	}
+	// auth_result
+	switch buf[0] {
+	case AUTH_PASS:
+	default:
+		return auth.AUTH_FAILED
 	}
 
 	// parse params
-	t.deserialize(buf, ofs)
+	params, err = ReadFullByLen(1, conn)
+	if err != nil {
+		return exception.Spawn(&err, "param: read connection")
+	}
+	t.deserialize(params)
 
+	t.token, err = ReadFullByLen(2, conn)
+	if err != nil {
+		return exception.Spawn(&err, "token: read connection")
+	}
+	if len(t.token) < TKSZ || len(t.token)%TKSZ != 0 {
+		return ILLEGAL_STATE.Apply("incorrect token")
+	}
 	if log.V(3) {
 		log.Infof("Received tokens size=%d\n", len(t.token)/TKSZ)
 	}
 
-	// validated or throws
-	verifyHash(hConn, false)
-}
-
-func verifyHash(hConn *hashedConn, isServ bool) {
-	hashBuf := make([]byte, hConn.hashSize*2)
-	rHash, wHash := hConn.HashSum()
-	var err error
-
-	if !isServ { // client send hash at first
-		copy(hashBuf[:hConn.hashSize], rHash)
-		copy(hashBuf[hConn.hashSize:], wHash)
-		setWTimeout(hConn)
-		_, err = hConn.Write(hashBuf)
-		ThrowErr(err)
-	}
-
-	setRTimeout(hConn)
-	_, err = io.ReadFull(hConn, hashBuf)
-	ThrowErr(err)
-
-	rHashp, wHashp := hashBuf[:hConn.hashSize], hashBuf[hConn.hashSize:]
-	if !bytes.Equal(rHash, wHashp) || !bytes.Equal(wHash, rHashp) {
-		log.Errorln("My hash is inconsistent with peer")
-		if DEBUG {
-			log.Errorf("  My Hash r:[% x] w:[% x]", rHash, wHash)
-			log.Errorf("Peer Hash r:[% x] w:[% x]", rHashp, wHashp)
-		}
-		ThrowErr(INCONSISTENT_HASH)
-	}
-
-	if isServ { // server reply hash
-		copy(hashBuf[:hConn.hashSize], rHash)
-		copy(hashBuf[hConn.hashSize:], wHash)
-		setWTimeout(hConn)
-		_, err = hConn.Write(hashBuf)
-		ThrowErr(err)
-	}
+	return nil
 }
 
 //
-// Server negotiation
+// Server handshake protocol
 //
-type dbcSerNego struct {
+type d5sman struct {
 	*Server
-	clientAddr     net.Addr
-	clientIdentity string
-	isNewSession   bool
-	ibHash         []byte
+	dbcHello     []byte
+	sRand        []byte
+	clientAddr   net.Addr
+	isNewSession bool
 }
 
-func (n *dbcSerNego) negotiate(hConn *hashedConn, tcPool []uint64) (session *Session, err error) {
+// external conn lifecycle
+func (n *d5sman) Connect(conn *Conn, tcPool []uint64) (session *Session, err error) {
 	var (
 		nr  int
-		buf = make([]byte, DP_P2I)
+		buf = make([]byte, DPH_P2)
 	)
 
-	setRTimeout(hConn)
-	nr, err = hConn.Read(buf)
+	setRTimeout(conn)
+	nr, err = conn.Read(buf)
 
 	if nr == len(buf) {
 
@@ -519,65 +365,62 @@ func (n *dbcSerNego) negotiate(hConn *hashedConn, tcPool []uint64) (session *Ses
 
 		if ok {
 			if len2 > 0 {
-				setRTimeout(hConn)
-				nr, err = io.ReadFull(hConn, buf[:len2])
+				setRTimeout(conn)
+				nr, err = io.ReadFull(conn, buf[:len2])
+				n.dbcHello = buf[:len2]
+			} else {
+				n.dbcHello = buf
 			}
 
 			if nr == int(len2) && err == nil {
 				switch stype {
 				case TYPE_NEW:
-					return n.handshakeSession(hConn)
-				case TYPE_DAT:
-					return n.dataSession(hConn)
+					return n.fullHandshake(conn)
+				case TYPE_RES:
+					return n.resumeSession(conn)
 				}
 			}
 		}
 
 	} // then may be a prober
 
-	if err == nil {
-		err = UNRECOGNIZED_REQ
-	}
-
 	// threats OR overlarge time error
 	// We could use this log to block threats origin by external tools such as fail2ban.
 	log.Warningf("Unrecognized Request from=%s len=%d\n", n.clientAddr, nr)
-	return nil, err
+	return nil, nvl(err, UNRECOGNIZED_REQ).(error)
 }
 
 // new connection
-func (n *dbcSerNego) handshakeSession(hConn *hashedConn) (session *Session, err error) {
+func (n *d5sman) fullHandshake(conn *Conn) (session *Session, err error) {
 	defer func() {
-		// free ibHash
-		n.ibHash = nil
-		if e, y := exception.ErrorOf(recover()); y {
-			log.Warningln("handshake error", e)
-			err = e
+		if exception.Catch(recover(), &err) {
+			log.Warningln("handshake error", err)
 		}
 	}()
-	var skey = n.verifyThenDHExchange(hConn)
-	var cf = NewCipherFactory(n.Cipher, skey)
-
-	hConn.cipher = cf.InitCipher(n.ibHash)
-	session = NewSession(hConn.Conn, cf, n)
+	var cf *CipherFactory
 	n.isNewSession = true
-	n.respondTestWithToken(hConn, session)
+	cf, err = n.finishDHExchange(conn)
+	if err != nil {
+		return
+	}
+	session = n.Server.NewSession(cf)
+	err = n.authenticate(conn, session)
 	return
 }
 
 // quick resume session
-func (n *dbcSerNego) dataSession(hConn *hashedConn) (session *Session, err error) {
+func (n *d5sman) resumeSession(conn *Conn) (session *Session, err error) {
 	token := make([]byte, TKSZ)
-	setRTimeout(hConn)
-	nr, err := hConn.Read(token)
-	// read buf ok
+	setRTimeout(conn)
+	// just read once
+	nr, err := conn.Read(token)
 	if nr == len(token) && err == nil {
 		// check token ok
 		if session := n.sessionMgr.take(token); session != nil {
-			// init cipher of new connection
-			hConn.cipher = session.cipherFactory.InitCipher(token)
-			// check and set identify
-			session.identifyConn(hConn.Conn)
+			// reuse cipherFactory to init cipher
+			conn.cipher = session.cipherFactory.InitCipher(token)
+			// identify connection
+			session.identifyConn(conn)
 			return session, nil
 		}
 	}
@@ -585,120 +428,133 @@ func (n *dbcSerNego) dataSession(hConn *hashedConn) (session *Session, err error
 	return nil, VALIDATION_FAILED
 }
 
-func (n *dbcSerNego) verifyThenDHExchange(conn net.Conn) (key []byte) {
-	// client identity segment
+// finish DHE
+// 1, dhPub, dhSign, rand
+// 2, hashHello, version
+func (n *d5sman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
+	var dhPub, key []byte
+	dhKey, _ := crypto.NewDHKey(DH_METHOD)
+
 	setRTimeout(conn)
-	credBuf, err := ReadFullByLen(2, conn)
-	ThrowErr(err)
-
-	user, passwd, err := n.idBlockDeserialize(credBuf)
-	ThrowErr(err)
-
-	if log.V(1) {
-		log.Infoln("Auth client", user)
+	dhPub, err = ReadFullByLen(2, conn)
+	if err != nil {
+		exception.Spawn(&err, "dh: read connection")
+		return
 	}
 
-	allow, err := n.AuthSys.Authenticate(user, passwd)
-	if allow {
-		n.clientIdentity = user
-	} else { // client denied
-		log.Warningf("Auth %s:%s failed: %v\n", user, passwd, err)
-		// reply failed msg
-		conn.Write([]byte{0, 1, AUTH_FAILED})
-		panic(err)
-	}
+	w := newMsgWriter()
+	myDhPub := dhKey.ExportPubKey()
+	w.WriteL1Msg(myDhPub)
 
-	// read client RH-pub
-	setRTimeout(conn)
-	bobPub, err := ReadFullByLen(2, conn)
-	ThrowErr(err)
-	key, err = n.dhKey.ComputeKey(bobPub)
-	ThrowErr(err)
+	myDhSign := DS_Sign(n.privateKey, myDhPub)
+	w.WriteL1Msg(myDhSign)
 
-	// send my RH-pub
-	myPub := n.dhKey.ExportPubKey()
-	buf := make([]byte, len(myPub)+2)
-	binary.BigEndian.PutUint16(buf, uint16(len(myPub)))
-	copy(buf[2:], myPub)
+	n.sRand = randMinArray()
+	w.WriteL1Msg(n.sRand)
 
 	setWTimeout(conn)
-	_, err = conn.Write(buf)
-	ThrowErr(err)
+	err = w.WriteTo(conn)
+	if err != nil {
+		exception.Spawn(&err, "dh: write connection")
+		return
+	}
+
+	key, err = dhKey.ComputeKey(dhPub)
+	if err != nil {
+		exception.Spawn(&err, "dh: compute")
+		return
+	}
+
+	// setup cipher
+	cf = NewCipherFactory(n.Cipher, key, n.dbcHello)
+	conn.cipher = cf.InitCipher(n.sRand)
+
+	// encrypted
+	w.WriteL1Msg(hash256(n.dbcHello))
+	w.WriteL1Msg(ito4b(VERSION))
+
+	setWTimeout(conn)
+	err = w.WriteTo(conn)
+	if err != nil {
+		exception.Spawn(&err, "em: write connection")
+		return
+	}
 	return
 }
 
-//         |--------- head --------|------- tun params ------|
-// | len~2 | version~4 | ibHash~20 | interval~2 | reserved~? | tokens~20N | hash~20
-func (n *dbcSerNego) respondTestWithToken(hConn *hashedConn, session *Session) {
-	var (
-		headLen  = TUN_PARAMS_LEN + 2
-		totalLen = TUN_PARAMS_LEN + GENERATE_TOKEN_NUM*TKSZ
-		err      error
-	)
-	// tun params buffer built from rand
-	headBuf := make([]byte, headLen)
-	// len
-	binary.BigEndian.PutUint16(headBuf, uint16(totalLen))
-	ofs := 2
+func (n *d5sman) authenticate(conn *Conn, session *Session) error {
+	var err error
+	setRTimeout(conn)
+	hashSRand, err := ReadFullByLen(1, conn)
+	if err != nil {
+		return exception.Spawn(&err, "srand: read connection")
+	}
 
-	// ver
-	ofs += copy(headBuf[ofs:], ito4b(VERSION))
+	myHashSRand := hash256(n.sRand)
+	if !bytes.Equal(hashSRand, myHashSRand) {
+		// MITM ?
+		return INCONSISTENT_HASH
+	}
 
-	// ibHash feedback to client for verifying
-	ofs += copy(headBuf[ofs:], n.ibHash)
+	// client identity
+	setRTimeout(conn)
+	idBuf, err := ReadFullByLen(1, conn)
+	if err != nil {
+		return exception.Spawn(&err, "auth: read connection")
+	}
 
-	// params
-	n.Server.tunParams.serialize(headBuf[ofs:])
+	user, passwd, err := n.deserializeIdentity(idBuf)
+	if err != nil {
+		return err
+	}
 
-	setWTimeout(hConn)
-	_, err = hConn.Write(headBuf) // just header
-	ThrowErr(err)
+	if log.V(1) {
+		log.Infoln("Login request:", user)
+	}
 
+	pass, err := n.AuthSys.Authenticate(user, passwd)
+	if !pass {
+		// authSys denied
+		log.Warningf("Auth %s:%s failed: %v\n", user, passwd, err)
+		// reply failed msg
+		conn.Write([]byte{1, 0})
+		return VALIDATION_FAILED
+	}
+
+	session.indentifySession(user, conn)
+	w := newMsgWriter()
+	w.WriteL1Msg([]byte{AUTH_PASS})
+	w.WriteL1Msg(n.Server.tunParams.serialize())
 	// send tokens
 	tokens := n.sessionMgr.createTokens(session, GENERATE_TOKEN_NUM)
-	setWTimeout(hConn)
-	_, err = hConn.Write(tokens[1:]) // skip index=0
-	ThrowErr(err)
+	w.WriteL2Msg(tokens[1:]) // skip index=0
 
-	// validated or throws
-	verifyHash(hConn, true)
+	setWTimeout(conn)
+	err = w.WriteTo(conn)
+	return exception.Spawn(&err, "setting: write connection")
 }
 
-// block: rsa( identity~? | rand )
-// hash:  sha1(rand)
-func (n *dbcCltNego) idBlockSerialize() (block []byte, e error) {
+func (n *d5cman) serializeIdentity() []byte {
 	identity := n.user + IDENTITY_SEP + n.pass
-	idLen, max := len(identity), n.rsaKey.BlockSize()
-	if idLen > max-16 { // reserved least 16 random numbers
-		e = INVALID_D5PARAMS.Apply("identity too long")
-		return
+	if len(identity) > 255 {
+		panic("identity too long")
 	}
-	block = randArray(max)
-	block[0] = byte(idLen)
-	copy(block[1:], []byte(identity))
-	n.ibHash = hash160(block)
-	block, e = n.rsaKey.Encrypt(block)
-	return
+	return []byte(identity)
 }
 
-func (n *dbcSerNego) idBlockDeserialize(block []byte) (user, pass string, e error) {
-	block, e = n.rsaKey.Decrypt(block)
-	if e != nil {
-		// rsa.ErrDecryption represent cases:
-		// 1, C->S is polluted
-		// 2, PubKey of client was not paired with PrivKey.
-		return
-	}
-	idOfs := block[0] + 1
-	identity := block[1:idOfs]
-	fields := strings.Split(string(identity), IDENTITY_SEP)
+func (n *d5sman) deserializeIdentity(block []byte) (user, pass string, e error) {
+	fields := strings.Split(string(block), IDENTITY_SEP)
 	if len(fields) != 2 {
-		e = INVALID_D5PARAMS.Apply("incorrect identity format")
+		e = ILLEGAL_STATE.Apply("incorrect identity format")
 		return
 	}
 	user, pass = fields[0], fields[1]
-	n.ibHash = hash160(block)
 	return
+}
+
+func randMinArray() []byte {
+	alen := rand.Intn(250)
+	return randArray(alen + 6)
 }
 
 func extractKeys(b []byte) (pos, sKey int, hKey uint64) {
@@ -733,26 +589,26 @@ func calculateTimeCounter(withTimeError bool) (tc []uint64) {
 }
 
 func makeDbcHello(data byte, secret []byte) []byte {
-	randLen := rand.Int() % DP_LEN1 // 8bit
-	buf := randArray(randLen + DP_P2I)
+	randLen := rand.Int() % DPH_LEN1 // 8bit
+	buf := randArray(randLen + DPH_P2)
 	pos, sKey, hKey := extractKeys(secret)
 
 	// actually f is uint16
 	f := (randLen << 8) | int(data)
-	f = (f + sKey) % DP_MOD
+	f = (f + sKey) % DPH_MOD
 	binary.BigEndian.PutUint16(buf[pos:pos+2], uint16(f))
 
-	sum := siphash.Hash(hKey, calculateTimeCounter(false)[0], buf[:DP_LEN1])
-	binary.BigEndian.PutUint64(buf[DP_LEN1:DP_P2I], sum)
+	sum := siphash.Hash(hKey, calculateTimeCounter(false)[0], buf[:DPH_LEN1])
+	binary.BigEndian.PutUint64(buf[DPH_LEN1:DPH_P2], sum)
 	return buf
 }
 
 func verifyDbcHello(buf []byte, secret []byte, tc []uint64) (trusted bool, data, len2 byte) {
 	pos, sKey, hKey := extractKeys(secret)
-	p1 := buf[:DP_LEN1]
+	p1 := buf[:DPH_LEN1]
 
 	var sum, cltSum uint64
-	cltSum = binary.BigEndian.Uint64(buf[DP_LEN1:DP_P2I])
+	cltSum = binary.BigEndian.Uint64(buf[DPH_LEN1:DPH_P2])
 
 	for i := 0; !trusted && i < len(tc); i++ {
 		sum = siphash.Hash(hKey, tc[i], p1)
@@ -764,7 +620,47 @@ func verifyDbcHello(buf []byte, secret []byte, tc []uint64) (trusted bool, data,
 	}
 
 	z := int(binary.BigEndian.Uint16(buf[pos : pos+2]))
-	z = (z - sKey + DP_MOD) % DP_MOD
+	z = (z - sKey + DPH_MOD) % DPH_MOD
 	len2, data = byte(z>>8), byte(z&0xff)
+	return
+}
+
+//
+//
+//
+type msgWriter struct {
+	buf *bytes.Buffer
+	tmp []byte
+}
+
+func newMsgWriter() *msgWriter {
+	return &msgWriter{
+		buf: new(bytes.Buffer),
+		tmp: make([]byte, 2),
+	}
+}
+
+func (w *msgWriter) WriteL1Msg(msg []byte) *msgWriter {
+	w.buf.WriteByte(byte(len(msg)))
+	w.buf.Write(msg)
+	return w
+}
+
+func (w *msgWriter) WriteL2Msg(msg []byte) *msgWriter {
+	binary.BigEndian.PutUint16(w.tmp, uint16(len(msg)))
+	w.buf.Write(w.tmp)
+	w.buf.Write(msg)
+	return w
+}
+
+// no length specified
+func (w *msgWriter) WriteMsg(msg []byte) *msgWriter {
+	w.buf.Write(msg)
+	return w
+}
+
+func (w *msgWriter) WriteTo(d io.Writer) (err error) {
+	_, err = w.buf.WriteTo(d)
+	w.buf.Reset()
 	return
 }

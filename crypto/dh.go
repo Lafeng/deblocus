@@ -3,25 +3,21 @@ package crypto
 import (
 	"crypto/elliptic"
 	"crypto/rand"
-	"github.com/Lafeng/deblocus/exception"
-	"github.com/monnand/dhkx"
 	"math/big"
 	"strings"
+
+	"github.com/Lafeng/deblocus/exception"
+	"github.com/monnand/dhkx"
 )
 
 var (
-	NoSuchDHMethod  = exception.New(0, "No Such DH method")
-	InvalidECCParam = exception.New(0, "Invalid ECC parameters")
+	NoSuchDHMethod  = exception.New("No Such DH method")
+	InvalidECCParam = exception.New("Invalid ECC parameters")
 )
 
-// enum: DHE, ECDHE-P224,256,384,521
-func NewDHKey(name string) (DHKE, error) {
-	name = strings.ToUpper(name)
-	if name == "DHE" {
-		return GenerateDHEKey()
-	}
-	if strings.HasPrefix(name, "ECDHE-") {
-		name = name[6:]
+func SelectCurve(name string) (elliptic.Curve, error) {
+	if strings.HasPrefix(name, "ECC-") {
+		name = name[4:]
 	}
 	var curve elliptic.Curve
 	switch name {
@@ -35,6 +31,19 @@ func NewDHKey(name string) (DHKE, error) {
 		curve = elliptic.P521()
 	default:
 		return nil, NoSuchDHMethod.Apply(name)
+	}
+	return curve, nil
+}
+
+// enum: DHE, ECC-P224,256,384,521
+func NewDHKey(name string) (DHKE, error) {
+	name = strings.ToUpper(name)
+	if name == "DHE" {
+		return GenerateDHEKey()
+	}
+	curve, err := SelectCurve(name)
+	if err != nil {
+		return nil, err
 	}
 	return GenerateECKey(curve)
 }

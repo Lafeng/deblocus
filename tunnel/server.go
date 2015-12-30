@@ -5,16 +5,16 @@ import (
 	"crypto/sha1"
 	"encoding/binary"
 	"fmt"
-	"github.com/Lafeng/deblocus/crypto"
-	ex "github.com/Lafeng/deblocus/exception"
-	"github.com/Lafeng/deblocus/geo"
-	log "github.com/Lafeng/deblocus/golang/glog"
 	"math/rand"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
+
+	ex "github.com/Lafeng/deblocus/exception"
+	"github.com/Lafeng/deblocus/geo"
+	log "github.com/Lafeng/deblocus/golang/glog"
 )
 
 const (
@@ -23,6 +23,13 @@ const (
 	PARALLEL_TUN_QTY   = 2
 	TKSZ               = sha1.Size
 )
+
+//
+// filter interface ,eg. GeoFilter
+//
+type Filterable interface {
+	Filter(host string) bool
+}
 
 //
 //
@@ -41,24 +48,28 @@ type Session struct {
 	activeCnt     int32
 }
 
-func NewSession(tun *Conn, cf *CipherFactory, n *dbcSerNego) *Session {
+func (serv *Server) NewSession(cf *CipherFactory) *Session {
 	s := &Session{
 		mux:           newServerMultiplexer(),
-		mgr:           n.sessionMgr,
+		mgr:           serv.sessionMgr,
 		cipherFactory: cf,
 		tokens:        make(map[string]bool),
 	}
-	s.uid = SubstringBefore(n.clientIdentity, IDENTITY_SEP)
-	s.cid = SubstringLastBefore(s.identifyConn(tun), ":")
-	if n.Server.filter != nil {
-		s.mux.filter = n.Server.filter
+	if serv.filter != nil {
+		s.mux.filter = serv.filter
 	}
 	return s
+}
+
+func (s *Session) indentifySession(user string, c *Conn) {
+	s.uid = user
+	s.cid = SubstringLastBefore(s.identifyConn(c), ":")
 }
 
 func (s *Session) identifyConn(c *Conn) string {
 	if c.identifier == NULL {
 		// unique in server instance
+		// fmt: user@full_addr
 		c.identifier = fmt.Sprintf("%s@%s", s.uid, c.RemoteAddr())
 	}
 	return c.identifier
@@ -214,8 +225,7 @@ func (s *SessionMgr) createTokens(session *Session, many int) []byte {
 //
 //
 type Server struct {
-	*D5ServConf
-	dhKey      crypto.DHKE
+	*serverConf
 	sharedKey  []byte
 	sessionMgr *SessionMgr
 	tunParams  *tunParams
@@ -224,11 +234,10 @@ type Server struct {
 	filter     Filterable
 }
 
-func NewServer(d5s *D5ServConf, dhKey crypto.DHKE) *Server {
+func NewServer(cman *ConfigMan) *Server {
 	s := &Server{
-		D5ServConf: d5s,
-		dhKey:      dhKey,
-		sharedKey:  d5s.rsaKey.SharedKey(),
+		serverConf: cman.sConf,
+		sharedKey:  preSharedKey(cman.sConf.publicKey),
 		sessionMgr: NewSessionMgr(),
 		tunParams: &tunParams{
 			pingInterval: DT_PING_INTERVAL,
@@ -254,28 +263,28 @@ func NewServer(d5s *D5ServConf, dhKey crypto.DHKE) *Server {
 		go s.updateTimeCounterWorker(step)
 	})
 
-	if len(d5s.DenyDest) == 2 {
-		s.filter, _ = geo.NewGeoIPFilter(d5s.DenyDest)
+	if len(cman.sConf.DenyDest) == 2 {
+		s.filter, _ = geo.NewGeoIPFilter(cman.sConf.DenyDest)
 	}
 	return s
 }
 
 func (t *Server) TunnelServe(raw *net.TCPConn) {
-	hConn, conn := newHashedConn(raw)
+	var conn = NewConn(raw, nullCipherKit)
 	defer func() {
-		ex.CatchException(recover())
+		ex.Catch(recover(), nil)
 	}()
 
-	nego := &dbcSerNego{
+	man := &d5sman{
 		Server:     t,
 		clientAddr: raw.RemoteAddr(),
 	}
 	// read atomically
 	tcPool := *(*[]uint64)(atomic.LoadPointer(&t.tcPool))
-	session, err := nego.negotiate(hConn, tcPool)
+	session, err := man.Connect(conn, tcPool)
 
 	if err == nil {
-		go session.DataTunServe(conn, nego.isNewSession)
+		go session.DataTunServe(conn, man.isNewSession)
 	} else {
 		SafeClose(raw)
 		if session != nil {
@@ -330,11 +339,4 @@ func (t *Server) Close() {
 			s.destroy()
 		}
 	}
-}
-
-//
-// filter interface ,eg. GeoFilter
-//
-type Filterable interface {
-	Filter(host string) bool
 }

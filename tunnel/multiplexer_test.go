@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
-	log "github.com/Lafeng/deblocus/golang/glog"
 	"io"
 	"net"
 	"reflect"
@@ -15,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	log "github.com/Lafeng/deblocus/golang/glog"
 )
 
 var (

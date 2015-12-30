@@ -1,78 +1,71 @@
 package main
 
 import (
-	"flag"
-	"fmt"
-	log "github.com/Lafeng/deblocus/golang/glog"
-	t "github.com/Lafeng/deblocus/tunnel"
 	"os"
-	"os/signal"
-	"syscall"
+
+	"github.com/codegangsta/cli"
 )
 
-var context = &bootContext{}
-var sigChan = make(chan os.Signal)
-
-func waitSignal() {
-	USR2 := syscall.Signal(12) // fake signal-USR2 for windows
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM, USR2)
-	for sig := range sigChan {
-		switch sig {
-		case t.Bye:
-			context.doClose()
-			log.Exitln("Exiting.")
-			return
-		case syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM:
-			context.doClose()
-			log.Exitln("Terminated by", sig)
-			return
-		case USR2:
-			context.doStats()
-		default:
-			log.Infoln("Ingore signal", sig)
-		}
+func setupCommands() *cli.App {
+	app := cli.NewApp()
+	app.Name = app_name
+	app.Usage = project_url
+	app.Version = versionString() + "\n   " + buildInfo()
+	app.HideVersion = true
+	//app.HideHelp = true
+	flags := []cli.Flag{
+		cli.StringFlag{
+			Name:        "o",
+			Usage:       "output file",
+			Destination: &context.output,
+		},
+		cli.StringFlag{
+			Name:        "config, c",
+			Usage:       "indicate Config path if it in nontypical path",
+			Destination: &context.configFile,
+		},
+		cli.IntFlag{
+			Name:        "v",
+			Usage:       "Verbose log level",
+			Destination: &context.vFlag,
+		},
+		cli.StringFlag{
+			Name:        "logdir, l",
+			Usage:       "write log into the directory",
+			Destination: &context.logdir,
+		},
+		cli.BoolFlag{
+			Name:        "version, V",
+			Usage:       "show version",
+			Destination: &context.showVer,
+		},
+		cli.BoolFlag{
+			Name:        "debug",
+			Usage:       "debug",
+			Destination: &context.debug,
+		},
 	}
+	app.Commands = []cli.Command{
+		{
+			Name:   "csc",
+			Usage:  "Create Server Config",
+			Action: context.cscCommandHandler,
+		},
+		{
+			Name:        "ccc",
+			Usage:       "Create Client Config",
+			Description: "Description",
+			Action:      context.cccCommandHandler,
+			Flags:       flags[:2],
+		},
+	}
+	app.Flags = flags[1:]
+	app.Before = context.initialize
+	app.Action = context.startCommandHandler
+	return app
 }
 
 func main() {
-	var output, logDir string
-	var showVersion bool
-	flag.Usage = showUsage
-	flag.StringVar(&context.config, "config", "", "indicate Config path if it in nontypical path")
-	flag.StringVar(&output, "o", "", "output file")
-	flag.BoolVar(&context.csc, "csc", false, "Server;;Create Server Config")
-	flag.BoolVar(&context.ccc, "ccc", false, "Server;;Create Client Config for user//-ccc <ServerAddress:Port> <User>")
-	flag.BoolVar(&context.isServ, "serv", false, "Server;;run as Server explicitly")
-	flag.BoolVar(&showVersion, "V", false, "show Version")
-	flag.IntVar(&context.vFlag, "v", -1, "Verbose log level")
-	flag.StringVar(&logDir, "logdir", "", "write log into the directory")
-	flag.BoolVar(&context.debug, "debug", false, "debug")
-	flag.Parse()
-
-	if showVersion {
-		fmt.Println(versionString())
-		fmt.Println(buildInfo())
-		return
-	}
-
-	context.parse()
-	// toStd bool, logDir string
-	log.SetLogOutput(logDir)
-
-	if context.csc {
-		context.cscHandler(output)
-		return
-	}
-
-	if context.ccc {
-		context.cccHandler(output)
-		return
-	}
-
-	if context.isServ {
-		go context.startServer()
-	} else {
-		go context.startClient()
-	}
-	waitSignal()
+	app := setupCommands()
+	app.Run(os.Args)
 }
