@@ -69,7 +69,7 @@ func Catch(re interface{}, err *error) bool {
 		}
 		return true
 	}
-	return *err != nil
+	return err != nil && *err != nil
 }
 
 func Spawn(ePtr *error, format string, args ...interface{}) error {

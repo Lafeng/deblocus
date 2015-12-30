@@ -234,7 +234,7 @@ func httpProxyHandshake(conn *pushbackInputStream) (proto int, target string, er
 		// plain http request: the header.Host without port
 		if strings.Contains(err.Error(), "missing port") {
 			err = nil
-			if req.Method != "CONNECT" {
+			if req.Method == "CONNECT" {
 				target += ":443"
 			} else {
 				target += ":80"

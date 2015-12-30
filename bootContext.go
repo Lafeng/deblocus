@@ -65,7 +65,6 @@ func (ctx *bootContext) initConfig(r ServerRole) ServerRole {
 	if serverRole == 0 {
 		err = fmt.Errorf("No server role defined in config")
 	}
-	fmt.Println("cman", ctx.cman, "role", serverRole)
 	fatalError(err)
 	// reset logV
 	if !ctx.vSpecified {

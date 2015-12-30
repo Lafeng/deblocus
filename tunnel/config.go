@@ -477,10 +477,10 @@ func setFieldsDefaultValue(str interface{}) {
 }
 
 const _d5s_header = `
-# ----------------------------------------
+# ---------------------------------------------
 # deblocus server configuration
 # wiki: https://github.com/Lafeng/deblocus/wiki
-# ----------------------------------------
+# ---------------------------------------------
 `
 
 const _d5s_middle = `
@@ -489,8 +489,8 @@ const _d5s_middle = `
 `
 
 const _d5c_header = `
-# ----------------------------------------
+# ---------------------------------------------
 # deblocus client configuration
 # wiki: https://github.com/Lafeng/deblocus/wiki
-# ----------------------------------------
+# ---------------------------------------------
 `
