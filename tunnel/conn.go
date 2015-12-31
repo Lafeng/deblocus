@@ -37,6 +37,12 @@ func (c *Conn) SetId(name string, isServ bool) {
 	}
 }
 
+func (c *Conn) SetupCipher(cf *CipherFactory, iv []byte) {
+	c.wlock.Lock()
+	defer c.wlock.Unlock()
+	c.cipher = cf.InitCipher(iv)
+}
+
 func (c *Conn) Read(b []byte) (int, error) {
 	n, err := c.Conn.Read(b)
 	if n > 0 {
@@ -91,24 +97,17 @@ func (c *Conn) SetSockOpt(disableDeadline, keepAlive, noDelay int8) {
 }
 
 func (c *Conn) Update() {
-	var rk, t int64 = 0, time.Now().UnixNano()
-	if d := t - c.priority.last; d < 1e9 {
-		if d <= 0 {
-			rk = 1e9
+	var d, t int64 = 0, time.Now().UnixNano()
+	d, c.priority.last = t-c.priority.last, t
+	if d < 1e9 {
+		if d > 0 {
+			atomic.AddInt64(&c.priority.rank, -1e9/d)
 		} else {
-			rk = 1e9 / d
+			atomic.AddInt64(&c.priority.rank, -1e9)
 		}
-	}
-	if rk > 0 {
-		atomic.AddInt64(&c.priority.rank, -rk)
 	} else {
 		atomic.StoreInt64(&c.priority.rank, 1e9)
 	}
-	c.priority.last = t
-}
-
-func (c *Conn) id() string {
-	return fmt.Sprintf("%d:%d", c.LocalAddr().(*net.TCPAddr).Port, c.RemoteAddr().(*net.TCPAddr).Port)
 }
 
 //

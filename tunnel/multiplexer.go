@@ -38,8 +38,9 @@ const (
 
 const (
 	FRAME_HEADER_LEN = 8
-	FRAME_MAX_LEN    = 0xffff
+	FRAME_MAX_LEN    = 0x7fff //0xffff
 )
+
 const (
 	MUX_PENDING_CLOSE int32 = -1
 	MUX_CLOSED        int32 = -2
@@ -47,7 +48,7 @@ const (
 
 const (
 	FAST_OPEN              = true
-	FAST_OPEN_BUF_MAX_SIZE = 1 << 13 // 8k
+	FAST_OPEN_BUF_MAX_SIZE = 1 << 15 // 32k
 )
 
 const (
@@ -298,10 +299,11 @@ func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
 	SafeClose(tun)
 	// waitting for child(w) goroutine to end
 	p.wg.Wait()
+	tun.cipher.Cleanup()
 }
 
 // TODO notify peer to slow down when queue increased too fast
-func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
+func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) error {
 	tun.priority = &TSPriority{0, 1e9}
 	p.pool.Push(tun)
 	defer p.onTunDisconnected(tun, handler)
@@ -335,25 +337,20 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 			// shutdown
 			if atomic.LoadInt32(&p.status) < 0 {
 				time.Sleep(time.Second)
-				return
+				return nil
 			}
 			switch idle.consumeError(er) {
 			case ERR_NEW_PING:
-				if idle.ping(tun) == nil {
+				if er = idle.ping(tun); er == nil {
 					continue
 				}
 			case ERR_PING_TIMEOUT:
-				if log.V(1) {
-					log.Errorln("Peer was unresponsive then close", tun.identifier)
-				}
-			default:
-				if log.V(1) {
-					log.Errorln("Read error", tun.identifier, er)
-				}
+				er = ex.New("Peer was unresponsive then close")
 			}
 			// abandon this connection
-			return
+			return er
 		}
+		// prefix tun.identifier
 		key = sessionKey(tun, frm.sid)
 
 		switch frm.action {
@@ -362,11 +359,13 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 				edge.bitwiseCompareAndSet(TCP_CLOSE_W)
 				edge.deliver(frm)
 			}
+
 		case FRAME_ACTION_CLOSE_R:
 			if edge, _ := router.getRegistered(key); edge != nil {
 				edge.bitwiseCompareAndSet(TCP_CLOSE_R)
 				closeR(edge.conn)
 			}
+
 		case FRAME_ACTION_DATA:
 			edge, pre := router.getRegistered(key)
 			if edge != nil {
@@ -379,14 +378,16 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 				}
 				// trigger sending close to notice peer.
 				pack(header, FRAME_ACTION_CLOSE_R, frm.sid, nil)
-				if frameWriteBuffer(tun, header) != nil {
-					return
+				if er = frameWriteBuffer(tun, header); er != nil {
+					return er
 				}
 			}
+
 		case FRAME_ACTION_OPEN:
 			router.preRegister(key)
 			p.wg.Add(1)
 			go p.connectToDest(frm, key, tun)
+
 		case FRAME_ACTION_OPEN_N, FRAME_ACTION_OPEN_Y, FRAME_ACTION_OPEN_DENIED:
 			edge, _ := router.getRegistered(key)
 			if edge != nil {
@@ -400,12 +401,14 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 					log.Warningln("peer send OPEN_x to an unexisted socket.", key, frm)
 				}
 			}
+
 		case FRAME_ACTION_PING:
-			if idle.pong(tun) == nil {
+			if er = idle.pong(tun); er == nil {
 				atomic.AddInt32(&p.pingCnt, 1)
 			} else { // reply pong failed
-				return
+				return er
 			}
+
 		case FRAME_ACTION_PONG:
 			if idle.verify() {
 				if p.isClient && idle.lastPing > 0 {
@@ -421,10 +424,12 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) {
 			} else {
 				log.Warningln("Incorrect action_pong received")
 			}
+
 		case FRAME_ACTION_TOKENS:
 			handler(evt_tokens, frm.data)
-		default:
-			log.Errorln(p.role, "Unrecognized", frm)
+
+		default: // impossible
+			return fmt.Errorf("Unrecognized %s", frm)
 		}
 		tun.Update()
 	}
@@ -618,7 +623,7 @@ func frameWriteBuffer(tun *Conn, origin []byte) (err error) {
 			if IsTimeout(err) && idleLastR < int64(WRITE_TUN_TIMEOUT) {
 				err = nil
 			} else {
-				log.Warningf("Write tun (%s) error (%v) buf.len=%d\n", tun.id(), err, len(buf))
+				log.Warningf("Write tun (%s) error (%v) buf.len=%d\n", tun.identifier, err, len(buf))
 				SafeClose(tun)
 			}
 		}

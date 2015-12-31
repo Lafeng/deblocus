@@ -60,14 +60,12 @@ func (c *Client) initialConnect() (tun *Conn) {
 	var err error
 	tun, err = man.Connect(theParam)
 	if err != nil {
-		if log.V(1) == true || DEBUG {
-			log.Errorf("Failed connect %s. Retry after %s. Error: %s", c.connInfo.RemoteName(), RETRY_INTERVAL, err)
-		} else {
-			log.Errorf("Failed connect %s. Retry after %s", c.connInfo.RemoteName(), RETRY_INTERVAL)
-		}
+		log.Errorf("Failed connect to %s%s Retry after %s",
+			c.connInfo.RemoteName(), ex.Detail(err), RETRY_INTERVAL)
 		return nil
 	} else {
-		log.Infof("Login to server %s with %s successfully", c.connInfo.RemoteName(), c.connInfo.user)
+		log.Infof("Login to server %s with %s successfully",
+			c.connInfo.RemoteName(), c.connInfo.user)
 		c.params = theParam
 		c.token = theParam.token
 		return
@@ -130,29 +128,24 @@ func (c *Client) StartTun(mustRestart bool) {
 				var err error
 				tun, err = c.createDataTun()
 				if err != nil {
-					if log.V(1) == true || DEBUG {
-						log.Errorf("Connection failed %s, Error: %s. Reconnect after %s",
-							c.connInfo.RemoteName(), err, RETRY_INTERVAL)
-					} else {
-						log.Errorf("Connection failed %s. Reconnect after %s",
-							c.connInfo.RemoteName(), RETRY_INTERVAL)
-					}
+					log.Errorf("Connection failed%s Reconnect after %s",
+						ex.Detail(err), RETRY_INTERVAL)
 					wait = true
 					continue
 				}
 			}
 
 			if log.V(1) {
-				log.Infof("Tun %s is established\n", tun.id())
+				log.Infof("Tun %s is established\n", tun.identifier)
 			}
 
 			cnt := atomic.AddInt32(&c.dtCnt, 1)
-			c.mux.Listen(tun, c.eventHandler, c.params.pingInterval+int(cnt))
+			err := c.mux.Listen(tun, c.eventHandler, c.params.pingInterval+int(cnt))
 			dtcnt := atomic.AddInt32(&c.dtCnt, -1)
 
-			log.Errorf("Tun %s was disconnected, Reconnect after %s\n", tun.id(), RETRY_INTERVAL)
-
-			tun.cipher.Cleanup()
+			log.Errorf("Tun %s was disconnected%s Reconnect after %s\n",
+				tun.identifier, ex.Detail(err), RETRY_INTERVAL)
+			// received ping count
 			if atomic.LoadInt32(&c.mux.pingCnt) <= 0 {
 				// dirty tokens: used abandoned tokens
 				c.clearTokens()

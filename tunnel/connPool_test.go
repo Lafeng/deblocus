@@ -46,7 +46,7 @@ func Test_priority(t *testing.T) {
 		pool.pool[i].priority = p
 	}
 	c := pool.Select()
-	if c.priority.rank != int64(n-2) {
+	if c.priority.rank != int64(n-1+SELECT_DECREASE) {
 		t.Errorf("select failed priority=%v", c.priority)
 	}
 }

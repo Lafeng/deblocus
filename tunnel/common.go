@@ -128,6 +128,14 @@ func i64HumanSize(size int64) string {
 	return strconv.FormatInt(size, 10) + string(SIZE_UNIT[i])
 }
 
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	} else {
+		return b
+	}
+}
+
 func randomRange(min, max int64) (n int64) {
 	for ; n < min; n %= max {
 		n = myRand.Int63n(max)

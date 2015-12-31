@@ -90,7 +90,6 @@ func (t *Session) tokensHandle(args []byte) {
 
 func (t *Session) DataTunServe(tun *Conn, isNewSession bool) {
 	defer func() {
-		tun.cipher.Cleanup()
 		if atomic.AddInt32(&t.activeCnt, -1) <= 0 {
 			t.destroy()
 			log.Infof("Client %s was offline", t.cid)
@@ -105,9 +104,9 @@ func (t *Session) DataTunServe(tun *Conn, isNewSession bool) {
 	}
 	cnt := atomic.AddInt32(&t.activeCnt, 1)
 	// mux will output error log
-	t.mux.Listen(tun, t.eventHandler, DT_PING_INTERVAL+int(cnt))
+	err := t.mux.Listen(tun, t.eventHandler, DT_PING_INTERVAL+int(cnt))
 	if log.V(1) {
-		log.Infof("Tun %s was disconnected", tun.identifier)
+		log.Infof("Tun %s was disconnected%s", tun.identifier, ex.Detail(err))
 	}
 }
 

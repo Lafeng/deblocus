@@ -28,19 +28,11 @@ func New(msg string) *Exception {
 	return &Exception{msg: msg}
 }
 
-func ErrorOf(e interface{}) (err error, ie bool) {
-	if e == nil {
-		return nil, false
-	} else {
-		ie = true
+func Detail(err error) string {
+	if err != nil && (log.V(1) == true || DEBUG) {
+		return fmt.Sprintf("(Type=%T Error=%s)", err, err)
 	}
-	switch e.(type) {
-	case error:
-		err = e.(error)
-	default:
-		err = &Exception{msg: fmt.Sprintf("%v", e)}
-	}
-	return
+	return ""
 }
 
 // if ( [re] != nil OR [err] !=nil ) then return true

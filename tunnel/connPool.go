@@ -8,6 +8,8 @@ import (
 	log "github.com/Lafeng/deblocus/golang/glog"
 )
 
+const SELECT_DECREASE = -1e5
+
 type TSPriority struct {
 	last int64
 	rank int64
@@ -79,7 +81,7 @@ func (h *ConnPool) Select() *Conn {
 		log.Infoln("selected tun", h.pool[0].LocalAddr())
 	}
 	selected := h.pool[0]
-	atomic.AddInt64(&selected.priority.rank, -1)
+	atomic.AddInt64(&selected.priority.rank, SELECT_DECREASE)
 	return selected
 }
 

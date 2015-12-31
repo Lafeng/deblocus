@@ -187,7 +187,7 @@ func (n *d5cman) ResumeSession(p *tunParams, token []byte) (conn *Conn, err erro
 		return
 	}
 
-	conn.cipher = p.cipherFactory.InitCipher(token)
+	conn.SetupCipher(p.cipherFactory, token)
 	conn.SetId(n.provider, false)
 	return conn, nil
 }
@@ -257,7 +257,7 @@ func (n *d5cman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 
 	// setup cipher
 	cf = NewCipherFactory(n.cipher, key, n.dbcHello)
-	conn.cipher = cf.InitCipher(n.sRand)
+	conn.SetupCipher(cf, n.sRand)
 	return
 }
 
@@ -417,7 +417,7 @@ func (n *d5sman) resumeSession(conn *Conn) (session *Session, err error) {
 		// check token ok
 		if session := n.sessionMgr.take(token); session != nil {
 			// reuse cipherFactory to init cipher
-			conn.cipher = session.cipherFactory.InitCipher(token)
+			conn.SetupCipher(session.cipherFactory, token)
 			// identify connection
 			conn.SetId(session.uid, true)
 			return session, nil
@@ -466,7 +466,7 @@ func (n *d5sman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 
 	// setup cipher
 	cf = NewCipherFactory(n.Cipher, key, n.dbcHello)
-	conn.cipher = cf.InitCipher(n.sRand)
+	conn.SetupCipher(cf, n.sRand)
 
 	// encrypted
 	w.WriteL1Msg(hash256(n.dbcHello))
@@ -525,7 +525,8 @@ func (n *d5sman) authenticate(conn *Conn, session *Session) error {
 	w.WriteL1Msg([]byte{AUTH_PASS})
 	w.WriteL2Msg(n.tunParams.serialize())
 	// send tokens
-	tokens := n.sessionMgr.createTokens(session, GENERATE_TOKEN_NUM)
+	num := maxInt(GENERATE_TOKEN_NUM, n.Parallels+2)
+	tokens := n.sessionMgr.createTokens(session, num)
 	w.WriteL2Msg(tokens[1:]) // skip index=0
 
 	setWTimeout(conn)
