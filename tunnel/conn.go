@@ -12,7 +12,7 @@ type Conn struct {
 	net.Conn
 	cipher     cipherKit
 	identifier string
-	wlock      sync.Locker
+	wlock      *sync.Mutex
 	priority   *TSPriority
 }
 
@@ -21,6 +21,19 @@ func NewConn(conn net.Conn, cipher cipherKit) *Conn {
 		Conn:   conn,
 		cipher: cipher,
 		wlock:  new(sync.Mutex),
+	}
+}
+
+func (c *Conn) SetId(name string, isServ bool) {
+	ra := c.RemoteAddr().(*net.TCPAddr)
+	la := c.LocalAddr().(*net.TCPAddr)
+	if isServ {
+		// unique in server instance
+		// fmt: user@full_addr
+		c.identifier = fmt.Sprintf("%s@%s", name, ra.String())
+	} else {
+		// for client
+		c.identifier = fmt.Sprintf("%d:%d", la.Port, ra.Port)
 	}
 }
 
@@ -95,7 +108,7 @@ func (c *Conn) Update() {
 }
 
 func (c *Conn) id() string {
-	return fmt.Sprintf("L%dR%d", c.LocalAddr().(*net.TCPAddr).Port, c.RemoteAddr().(*net.TCPAddr).Port)
+	return fmt.Sprintf("%d:%d", c.LocalAddr().(*net.TCPAddr).Port, c.RemoteAddr().(*net.TCPAddr).Port)
 }
 
 //

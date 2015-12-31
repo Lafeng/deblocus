@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"bytes"
 	stdcrypto "crypto"
 	"crypto/cipher"
 	"crypto/ecdsa"
@@ -165,15 +166,44 @@ func NameOfKey(v interface{}) string {
 	return NULL
 }
 
-func GenerateECCKey(name string) (stdcrypto.PrivateKey, error) {
+func FingerprintOfKey(v interface{}) string {
+	var buf = new(bytes.Buffer)
+	switch k := v.(type) {
+	case *ecdsa.PublicKey:
+		buf.WriteString(k.Params().Name)
+		buf.Write(k.X.Bytes())
+		buf.Write(k.Y.Bytes())
+	case *rsa.PublicKey:
+		buf.Write(k.N.Bytes())
+		buf.WriteRune(rune(k.E))
+	}
+	hs := hash160(buf.Bytes())
+	return strings.Replace(fmt.Sprintf("% x", hs), " ", ":", -1)
+}
+
+func GenerateDSAKey(name string) (stdcrypto.PrivateKey, error) {
 	if name == NULL {
 		name = "ECC-P256"
 	}
-	curve, err := crypto.SelectCurve(name)
-	if err != nil {
-		return nil, err
+	kType, opt := SubstringBefore(name, "-")
+	switch kType {
+	case "RSA":
+		switch opt {
+		case "1024":
+			return rsa.GenerateKey(rand.Reader, 1024)
+		case "2048":
+			return rsa.GenerateKey(rand.Reader, 2048)
+		case "4096":
+			return rsa.GenerateKey(rand.Reader, 4096)
+		}
+	case "ECC":
+		curve, err := crypto.SelectCurve(name)
+		if err != nil {
+			return nil, err
+		}
+		return ecdsa.GenerateKey(curve, rand.Reader)
 	}
-	return ecdsa.GenerateKey(curve, rand.Reader)
+	return nil, UNRECOGNIZED_SYMBOLS.Apply(name)
 }
 
 func MarshalPrivateKey(priv stdcrypto.PrivateKey) (b []byte) {
@@ -222,10 +252,11 @@ type ecdsaSignature struct {
 	R, S *big.Int
 }
 
-func DS_Verify(pub stdcrypto.PublicKey, sig, msg []byte) bool {
+func DSAVerify(pub stdcrypto.PublicKey, sig, msg []byte) bool {
 	switch k := pub.(type) {
 	case *rsa.PublicKey:
-		return nil == rsa.VerifyPKCS1v15(k, stdcrypto.SHA256, msg, sig)
+		// rsa.go:L87 SignPKCS1v15
+		return nil == rsa.VerifyPKCS1v15(k, stdcrypto.SHA512, msg, sig)
 	case *ecdsa.PublicKey:
 		var es ecdsaSignature
 		_, err := asn1.Unmarshal(sig, &es)
@@ -234,12 +265,13 @@ func DS_Verify(pub stdcrypto.PublicKey, sig, msg []byte) bool {
 		}
 		return ecdsa.Verify(k, msg, es.R, es.S)
 	}
-	panic("unknow key")
+	panic("unknown key")
 }
 
-func DS_Sign(priv stdcrypto.PrivateKey, msg []byte) []byte {
+func DSASign(priv stdcrypto.PrivateKey, msg []byte) []byte {
 	if signer, y := priv.(stdcrypto.Signer); y {
-		b, err := signer.Sign(rand.Reader, msg, nil)
+		// arg3:SignerOpts for rsa
+		b, err := signer.Sign(rand.Reader, msg, stdcrypto.SHA512)
 		ThrowErr(err)
 		return b
 	}

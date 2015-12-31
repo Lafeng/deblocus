@@ -34,6 +34,7 @@ const (
 const (
 	HTTP_PROXY_VER_LINE = "HTTP/1.1 200 Connection established"
 	HTTP_PROXY_AGENT    = "Proxy-Agent: "
+	CRLF                = "\r\n"
 )
 
 var (
@@ -160,7 +161,7 @@ errLogging:
 	return NULL, false
 }
 
-// http proxy
+// determines protocol of client req
 func detectProtocol(pbconn *pushbackInputStream) (int, error) {
 	var b = make([]byte, 2)
 	setRTimeout(pbconn)
@@ -175,12 +176,14 @@ func detectProtocol(pbconn *pushbackInputStream) (int, error) {
 	defer pbconn.Unread(b)
 	var head = b[0]
 
-	if head <= 5 {
+	switch {
+	case head == 5:
 		return PROT_SOCKS5, nil
-		// hex 0x41-0x5a=A-Z 0x61-0x7a=a-z
-	} else if head >= 0x41 && head <= 0x7a {
+	case head >= 'A' && head <= 'z':
 		return PROT_HTTP, nil
-	} else {
+	case head == 4: // socks4, socks4a
+		return PROT_UNKNOWN, nil
+	default:
 		return PROT_UNKNOWN, nil
 	}
 }

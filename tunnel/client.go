@@ -55,10 +55,10 @@ func NewClient(cman *ConfigMan) *Client {
 }
 
 func (c *Client) initialConnect() (tun *Conn) {
-	var newParams = new(tunParams)
+	var theParam = new(tunParams)
 	var man = &d5cman{connectionInfo: c.connInfo}
 	var err error
-	tun, err = man.Connect(newParams)
+	tun, err = man.Connect(theParam)
 	if err != nil {
 		if log.V(1) == true || DEBUG {
 			log.Errorf("Failed connect %s. Retry after %s. Error: %s", c.connInfo.RemoteName(), RETRY_INTERVAL, err)
@@ -67,11 +67,11 @@ func (c *Client) initialConnect() (tun *Conn) {
 		}
 		return nil
 	} else {
-		log.Infof("Login to server %s successfully", tun.identifier)
+		log.Infof("Login to server %s with %s successfully", c.connInfo.RemoteName(), c.connInfo.user)
+		c.params = theParam
+		c.token = theParam.token
+		return
 	}
-	c.params = newParams
-	c.token = newParams.token
-	return
 }
 
 func (c *Client) restart() (tun *Conn, rn int32) {
@@ -159,7 +159,7 @@ func (c *Client) StartTun(mustRestart bool) {
 			}
 
 			if dtcnt <= 0 { // restart: all connections were disconnected
-				log.Errorf("Connections %s were lost\n", tun.identifier)
+				log.Errorf("Connections %s were lost\n", c.connInfo.RemoteName())
 				go c.StartTun(true)
 				return
 

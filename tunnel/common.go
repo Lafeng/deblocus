@@ -90,9 +90,15 @@ func nvl(v interface{}, def interface{}) interface{} {
 	return v
 }
 
+// return arg0 the substring before sep
+// return arg1 the substring after sep
 func SubstringBefore(str, sep string) (string, string) {
 	if p := strings.Index(str, sep); p > 0 {
-		return str[:p], str[p:]
+		if p+1 < len(str) {
+			return str[:p], str[p+1:]
+		} else {
+			return str[:p], NULL
+		}
 	} else {
 		return str, NULL
 	}
@@ -192,13 +198,14 @@ func closeW(conn net.Conn) {
 	}
 }
 
-func IsValidHost(hostport string) (ok bool, err error) {
+func IsValidHost(addr string) (err error) {
 	var h, p string
-	h, p, err = net.SplitHostPort(hostport)
-	if h != NULL && p != NULL && err == nil {
-		ok = true
-	} else if err == nil {
-		err = errors.New("Invalid host address " + hostport)
+	h, p, err = net.SplitHostPort(addr)
+	if err != nil {
+		return
+	}
+	if h == NULL || p == NULL {
+		err = errors.New("Invalid address " + addr)
 	}
 	return
 }

@@ -13,12 +13,7 @@ func setupCommands() *cli.App {
 	app.Version = versionString() + "\n   " + buildInfo()
 	app.HideVersion = true
 	//app.HideHelp = true
-	flags := []cli.Flag{
-		cli.StringFlag{
-			Name:        "o",
-			Usage:       "output file",
-			Destination: &context.output,
-		},
+	globalOptions := []cli.Flag{
 		cli.StringFlag{
 			Name:        "config, c",
 			Usage:       "indicate Config path if it in nontypical path",
@@ -45,6 +40,17 @@ func setupCommands() *cli.App {
 			Destination: &context.debug,
 		},
 	}
+	subOptions := []cli.Flag{
+		cli.StringFlag{
+			Name:        "o",
+			Usage:       "output file",
+			Destination: &context.output,
+		},
+		cli.StringFlag{
+			Name:  "addr, a",
+			Usage: "Public Address",
+		},
+	}
 	app.Commands = []cli.Command{
 		{
 			Name:        "csc",
@@ -52,18 +58,26 @@ func setupCommands() *cli.App {
 			ArgsUsage:   "deblocus csc [-o file]",
 			Description: _csc_examples,
 			Action:      context.cscCommandHandler,
-			Flags:       flags[:1],
+			Flags:       []cli.Flag{subOptions[0]},
 		},
 		{
 			Name:        "ccc",
 			Usage:       "Create client config of specified user",
-			ArgsUsage:   "deblocus ccc [options] <server_addr:port> <username>",
+			ArgsUsage:   "deblocus ccc [options] <username>",
 			Description: _ccc_examples,
 			Action:      context.cccCommandHandler,
-			Flags:       flags[:2],
+			Flags:       append(subOptions, globalOptions[0]),
+		},
+		{
+			Name:        "keyinfo",
+			Usage:       "Print key info from config",
+			ArgsUsage:   "deblocus keyinfo [options]",
+			Description: _keyinfo_examples,
+			Action:      context.keyInfoCommandHandler,
+			Flags:       []cli.Flag{globalOptions[0]},
 		},
 	}
-	app.Flags = flags[1:]
+	app.Flags = globalOptions
 	app.Before = context.initialize
 	app.Action = context.startCommandHandler
 	cli.CommandHelpTemplate = CommandHelpTemplate
@@ -96,5 +110,9 @@ const _csc_examples = `
    ./deblocus csc -o deblocus.ini`
 
 const _ccc_examples = `
-   ./deblocus ccc example.com:9008 user
-   ./deblocus ccc example.com:9008 user -o file`
+   ./deblocus ccc --addr=example.com:9008  user
+   ./deblocus ccc -o file user`
+
+const _keyinfo_examples = `
+   ./deblocus keyinfo
+   ./deblocus keyinfo -c someconfig.ini`

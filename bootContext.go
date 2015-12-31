@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -54,25 +53,24 @@ func (ctx *bootContext) initialize(c *cli.Context) (err error) {
 	return nil
 }
 
-func (ctx *bootContext) initConfig(r ServerRole) ServerRole {
-	var serverRole ServerRole
+func (ctx *bootContext) initConfig(r ServerRole) (role ServerRole) {
 	var err error
 	// load config file
 	ctx.cman, err = DetectConfig(ctx.configFile)
 	fatalError(err)
 	// parse config file
-	serverRole, err = ctx.cman.InitConfigByRole(r)
-	if serverRole == 0 {
+	role, err = ctx.cman.InitConfigByRole(r)
+	if role == 0 {
 		err = fmt.Errorf("No server role defined in config")
 	}
 	fatalError(err)
-	// reset logV
-	if !ctx.vSpecified {
-		if v := ctx.cman.LogV(serverRole); v > 0 {
+	if !ctx.vSpecified { // no -v
+		// set logV with config.v
+		if v := ctx.cman.LogV(role); v > 0 {
 			log.SetLogVerbose(v)
 		}
 	}
-	return serverRole
+	return role
 }
 
 // ./deblocus -csc [algo]
@@ -86,7 +84,6 @@ func (ctx *bootContext) cscCommandHandler(c *cli.Context) {
 	default:
 		fatalAndCommandHelp(c)
 	}
-
 	err := CreateServerConfigTemplate(ctx.output, keyOpt)
 	fatalError(err)
 }
@@ -95,18 +92,20 @@ func (ctx *bootContext) cscCommandHandler(c *cli.Context) {
 func (ctx *bootContext) cccCommandHandler(c *cli.Context) {
 	// need server config
 	ctx.initConfig(SR_SERVER)
-
-	if args := c.Args(); len(args) == 2 {
-		addr, user := args.Get(0), args.Get(1)
-		// validate arg0:ListenAddr
-		_, err := IsValidHost(addr)
-		fatalError(err)
-
-		err = ctx.cman.CreateClientConfig(ctx.output, user, addr)
+	if args := c.Args(); len(args) == 1 {
+		user := args.Get(0)
+		pubAddr := c.String("a")
+		err := ctx.cman.CreateClientConfig(ctx.output, user, pubAddr)
 		fatalError(err)
 	} else {
 		fatalAndCommandHelp(c)
 	}
+}
+
+func (ctx *bootContext) keyInfoCommandHandler(c *cli.Context) {
+	// need config
+	role := ctx.initConfig(SR_AUTO)
+	fmt.Fprintln(os.Stderr, ctx.cman.KeyInfo(role))
 }
 
 func (ctx *bootContext) startCommandHandler(c *cli.Context) {
@@ -272,20 +271,4 @@ func fatalAndCommandHelp(c *cli.Context) {
 	}
 	context.doClose()
 	os.Exit(1)
-}
-
-func advice(e interface{}) interface{} {
-	if err, y := e.(error); y {
-		var incompatible bool
-		// 0.10 altered config field names
-		incompatible = incompatible || strings.HasPrefix(err.Error(), UNRECOGNIZED_SYMBOLS.Error())
-		// 0.12 altered cipher
-		incompatible = incompatible || strings.HasPrefix(err.Error(), UNSUPPORTED_CIPHER.Error())
-
-		if incompatible {
-			fmt.Fprintf(os.Stderr, " * Maybe there is an issue of some incompatible alterations caused.\n")
-			fmt.Fprintf(os.Stderr, " * Please read %s/wiki to learn more.\n", project_url)
-		}
-	}
-	return e
 }

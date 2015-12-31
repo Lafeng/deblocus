@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"bytes"
 	"crypto"
 	"encoding/base64"
 	"errors"
@@ -51,6 +52,7 @@ const (
 )
 
 type ConfigMan struct {
+	filepath    string
 	iniInstance *ini.File
 	sConf       *serverConf
 	cConf       *clientConf
@@ -98,7 +100,10 @@ func DetectConfig(specifiedFile string) (*ConfigMan, error) {
 	}
 
 	iniInstance, err := ini.Load(*file)
-	return &ConfigMan{iniInstance: iniInstance}, err
+	return &ConfigMan{
+		filepath:    *file,
+		iniInstance: iniInstance,
+	}, err
 }
 
 func (cman *ConfigMan) InitConfigByRole(expectedRole ServerRole) (r ServerRole, err error) {
@@ -126,6 +131,8 @@ func (cman *ConfigMan) InitConfigByRole(expectedRole ServerRole) (r ServerRole, 
 		}
 	}
 
+	cman.iniInstance = nil
+
 abort:
 	return r, err
 }
@@ -148,6 +155,23 @@ func (cman *ConfigMan) ListenAddr(expectedRole ServerRole) *net.TCPAddr {
 		return cman.cConf.ListenAddr
 	}
 	return nil
+}
+
+func (cman *ConfigMan) KeyInfo(expectedRole ServerRole) string {
+	var buf = new(bytes.Buffer)
+	if expectedRole&SR_SERVER != 0 {
+		key := cman.sConf.publicKey
+		fmt.Fprintln(buf, "Server Key in", cman.filepath)
+		fmt.Fprintln(buf, "         type:", NameOfKey(key))
+		fmt.Fprintln(buf, "  fingerprint:", FingerprintOfKey(key))
+	}
+	if expectedRole&SR_CLIENT != 0 {
+		key := cman.cConf.connInfo.sPubKey
+		fmt.Fprintln(buf, "Credential Key in", cman.filepath)
+		fmt.Fprintln(buf, "         type:", NameOfKey(key))
+		fmt.Fprintln(buf, "  fingerprint:", FingerprintOfKey(key))
+	}
+	return buf.String()
 }
 
 // client config definitions
@@ -189,7 +213,7 @@ type connectionInfo struct {
 
 func (d *connectionInfo) RemoteName() string {
 	if d.provider != NULL {
-		return d.provider + "~" + d.sAddr
+		return d.provider
 	} else {
 		return d.sAddr
 	}
@@ -217,8 +241,7 @@ func newConnectionInfo(uri string) (*connectionInfo, error) {
 		return nil, CONF_MISS.Apply("Provider")
 	}
 
-	info.pkType, tmp = SubstringBefore(tmp[1:], "/")
-	info.cipher = tmp[1:]
+	info.pkType, info.cipher = SubstringBefore(tmp, "/")
 	_, err = GetAvailableCipher(info.cipher)
 	if err != nil {
 		return nil, err
@@ -259,7 +282,15 @@ func (cman *ConfigMan) CreateClientConfig(file string, user string, addonAddr st
 	dc.Comment = _d5c_header[1:]
 	dc.ReflectFrom(conf)
 	// prepare server addr
-	cman.sConf.Listen = addonAddr
+	if addonAddr == NULL {
+		cman.sConf.Listen = "localhost:9008"
+	} else {
+		err = IsValidHost(addonAddr)
+		cman.sConf.Listen = addonAddr
+		if err != nil {
+			return
+		}
+	}
 	err = cman.sConf.generateConnInfoOfUser(ii, user)
 	if err == nil {
 		_, err = ii.WriteTo(f)
@@ -315,6 +346,7 @@ type serverConf struct {
 	Auth       string       `importable:"file://_USER_PASS_FILE_PATH_"`
 	Cipher     string       `importable:"AES128CTR"`
 	ServerName string       `importable:"_MY_SERVER"`
+	Parallels  int          `importable:"2"`
 	Verbose    int          `importable:"1"`
 	DenyDest   string       `importable:"OFF"`
 	AuthSys    auth.AuthSys `ini:"-"`
@@ -348,6 +380,9 @@ func (d *serverConf) validate() error {
 	}
 	if d.ServerName == NULL {
 		return CONF_MISS.Apply("ServerName")
+	}
+	if d.Parallels < 2 || d.Parallels > 16 {
+		return CONF_ERROR.Apply("Parallels")
 	}
 	if d.privateKey == nil {
 		return CONF_MISS.Apply("PrivateKey")
@@ -411,7 +446,9 @@ func CreateServerConfigTemplate(file string, keyOpt string) (err error) {
 
 	d5sConf := new(serverConf)
 	setFieldsDefaultValue(d5sConf)
-	d5sConf.privateKey, err = GenerateECCKey(keyOpt)
+	// uppercase algo name
+	keyOpt = strings.ToUpper(keyOpt)
+	d5sConf.privateKey, err = GenerateDSAKey(keyOpt)
 	if err != nil {
 		return
 	}

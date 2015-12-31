@@ -34,7 +34,6 @@ const (
 	TIME_ERROR = 1  // minutes
 
 	NULL         = ""
-	CRLF         = "\r\n"
 	IDENTITY_SEP = "\x00"
 )
 
@@ -165,7 +164,7 @@ func (n *d5cman) Connect(p *tunParams) (conn *Conn, err error) {
 		return
 	}
 	p.cipherFactory = cf
-	conn.identifier = n.RemoteName()
+	conn.SetId(n.provider, false)
 	return
 }
 
@@ -189,7 +188,7 @@ func (n *d5cman) ResumeSession(p *tunParams, token []byte) (conn *Conn, err erro
 	}
 
 	conn.cipher = p.cipherFactory.InitCipher(token)
-	conn.identifier = n.RemoteName()
+	conn.SetId(n.provider, false)
 	return conn, nil
 }
 
@@ -239,7 +238,7 @@ func (n *d5cman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 		return
 	}
 
-	if !DS_Verify(n.sPubKey, dhkSign, dhk) {
+	if !DSAVerify(n.sPubKey, dhkSign, dhk) {
 		// MITM ?
 		return nil, VALIDATION_FAILED
 	}
@@ -317,7 +316,7 @@ func (n *d5cman) authThenFinishSetting(conn *Conn, t *tunParams) error {
 	}
 
 	// parse params
-	params, err = ReadFullByLen(1, conn)
+	params, err = ReadFullByLen(2, conn)
 	if err != nil {
 		return exception.Spawn(&err, "param: read connection")
 	}
@@ -403,7 +402,7 @@ func (n *d5sman) fullHandshake(conn *Conn) (session *Session, err error) {
 	if err != nil {
 		return
 	}
-	session = n.Server.NewSession(cf)
+	session = n.NewSession(cf)
 	err = n.authenticate(conn, session)
 	return
 }
@@ -420,7 +419,7 @@ func (n *d5sman) resumeSession(conn *Conn) (session *Session, err error) {
 			// reuse cipherFactory to init cipher
 			conn.cipher = session.cipherFactory.InitCipher(token)
 			// identify connection
-			session.identifyConn(conn)
+			conn.SetId(session.uid, true)
 			return session, nil
 		}
 	}
@@ -446,7 +445,7 @@ func (n *d5sman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 	myDhPub := dhKey.ExportPubKey()
 	w.WriteL1Msg(myDhPub)
 
-	myDhSign := DS_Sign(n.privateKey, myDhPub)
+	myDhSign := DSASign(n.privateKey, myDhPub)
 	w.WriteL1Msg(myDhSign)
 
 	n.sRand = randMinArray()
@@ -524,7 +523,7 @@ func (n *d5sman) authenticate(conn *Conn, session *Session) error {
 	session.indentifySession(user, conn)
 	w := newMsgWriter()
 	w.WriteL1Msg([]byte{AUTH_PASS})
-	w.WriteL1Msg(n.Server.tunParams.serialize())
+	w.WriteL2Msg(n.tunParams.serialize())
 	// send tokens
 	tokens := n.sessionMgr.createTokens(session, GENERATE_TOKEN_NUM)
 	w.WriteL2Msg(tokens[1:]) // skip index=0

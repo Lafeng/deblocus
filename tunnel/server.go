@@ -63,16 +63,8 @@ func (serv *Server) NewSession(cf *CipherFactory) *Session {
 
 func (s *Session) indentifySession(user string, c *Conn) {
 	s.uid = user
-	s.cid = SubstringLastBefore(s.identifyConn(c), ":")
-}
-
-func (s *Session) identifyConn(c *Conn) string {
-	if c.identifier == NULL {
-		// unique in server instance
-		// fmt: user@full_addr
-		c.identifier = fmt.Sprintf("%s@%s", s.uid, c.RemoteAddr())
-	}
-	return c.identifier
+	c.SetId(user, true)
+	s.cid = SubstringLastBefore(c.identifier, ":")
 }
 
 func (t *Session) eventHandler(e event, msg ...interface{}) {
@@ -235,13 +227,14 @@ type Server struct {
 }
 
 func NewServer(cman *ConfigMan) *Server {
+	conf := cman.sConf
 	s := &Server{
-		serverConf: cman.sConf,
-		sharedKey:  preSharedKey(cman.sConf.publicKey),
+		serverConf: conf,
+		sharedKey:  preSharedKey(conf.publicKey),
 		sessionMgr: NewSessionMgr(),
 		tunParams: &tunParams{
 			pingInterval: DT_PING_INTERVAL,
-			parallels:    PARALLEL_TUN_QTY,
+			parallels:    conf.Parallels,
 		},
 	}
 
@@ -263,8 +256,8 @@ func NewServer(cman *ConfigMan) *Server {
 		go s.updateTimeCounterWorker(step)
 	})
 
-	if len(cman.sConf.DenyDest) == 2 {
-		s.filter, _ = geo.NewGeoIPFilter(cman.sConf.DenyDest)
+	if len(conf.DenyDest) == 2 {
+		s.filter, _ = geo.NewGeoIPFilter(conf.DenyDest)
 	}
 	return s
 }
