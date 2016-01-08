@@ -31,6 +31,8 @@ const (
 	CF_CRYPTO     = "Crypto"
 	CF_PRIVKEY    = "PrivateKey"
 	CF_CREDENTIAL = "Credential"
+	CF_PAC        = "PAC.Server"
+	CF_FILE       = "File"
 
 	CONFIG_NAME = "deblocus.ini"
 	SIZE_UNIT   = "BKMG"
@@ -95,7 +97,7 @@ func DetectConfig(specifiedFile string) (*ConfigMan, error) {
 	}
 	if file == nil {
 		msg := fmt.Sprintf("Not found `%s` in [ %s ]\n", CONFIG_NAME, strings.Join(paths, "; "))
-		msg += "Create config in typical path or specify it with option `--config`."
+		msg += "Create config in typical path or specify it with option `--config/-c`."
 		return nil, errors.New(msg)
 	}
 
@@ -197,6 +199,9 @@ func (c *clientConf) validate() error {
 	if pkType != c.connInfo.pkType {
 		return CONF_ERROR.Apply(pkType)
 	}
+	if c.connInfo.pacFile != NULL && IsNotExist(c.connInfo.pacFile) {
+		return CONF_ERROR.Apply("File Not Found " + c.connInfo.pacFile)
+	}
 	c.ListenAddr = a
 	return nil
 }
@@ -208,6 +213,7 @@ type connectionInfo struct {
 	user     string
 	pass     string
 	pkType   string
+	pacFile  string
 	sPubKey  crypto.PublicKey
 }
 
@@ -299,14 +305,14 @@ func (cman *ConfigMan) CreateClientConfig(file string, user string, addonAddr st
 }
 
 // public for external
-func (cman *ConfigMan) ParseClientConf() (d5c *clientConf, err error) {
+func (cman *ConfigMan) ParseClientConf() (conf *clientConf, err error) {
 	ii := cman.iniInstance
-	dc, err := ii.GetSection(CF_CLIENT)
+	secDc, err := ii.GetSection(CF_CLIENT)
 	if err != nil {
 		return
 	}
-	d5c = new(clientConf)
-	err = dc.MapTo(d5c)
+	conf = new(clientConf)
+	err = secDc.MapTo(conf)
 	if err != nil {
 		return
 	}
@@ -334,9 +340,14 @@ func (cman *ConfigMan) ParseClientConf() (d5c *clientConf, err error) {
 	if err != nil {
 		return
 	}
+	secPac, _ := ii.GetSection(CF_PAC)
+	if secPac != nil && secPac.Haskey(CF_FILE) {
+		pacFile, _ := secPac.GetKey(CF_FILE)
+		connInfo.pacFile = pacFile.String()
+	}
 	connInfo.sPubKey = pubkey
-	d5c.connInfo = connInfo
-	err = d5c.validate()
+	conf.connInfo = connInfo
+	err = conf.validate()
 	return
 }
 

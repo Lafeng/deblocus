@@ -199,17 +199,21 @@ func (c *Client) ClientServe(conn net.Conn) {
 			}
 		}
 	case PROT_HTTP:
-		proto, literalTarget, err := httpProxyHandshake(pbConn)
+		proto, target, err := httpProxyHandshake(pbConn)
 		if err != nil {
 			log.Warningln(err)
 			break
 		}
-		if proto == PROT_HTTP {
+		switch proto {
+		case PROT_HTTP:
 			// plain http
-			c.mux.HandleRequest("HTTP", pbConn, literalTarget)
-		} else {
+			c.mux.HandleRequest("HTTP", pbConn, target)
+		case PROT_HTTP_T:
 			// http tunnel
-			c.mux.HandleRequest("HTTP/T", conn, literalTarget)
+			c.mux.HandleRequest("HTTP/T", conn, target)
+		case PROT_LOCAL:
+			// target is requestUri
+			c.localServlet(conn, target)
 		}
 		done = true
 	default:

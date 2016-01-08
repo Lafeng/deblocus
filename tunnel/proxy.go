@@ -6,9 +6,11 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -29,6 +31,7 @@ const (
 	PROT_SOCKS5  = 2
 	PROT_HTTP    = 3
 	PROT_HTTP_T  = 4
+	PROT_LOCAL   = 5
 )
 
 const (
@@ -212,19 +215,29 @@ func httpProxyHandshake(conn *pushbackInputStream) (proto int, target string, er
 		conn.Write(buf.Bytes())
 
 	} else { // plain http request
-		proto = PROT_HTTP
-		target = req.Host
 
-		// delete http header Proxy-xxx
-		for k, _ := range req.Header {
-			if strings.HasPrefix(k, "Proxy") {
-				delete(req.Header, k)
+		// sure this is local static request
+		// req.RequestURI.length >= 1
+		if req.Method == "GET" && req.RequestURI[0] == '/' {
+			proto = PROT_LOCAL
+			target = req.RequestURI
+			return
+
+		} else { // plain http proxy request
+			proto = PROT_HTTP
+			target = req.Host
+
+			// delete http header Proxy-xxx
+			for k, _ := range req.Header {
+				if strings.HasPrefix(k, "Proxy") {
+					delete(req.Header, k)
+				}
 			}
+			// serialize modified request to buffer
+			req.Write(buf)
+			// rollback
+			conn.Unread(buf.Bytes())
 		}
-		// serialize modified request to buffer
-		req.Write(buf)
-		// rollback
-		conn.Unread(buf.Bytes())
 	}
 
 	if target == NULL {
@@ -247,4 +260,44 @@ func httpProxyHandshake(conn *pushbackInputStream) (proto int, target string, er
 		}
 	}
 	return
+}
+
+func openReadOnlyFile(file string) (f *os.File, info os.FileInfo, err error) {
+	f, err = os.Open(file)
+	if err == nil {
+		info, err = f.Stat()
+	}
+	return
+}
+
+func (c *Client) localServlet(conn net.Conn, reqUri string) {
+	defer conn.Close()
+
+	switch reqUri {
+	case "/wpad.dat":
+		if c.connInfo.pacFile != NULL { // has pac setting
+			pacFile, info, err := openReadOnlyFile(c.connInfo.pacFile)
+			if err != nil {
+				log.Errorln("read PAC file", err)
+				goto end
+			}
+			defer pacFile.Close()
+			buf := new(bytes.Buffer)
+			fmt.Fprint(buf, "HTTP/1.1 200 OK", CRLF)
+			fmt.Fprint(buf, "Content-Type: application/x-ns-proxy-autoconfig", CRLF)
+			fmt.Fprint(buf, "Content-Length: ", info.Size(), CRLF, CRLF)
+			setWTimeout(conn)
+			if _, err = conn.Write(buf.Bytes()); err == nil {
+				io.Copy(conn, pacFile)
+			}
+			return
+		}
+	}
+
+end:
+	// other local request or pacFile not specified
+	log.Warningln("Unrecognized Request", reqUri)
+	// respond 404
+	setWTimeout(conn)
+	fmt.Fprintln(conn, "HTTP/1.1 404 Not found", CRLF, CRLF)
 }
