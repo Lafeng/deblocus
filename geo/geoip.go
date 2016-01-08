@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"encoding/csv"
 	"fmt"
-	log "github.com/Lafeng/deblocus/golang/glog"
 	"io"
 	"net"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"unsafe"
+
+	log "github.com/Lafeng/deblocus/glog"
 )
 
 const (
@@ -107,9 +108,7 @@ func NewGeoIPFilter(keyword string) (f *GeoIPFilter, e error) {
 	f = new(GeoIPFilter)
 	f.keyword = StoU16(strings.ToUpper(keyword))
 	f.tab = deserialize(buildGeoDB())
-	if log.V(1) {
-		log.Infoln("Init GeoIPFilter with target keyword", keyword)
-	}
+	log.Infoln("Init DestIPFilter with target keyword", keyword)
 	return
 }
 

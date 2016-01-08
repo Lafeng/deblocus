@@ -15,7 +15,7 @@ import (
 	"strings"
 
 	"github.com/Lafeng/deblocus/exception"
-	log "github.com/Lafeng/deblocus/golang/glog"
+	log "github.com/Lafeng/deblocus/glog"
 )
 
 const (

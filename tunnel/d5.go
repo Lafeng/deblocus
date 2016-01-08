@@ -14,7 +14,7 @@ import (
 	"github.com/Lafeng/deblocus/auth"
 	"github.com/Lafeng/deblocus/crypto"
 	"github.com/Lafeng/deblocus/exception"
-	log "github.com/Lafeng/deblocus/golang/glog"
+	log "github.com/Lafeng/deblocus/glog"
 	"github.com/dchest/siphash"
 )
 
@@ -329,7 +329,7 @@ func (n *d5cman) authThenFinishSetting(conn *Conn, t *tunParams) error {
 	if len(t.token) < TKSZ || len(t.token)%TKSZ != 0 {
 		return ILLEGAL_STATE.Apply("incorrect token")
 	}
-	if log.V(3) {
+	if log.V(log.LV_TOKEN) {
 		log.Infof("Received tokens size=%d\n", len(t.token)/TKSZ)
 	}
 
@@ -507,7 +507,7 @@ func (n *d5sman) authenticate(conn *Conn, session *Session) error {
 		return err
 	}
 
-	if log.V(1) {
+	if log.V(log.LV_LOGIN) {
 		log.Infoln("Login request:", user)
 	}
 

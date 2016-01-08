@@ -9,7 +9,7 @@ import (
 	"time"
 
 	ex "github.com/Lafeng/deblocus/exception"
-	log "github.com/Lafeng/deblocus/golang/glog"
+	log "github.com/Lafeng/deblocus/glog"
 )
 
 const (
@@ -132,7 +132,7 @@ func (c *Client) StartTun(mustRestart bool) {
 				}
 			}
 
-			if log.V(1) {
+			if log.V(log.LV_CLT_CONNECT) {
 				log.Infof("Tun %s is established\n", tun.identifier)
 			}
 
@@ -140,8 +140,10 @@ func (c *Client) StartTun(mustRestart bool) {
 			err = c.mux.Listen(tun, c.eventHandler, c.params.pingInterval+int(dtcnt))
 			dtcnt = atomic.AddInt32(&c.dtCnt, -1)
 
-			log.Errorf("Tun %s was disconnected %s Reconnect after %s\n",
-				tun.identifier, ex.Detail(err), RETRY_INTERVAL)
+			if log.V(log.LV_CLT_CONNECT) {
+				log.Errorf("Tun %s was disconnected %s Reconnect after %s\n",
+					tun.identifier, ex.Detail(err), RETRY_INTERVAL)
+			}
 			// reset
 			tun, wait = nil, true
 
@@ -294,8 +296,8 @@ func (c *Client) asyncRequestTokens() {
 	// don't require if shutdown
 	if atomic.LoadInt32(&c.state) >= CLT_WORKING {
 		go c.mux.bestSend([]byte{FRAME_ACTION_TOKEN_REQUEST}, "asyncRequestTokens")
-		if log.V(3) {
-			log.Infof("Request new tokens, pool=%d\n", len(c.token)/TKSZ)
+		if log.V(log.LV_TOKEN) {
+			log.Infof("Request new tokens, current pool=%d\n", len(c.token)/TKSZ)
 		}
 	}
 }
@@ -314,7 +316,7 @@ func (c *Client) saveTokens(data []byte) {
 	c.lock.Unlock()
 	// wakeup waiting
 	c.pendingTK.notifyAll()
-	if log.V(3) {
+	if log.V(log.LV_TOKEN) {
 		log.Infof("Recv tokens=%d pool=%d\n", len(tokens)/TKSZ, len(c.token)/TKSZ)
 	}
 }

@@ -12,7 +12,7 @@ import (
 
 	"github.com/Lafeng/deblocus/crypto"
 	ex "github.com/Lafeng/deblocus/exception"
-	log "github.com/Lafeng/deblocus/golang/glog"
+	log "github.com/Lafeng/deblocus/glog"
 	"github.com/cloudflare/golibs/bytepool"
 )
 
@@ -281,7 +281,7 @@ func (p *multiplexer) destroy() {
 func (p *multiplexer) HandleRequest(prot string, client net.Conn, target string) {
 	if tun := p.pool.Select(); tun != nil {
 		sid := next_sid()
-		if log.V(1) {
+		if log.V(log.LV_REQ) {
 			log.Infof("%s->[%s] from=%s sid=%d\n", prot, target, ipAddr(client.RemoteAddr()), sid)
 		}
 		key := sessionKey(tun, sid)
@@ -378,7 +378,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 			} else if pre {
 				router.preDeliver(key, frm)
 			} else {
-				if log.V(2) {
+				if log.V(log.LV_WARN) {
 					log.Warningln("peer send data to an unexisted socket.", key, frm)
 				}
 				// trigger sending close to notice peer.
@@ -396,13 +396,13 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 		case FRAME_ACTION_OPEN_N, FRAME_ACTION_OPEN_Y, FRAME_ACTION_OPEN_DENIED:
 			edge, _ := router.getRegistered(key)
 			if edge != nil {
-				if log.V(4) {
+				if log.V(log.LV_ACT_FRM) {
 					log.Infoln(p.role, "recv OPEN_x", frm)
 				}
 				edge.ready <- frm.action
 				close(edge.ready)
 			} else {
-				if log.V(2) {
+				if log.V(log.LV_WARN) {
 					log.Warningln("peer send OPEN_x to an unexisted socket.", key, frm)
 				}
 			}
@@ -416,14 +416,12 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 
 		case FRAME_ACTION_PONG:
 			if idle.verify() {
-				if p.isClient && idle.lastPing > 0 {
+				if p.isClient && DEBUG && idle.lastPing > 0 {
 					sRtt, devRtt := idle.updateRtt()
-					if DEBUG {
-						log.Infof("sRtt=%d devRtt=%d", sRtt, devRtt)
-					}
+					log.Infof("sRtt=%d devRtt=%d", sRtt, devRtt)
 					if devRtt+(sRtt>>2) > sRtt {
 						// restart ???
-						log.Warningf("Unstable network sRtt=%d devRtt=%d", sRtt, devRtt)
+						log.Warningf("Network jitter sRtt=%d devRtt=%d", sRtt, devRtt)
 					}
 				}
 			} else {
@@ -477,7 +475,7 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		frameWriteHead(tun, frm)
 	} else {
 		edge := p.router.register(key, target, tun, dstConn, false) // write edge
-		if log.V(1) {
+		if log.V(log.LV_SVR_OPEN) {
 			log.Infoln("OPEN", target, "for", key)
 		}
 		dstConn.SetReadDeadline(ZERO_TIME)
@@ -512,7 +510,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 			closeR(src)
 		} else { // remote open failed
 			SafeClose(src)
-			if log.V(1) {
+			if log.V(log.LV_REQ) {
 				switch code {
 				case FRAME_ACTION_OPEN_N:
 					log.Infof("Remote open %s failed", edge.dest)

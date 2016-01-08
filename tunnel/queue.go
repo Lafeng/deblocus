@@ -9,7 +9,7 @@ import (
 	"time"
 
 	ex "github.com/Lafeng/deblocus/exception"
-	log "github.com/Lafeng/deblocus/golang/glog"
+	log "github.com/Lafeng/deblocus/glog"
 )
 
 const (
@@ -320,7 +320,7 @@ func (q *equeue) _close(force bool, close_code uint) {
 	q.lock.Lock()
 	defer q.lock.Unlock()
 	e := q.edge
-	if log.V(4) {
+	if log.V(log.LV_ACT_FRM) {
 		switch close_code {
 		case CLOSED_BY_ERR:
 			log.Infoln("terminate", e.dest)
@@ -349,7 +349,7 @@ func (q *equeue) _close(force bool, close_code uint) {
 
 func sendFrame(frm *frame) bool {
 	dst := frm.conn.conn
-	if log.V(5) {
+	if log.V(log.LV_DAT_FRM) {
 		log.Infoln("SEND queue", frm)
 	}
 	dst.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
@@ -358,8 +358,8 @@ func sendFrame(frm *frame) bool {
 		return false
 	}
 	// an error occured
-	if log.V(1) {
-		log.Warningf("Write edge(%s) error(%v). %s\n", frm.conn.dest, ew, frm)
+	if log.V(log.LV_WARN_EDGE) {
+		log.Warningf("Write edge (%s) error (%v) %s\n", frm.conn.dest, ew, frm)
 	}
 	return true
 }

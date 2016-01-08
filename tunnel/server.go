@@ -14,7 +14,7 @@ import (
 
 	ex "github.com/Lafeng/deblocus/exception"
 	"github.com/Lafeng/deblocus/geo"
-	log "github.com/Lafeng/deblocus/golang/glog"
+	log "github.com/Lafeng/deblocus/glog"
 )
 
 const (
@@ -99,13 +99,13 @@ func (t *Session) DataTunServe(tun *Conn, isNewSession bool) {
 	if isNewSession {
 		log.Infof("Client %s is online", t.cid)
 	}
-	if log.V(1) {
+	if log.V(log.LV_SVR_CONNECT) {
 		log.Infof("Tun %s is established", tun.identifier)
 	}
 	cnt := atomic.AddInt32(&t.activeCnt, 1)
 	// mux will output error log
 	err := t.mux.Listen(tun, t.eventHandler, DT_PING_INTERVAL+int(cnt))
-	if log.V(1) {
+	if log.V(log.LV_SVR_CONNECT) {
 		log.Infof("Tun %s was disconnected%s", tun.identifier, ex.Detail(err))
 	}
 }
@@ -202,7 +202,7 @@ func (s *SessionMgr) createTokens(session *Session, many int) []byte {
 		s.container[key] = session
 		session.tokens[key] = true
 	}
-	if log.V(4) {
+	if log.V(log.LV_SESSION) {
 		log.Errorf("sessionMap created=%d len=%d\n", many, len(s.container))
 	}
 	return tokens
@@ -300,9 +300,6 @@ func (s *Server) updateNow() {
 	tc := calculateTimeCounter(true)
 	// write atomically
 	atomic.StorePointer(&s.tcPool, unsafe.Pointer(&tc))
-	if log.V(4) {
-		log.Infoln("updateTimeCounterThread", len(tc))
-	}
 }
 
 // implement Stats()

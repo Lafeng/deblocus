@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"runtime"
 
-	log "github.com/Lafeng/deblocus/golang/glog"
+	log "github.com/Lafeng/deblocus/glog"
 )
 
 // injectable
@@ -29,7 +29,7 @@ func New(msg string) *Exception {
 }
 
 func Detail(err error) string {
-	if err != nil && (log.V(1) == true || DEBUG) {
+	if err != nil && (log.V(log.LV_ERR_DETAIL) == true || DEBUG) {
 		return fmt.Sprintf("(Error:%T::%s)", err, err)
 	}
 	return ""
@@ -47,7 +47,7 @@ func Catch(re interface{}, err *error) bool {
 			ex = fmt.Errorf("%v", re)
 		}
 		// print recovered error
-		if DEBUG || bool(log.V(1)) {
+		if DEBUG || bool(log.V(log.LV_ERR_STACK)) {
 			buf := make([]byte, 1600)
 			n := runtime.Stack(buf, false)
 			errStack := ex.Error() + "\n"
@@ -71,7 +71,7 @@ func Spawn(ePtr *error, format string, args ...interface{}) error {
 	}
 	var e Exception
 	e.msg = fmt.Sprintf(format, args...)
-	if log.V(1) {
+	if log.V(log.LV_ERR_DETAIL) {
 		e.msg += " " + err.Error()
 	}
 	*ePtr = &e

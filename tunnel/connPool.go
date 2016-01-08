@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	log "github.com/Lafeng/deblocus/golang/glog"
+	log "github.com/Lafeng/deblocus/glog"
 )
 
 const SELECT_DECREASE = -1e5
@@ -77,7 +77,7 @@ func (h *ConnPool) Select() *Conn {
 		return nil
 	}
 	sort.Sort(h.pool)
-	if log.V(5) {
+	if log.V(log.LV_TUN_SELECT) {
 		log.Infoln("selected tun", h.pool[0].LocalAddr())
 	}
 	selected := h.pool[0]

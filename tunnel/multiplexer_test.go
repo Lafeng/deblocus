@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	log "github.com/Lafeng/deblocus/golang/glog"
+	log "github.com/Lafeng/deblocus/glog"
 )
 
 var (
