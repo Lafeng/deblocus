@@ -30,26 +30,24 @@ var (
 )
 
 type Client struct {
-	mux         *multiplexer
-	token       []byte
-	params      *tunParams
-	connInfo    *connectionInfo
-	lock        sync.Locker
-	dtCnt       int32
-	reqCnt      int32
-	state       int32
-	round       int32
-	pendingConn *semaphore
-	pendingTK   *semaphore
+	mux       *multiplexer
+	token     []byte
+	params    *tunParams
+	connInfo  *connectionInfo
+	lock      sync.Locker
+	dtCnt     int32
+	reqCnt    int32
+	state     int32
+	round     int32
+	pendingTK *semaphore
 }
 
 func NewClient(cman *ConfigMan) *Client {
 	clt := &Client{
-		lock:        new(sync.Mutex),
-		connInfo:    cman.cConf.connInfo,
-		state:       CLT_WORKING,
-		pendingConn: NewSemaphore(true), // unestablished connection
-		pendingTK:   NewSemaphore(true), // waiting tokens
+		lock:      new(sync.Mutex),
+		connInfo:  cman.cConf.connInfo,
+		state:     CLT_WORKING,
+		pendingTK: NewSemaphore(true), // waiting tokens
 	}
 	return clt
 }
@@ -73,8 +71,6 @@ func (c *Client) initialConnect() (tun *Conn) {
 }
 
 func (c *Client) restart() (tun *Conn, rn int32) {
-	// discard old conn retrying
-	c.pendingConn.clearAll()
 	// discard requests are waiting for tokens
 	c.pendingTK.clearAll()
 	// release mux
@@ -100,8 +96,8 @@ func (c *Client) restart() (tun *Conn, rn int32) {
 
 func (c *Client) StartTun(mustRestart bool) {
 	var (
-		wait bool
 		tun  *Conn
+		wait bool
 		rn   = atomic.LoadInt32(&c.round)
 	)
 	for {
@@ -122,10 +118,11 @@ func (c *Client) StartTun(mustRestart bool) {
 			}
 		}
 		if atomic.LoadInt32(&c.state) == CLT_WORKING {
-			// negotiation conn executed here firstly will not be null
-			// otherwise must be null then create new one.
+			var dtcnt int32
+			var err error
+
+			// not restarting, ordinary data tun
 			if tun == nil {
-				var err error
 				tun, err = c.createDataTun()
 				if err != nil {
 					log.Errorf("Connection failed %s Reconnect after %s",
@@ -139,31 +136,30 @@ func (c *Client) StartTun(mustRestart bool) {
 				log.Infof("Tun %s is established\n", tun.identifier)
 			}
 
-			cnt := atomic.AddInt32(&c.dtCnt, 1)
-			err := c.mux.Listen(tun, c.eventHandler, c.params.pingInterval+int(cnt))
-			dtcnt := atomic.AddInt32(&c.dtCnt, -1)
+			dtcnt = atomic.AddInt32(&c.dtCnt, 1)
+			err = c.mux.Listen(tun, c.eventHandler, c.params.pingInterval+int(dtcnt))
+			dtcnt = atomic.AddInt32(&c.dtCnt, -1)
 
 			log.Errorf("Tun %s was disconnected %s Reconnect after %s\n",
 				tun.identifier, ex.Detail(err), RETRY_INTERVAL)
+			// reset
+			tun, wait = nil, true
+
 			// received ping count
 			if atomic.LoadInt32(&c.mux.pingCnt) <= 0 {
 				// dirty tokens: used abandoned tokens
 				c.clearTokens()
 			}
 
-			if dtcnt <= 0 { // restart: all connections were disconnected
+			// restart: all connections were disconnected
+			if dtcnt <= 0 {
 				log.Errorf("Offline currently, all connections %s were lost\n", c.connInfo.RemoteName())
 				go c.StartTun(true)
 				return
-
-			} else { // reconnect
-				// don't use old tun
-				wait, tun = true, nil
 			}
-		} else { // can't create tun and waiting for release
-			if !c.pendingConn.acquire(RETRY_INTERVAL) {
-				return
-			}
+		} else {
+			// now is restarting then exit
+			return
 		}
 	}
 }
@@ -269,6 +265,7 @@ func (c *Client) getToken() ([]byte, error) {
 
 	var tlen = len(c.token) / TKSZ
 	if tlen <= TOKENS_FLOOR {
+		// TODO may request many times
 		c.asyncRequestTokens()
 	}
 	for len(c.token) < TKSZ {
@@ -276,6 +273,7 @@ func (c *Client) getToken() ([]byte, error) {
 		c.lock.Unlock()
 		log.Warningln("Waiting for token. Maybe the requests are coming too fast.")
 		if !c.pendingTK.acquire(RETRY_INTERVAL * 2) {
+			// acquire() cancelled by clearAll()
 			return nil, ERR_REQ_TK_TIMEOUT
 		}
 		if atomic.LoadInt32(&c.state) < CLT_WORKING {
