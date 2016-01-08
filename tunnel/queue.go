@@ -29,15 +29,15 @@ const (
 )
 
 type edgeConn struct {
-	mux      *multiplexer
-	tun      *Conn
-	conn     net.Conn
-	ready    chan byte // peer status
-	key      string
-	dest     string
-	queue    *equeue
-	positive bool // positively open
-	closed   uint32
+	mux    *multiplexer
+	tun    *Conn
+	conn   net.Conn
+	ready  chan byte // peer status
+	key    string
+	dest   string
+	queue  *equeue
+	active bool // actively open
+	closed uint32
 }
 
 func newEdgeConn(mux *multiplexer, key, dest string, tun *Conn, conn net.Conn) *edgeConn {
@@ -153,13 +153,13 @@ func (r *egressRouter) clean() {
 	}
 }
 
-func (r *egressRouter) register(key, destination string, tun *Conn, conn net.Conn, positive bool) *edgeConn {
+func (r *egressRouter) register(key, destination string, tun *Conn, conn net.Conn, active bool) *edgeConn {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	var edge = r.registry[key]
 	if edge == nil {
 		edge = newEdgeConn(r.mux, key, destination, tun, conn)
-		edge.positive = positive
+		edge.active = active
 		edge.initEqueue()
 		r.registry[key] = edge
 	}
@@ -293,7 +293,7 @@ func (q *equeue) sendLoop() {
 				werr := sendFrame(frm)
 				if werr {
 					edge := q.edge
-					if edge.bitwiseCompareAndSet(TCP_CLOSE_W) { // only positively closed can notify peer
+					if edge.bitwiseCompareAndSet(TCP_CLOSE_W) { // only actively closed can notify peer
 						tun := edge.tun
 						// may be a broken tun
 						if tun == nil || tun.LocalAddr() == nil {

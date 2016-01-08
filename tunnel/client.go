@@ -60,7 +60,7 @@ func (c *Client) initialConnect() (tun *Conn) {
 	var err error
 	tun, err = man.Connect(theParam)
 	if err != nil {
-		log.Errorf("Failed connect to %s%s Retry after %s",
+		log.Errorf("Failed connect to %s %s Retry after %s",
 			c.connInfo.RemoteName(), ex.Detail(err), RETRY_INTERVAL)
 		return nil
 	} else {
@@ -128,7 +128,7 @@ func (c *Client) StartTun(mustRestart bool) {
 				var err error
 				tun, err = c.createDataTun()
 				if err != nil {
-					log.Errorf("Connection failed%s Reconnect after %s",
+					log.Errorf("Connection failed %s Reconnect after %s",
 						ex.Detail(err), RETRY_INTERVAL)
 					wait = true
 					continue
@@ -143,7 +143,7 @@ func (c *Client) StartTun(mustRestart bool) {
 			err := c.mux.Listen(tun, c.eventHandler, c.params.pingInterval+int(cnt))
 			dtcnt := atomic.AddInt32(&c.dtCnt, -1)
 
-			log.Errorf("Tun %s was disconnected%s Reconnect after %s\n",
+			log.Errorf("Tun %s was disconnected %s Reconnect after %s\n",
 				tun.identifier, ex.Detail(err), RETRY_INTERVAL)
 			// received ping count
 			if atomic.LoadInt32(&c.mux.pingCnt) <= 0 {
@@ -152,7 +152,7 @@ func (c *Client) StartTun(mustRestart bool) {
 			}
 
 			if dtcnt <= 0 { // restart: all connections were disconnected
-				log.Errorf("Connections %s were lost\n", c.connInfo.RemoteName())
+				log.Errorf("Offline currently, all connections %s were lost\n", c.connInfo.RemoteName())
 				go c.StartTun(true)
 				return
 

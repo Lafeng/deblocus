@@ -74,6 +74,7 @@ var (
 )
 
 var (
+	ERR_TUN_NA        = ex.New("No tunnels are available")
 	ERR_DATA_TAMPERED = ex.New("data tampered")
 )
 
@@ -278,15 +279,19 @@ func (p *multiplexer) destroy() {
 }
 
 func (p *multiplexer) HandleRequest(prot string, client net.Conn, target string) {
-	sid := next_sid()
-	if log.V(1) {
-		log.Infof("%s->[%s] from=%s sid=%d\n", prot, target, ipAddr(client.RemoteAddr()), sid)
+	if tun := p.pool.Select(); tun != nil {
+		sid := next_sid()
+		if log.V(1) {
+			log.Infof("%s->[%s] from=%s sid=%d\n", prot, target, ipAddr(client.RemoteAddr()), sid)
+		}
+		key := sessionKey(tun, sid)
+		edge := p.router.register(key, target, tun, client, true) // write edge
+		p.relay(edge, tun, sid)                                   // read edge
+	} else {
+		log.Warningln(ERR_TUN_NA)
+		time.Sleep(time.Second)
+		SafeClose(client)
 	}
-	tun := p.pool.Select()
-	ThrowIf(tun == nil, "No tun to deliveries request")
-	key := sessionKey(tun, sid)
-	edge := p.router.register(key, target, tun, client, true) // write edge
-	p.relay(edge, tun, sid)                                   // read edge
 }
 
 func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
@@ -492,7 +497,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		src  = edge.conn
 	)
 	defer func() {
-		// positively close then notify peer
+		// actively close then notify peer
 		if edge.bitwiseCompareAndSet(TCP_CLOSE_R) && code != FRAME_ACTION_OPEN_DENIED {
 			pack(buf, FRAME_ACTION_CLOSE_W, sid, nil)
 			go func() {
@@ -517,7 +522,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 			}
 		}
 	}()
-	if edge.positive { // for client
+	if edge.active { // for client
 		_len := pack(buf, FRAME_ACTION_OPEN, sid, []byte(edge.dest[2:])) // dest with a leading mark
 		if frameWriteBuffer(tun, buf[:_len]) != nil {
 			SafeClose(tun)

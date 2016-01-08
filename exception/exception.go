@@ -30,7 +30,7 @@ func New(msg string) *Exception {
 
 func Detail(err error) string {
 	if err != nil && (log.V(1) == true || DEBUG) {
-		return fmt.Sprintf("(Type=%T Error=%s)", err, err)
+		return fmt.Sprintf("(Error:%T::%s)", err, err)
 	}
 	return ""
 }

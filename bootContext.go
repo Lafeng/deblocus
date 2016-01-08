@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/golang/glog"
@@ -155,15 +154,10 @@ func (ctx *bootContext) startClient() {
 	for {
 		conn, err = ln.AcceptTCP()
 		if err == nil {
-			if client.IsReady() {
-				go client.ClientServe(conn)
-				continue
-			} else {
-				log.Errorf("No available tunnels for servicing new request")
-				time.Sleep(time.Second)
-			}
+			go client.ClientServe(conn)
+		} else {
+			SafeClose(conn)
 		}
-		SafeClose(conn)
 	}
 }
 
