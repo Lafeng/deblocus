@@ -39,7 +39,7 @@ type Client struct {
 	reqCnt    int32
 	state     int32
 	round     int32
-	pendingTK *semaphore
+	pendingTK *timedWait
 }
 
 func NewClient(cman *ConfigMan) *Client {
@@ -47,7 +47,7 @@ func NewClient(cman *ConfigMan) *Client {
 		lock:      new(sync.Mutex),
 		connInfo:  cman.cConf.connInfo,
 		state:     CLT_WORKING,
-		pendingTK: NewSemaphore(true), // waiting tokens
+		pendingTK: NewTimedWait(true), // waiting tokens
 	}
 	return clt
 }
@@ -274,7 +274,7 @@ func (c *Client) getToken() ([]byte, error) {
 		// release lock for waiting of pendingTK()
 		c.lock.Unlock()
 		log.Warningln("Waiting for token. Maybe the requests are coming too fast.")
-		if !c.pendingTK.acquire(RETRY_INTERVAL * 2) {
+		if !c.pendingTK.await(RETRY_INTERVAL * 2) {
 			// acquire() cancelled by clearAll()
 			return nil, ERR_REQ_TK_TIMEOUT
 		}
