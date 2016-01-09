@@ -78,7 +78,7 @@ func (h *ConnPool) Select() *Conn {
 	}
 	sort.Sort(h.pool)
 	if log.V(log.LV_TUN_SELECT) {
-		log.Infoln("selected tun", h.pool[0].LocalAddr())
+		log.Infoln("Selected tun", h.pool[0].LocalAddr())
 	}
 	selected := h.pool[0]
 	atomic.AddInt64(&selected.priority.rank, SELECT_DECREASE)

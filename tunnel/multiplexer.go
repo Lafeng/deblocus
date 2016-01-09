@@ -379,7 +379,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 				router.preDeliver(key, frm)
 			} else {
 				if log.V(log.LV_WARN) {
-					log.Warningln("peer send data to an unexisted socket.", key, frm)
+					log.Warningln("Peer sent data to an unexisted socket.", key, frm)
 				}
 				// trigger sending close to notice peer.
 				pack(header, FRAME_ACTION_CLOSE_R, frm.sid, nil)
@@ -397,13 +397,13 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 			edge, _ := router.getRegistered(key)
 			if edge != nil {
 				if log.V(log.LV_ACT_FRM) {
-					log.Infoln(p.role, "recv OPEN_x", frm)
+					log.Infoln(p.role, "received OPEN_x", frm)
 				}
 				edge.ready <- frm.action
 				close(edge.ready)
 			} else {
 				if log.V(log.LV_WARN) {
-					log.Warningln("peer send OPEN_x to an unexisted socket.", key, frm)
+					log.Warningln("Peer sent OPEN_x to an unexisted socket.", key, frm)
 				}
 			}
 
@@ -555,7 +555,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 					select {
 					case code = <-edge.ready:
 					case <-time.After(WAITING_OPEN_TIMEOUT):
-						log.Errorf("waiting open-signal sid=%d timeout for %s\n", sid, edge.dest)
+						log.Errorf("Waiting open-signal sid=%d timeout for %s\n", sid, edge.dest)
 					}
 					// timeout or open-signal received
 					if code == FRAME_ACTION_OPEN_Y {
@@ -584,7 +584,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		// timeout to recheck open signal
 		if er != nil && !(_fast_open && IsTimeout(er)) {
 			if er != io.EOF && DEBUG {
-				log.Infof("read to the end of edge total=%d err=(%v)", tn, er)
+				log.Infof("Read to the end of edge total=%d err=(%v)", tn, er)
 			}
 			return
 		}
@@ -597,7 +597,7 @@ func (p *multiplexer) bestSend(data []byte, action_desc string) bool {
 
 	for i := 1; i <= 3; i++ {
 		if atomic.LoadInt32(&p.status) < 0 /* MUX_CLOSED */ || p.pool == nil {
-			log.Warningln("abandon sending data of", action_desc)
+			log.Warningln("Abandon sending data of", action_desc)
 			break
 		}
 		tun := p.pool.Select()

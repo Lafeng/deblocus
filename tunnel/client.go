@@ -58,7 +58,7 @@ func (c *Client) initialConnect() (tun *Conn) {
 	var err error
 	tun, err = man.Connect(theParam)
 	if err != nil {
-		log.Errorf("Failed connect to %s %s Retry after %s",
+		log.Errorf("Failed to connect to %s %s Retry after %s",
 			c.connInfo.RemoteName(), ex.Detail(err), RETRY_INTERVAL)
 		return nil
 	} else {
@@ -155,7 +155,7 @@ func (c *Client) StartTun(mustRestart bool) {
 
 			// restart: all connections were disconnected
 			if dtcnt <= 0 {
-				log.Errorf("Offline currently, all connections %s were lost\n", c.connInfo.RemoteName())
+				log.Errorf("Currently offline, all connections %s were lost\n", c.connInfo.RemoteName())
 				go c.StartTun(true)
 				return
 			}
@@ -215,7 +215,7 @@ func (c *Client) ClientServe(conn net.Conn) {
 		}
 		done = true
 	default:
-		log.Warningln("unrecognized request from", conn.RemoteAddr())
+		log.Warningln("Unrecognized request from", conn.RemoteAddr())
 		time.Sleep(REST_INTERVAL)
 	}
 	// client setSeed at every 32 req
@@ -306,7 +306,7 @@ func (c *Client) saveTokens(data []byte) {
 	var tokens []byte
 	switch data[0] {
 	case FRAME_ACTION_TOKEN_REQUEST:
-		log.Warningf("unexpected token request")
+		log.Warningf("Unexpected token request")
 		return
 	case FRAME_ACTION_TOKEN_REPLY:
 		tokens = data[1:]
@@ -317,7 +317,7 @@ func (c *Client) saveTokens(data []byte) {
 	// wakeup waiting
 	c.pendingTK.notifyAll()
 	if log.V(log.LV_TOKEN) {
-		log.Infof("Recv tokens=%d pool=%d\n", len(tokens)/TKSZ, len(c.token)/TKSZ)
+		log.Infof("Received tokens=%d pool=%d\n", len(tokens)/TKSZ, len(c.token)/TKSZ)
 	}
 }
 

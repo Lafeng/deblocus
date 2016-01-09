@@ -323,11 +323,11 @@ func (q *equeue) _close(force bool, close_code uint) {
 	if log.V(log.LV_ACT_FRM) {
 		switch close_code {
 		case CLOSED_BY_ERR:
-			log.Infoln("terminate", e.dest)
+			log.Infoln("Terminate", e.dest)
 		case CLOSED_FORCE:
-			log.Infoln("close", e.dest)
+			log.Infoln("Close", e.dest)
 		case CLOSED_WRITE:
-			log.Infof("closeW %s by peer\n", e.dest)
+			log.Infof("CloseWrite %s by peer\n", e.dest)
 		}
 	}
 

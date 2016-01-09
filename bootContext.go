@@ -146,7 +146,7 @@ func (ctx *bootContext) startClient() {
 
 	ctx.register(client, ln)
 	log.Infoln(versionString())
-	log.Infoln("Proxy(SOCKS5/HTTP) is working at", addr)
+	log.Infoln("Proxy(SOCKS5/HTTP) is listening on", addr)
 
 	// connect to server
 	go client.StartTun(true)

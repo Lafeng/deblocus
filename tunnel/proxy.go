@@ -281,7 +281,7 @@ func (c *Client) localServlet(conn net.Conn, reqUri string) {
 		if c.connInfo.pacFile != NULL { // has pac setting
 			pacFile, info, err := openReadOnlyFile(c.connInfo.pacFile)
 			if err != nil {
-				log.Errorln("read PAC file", err)
+				log.Errorln("Read PAC file", err)
 				goto error404
 			}
 			defer pacFile.Close()

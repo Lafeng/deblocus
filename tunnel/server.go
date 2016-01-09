@@ -203,7 +203,7 @@ func (s *SessionMgr) createTokens(session *Session, many int) []byte {
 		session.tokens[key] = true
 	}
 	if log.V(log.LV_SESSION) {
-		log.Errorf("sessionMap created=%d len=%d\n", many, len(s.container))
+		log.Errorf("SessionMap created=%d len=%d\n", many, len(s.container))
 	}
 	return tokens
 }
