@@ -3,7 +3,7 @@
 // This file will NOT be compiled into deblocus executable file.
 // This is a independent tool for generating or updating the `deblocus/geo/geodb.go`.
 // Usage:
-//     cd deblocus/static
+//     cd deblocus/static/update-geodb
 //     go run update-geodb.go
 // -----------------------------------------------------
 package main
@@ -13,14 +13,16 @@ import (
 	"bytes"
 	"compress/zlib"
 	"fmt"
-	"github.com/Lafeng/deblocus/geo"
 	"os"
 	"strconv"
+
+	"github.com/Lafeng/deblocus/geo"
 )
 
 const (
-	db_file   = "../geo/geodb.go"
+	db_file   = "../../geo/geodb.go"
 	self_name = "update-geodb.go"
+	self_dir  = "deblocus/static/update-geodb"
 )
 
 func throwIf(cond bool, e ...interface{}) {
@@ -37,7 +39,7 @@ func throwIf(cond bool, e ...interface{}) {
 
 func main() {
 	if IsNotExist(self_name) {
-		fmt.Println("Please change cwd to `deblocus/static`")
+		fmt.Println("Please change cwd to", self_dir)
 		os.Exit(1)
 	}
 

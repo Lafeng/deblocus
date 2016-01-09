@@ -3,7 +3,7 @@
 // This file will NOT be compiled into deblocus executable file.
 // This is a independent tool for generating or updating the `deblocus/tunnel/webpanel.go`.
 // Usage:
-//     cd deblocus/static
+//     cd deblocus/static/update-webpanel
 //     go run update-webpanel.go
 // -----------------------------------------------------
 package main
@@ -17,8 +17,9 @@ import (
 
 const (
 	src_file  = "webpanel.html"
-	out_file  = "../tunnel/webpanel.go"
+	out_file  = "../../tunnel/webpanel.go"
 	self_name = "update-webpanel.go"
+	self_dir  = "deblocus/static/update-webpanel"
 )
 
 func IsNotExist(file string) bool {
@@ -28,7 +29,7 @@ func IsNotExist(file string) bool {
 
 func main() {
 	if IsNotExist(self_name) {
-		log.Fatalln("Please change cwd to `deblocus/static`")
+		log.Fatalln("Please change cwd to", self_dir)
 	}
 
 	content, err := ioutil.ReadFile(src_file)
