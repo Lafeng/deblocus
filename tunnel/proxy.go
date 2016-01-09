@@ -13,6 +13,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"text/template"
+	"time"
 
 	"github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/glog"
@@ -279,7 +282,7 @@ func (c *Client) localServlet(conn net.Conn, reqUri string) {
 			pacFile, info, err := openReadOnlyFile(c.connInfo.pacFile)
 			if err != nil {
 				log.Errorln("read PAC file", err)
-				goto end
+				goto error404
 			}
 			defer pacFile.Close()
 			buf := new(bytes.Buffer)
@@ -292,12 +295,47 @@ func (c *Client) localServlet(conn net.Conn, reqUri string) {
 			}
 			return
 		}
+	case "/":
+		content := c.renderMainPage()
+		fmt.Fprint(conn, "HTTP/1.1 200 OK", CRLF)
+		fmt.Fprint(conn, "Content-Type: text/html", CRLF)
+		fmt.Fprint(conn, "Content-Length: ", len(content), CRLF, CRLF)
+		conn.Write(content)
+		return
 	}
 
-end:
+error404:
 	// other local request or pacFile not specified
 	log.Warningln("Unrecognized Request", reqUri)
 	// respond 404
 	setWTimeout(conn)
-	fmt.Fprintln(conn, "HTTP/1.1 404 Not found", CRLF, CRLF)
+	fmt.Fprint(conn, "HTTP/1.1 404 Not found", CRLF, CRLF)
+}
+
+var (
+	mainPageTpl *template.Template
+	initTplOnce = new(sync.Once)
+	startTime   = time.Now()
+)
+
+type mainPageData struct {
+	Version   string
+	StartTime time.Time
+	NReq      uint32
+}
+
+func lazyInitTemplate() {
+	mainPageTpl = template.Must(template.New("main").Parse(_TPL_WEBPANEL))
+}
+
+func (c *Client) renderMainPage() []byte {
+	initTplOnce.Do(lazyInitTemplate)
+	data := mainPageData{
+		Version:   VER_STRING,
+		StartTime: startTime,
+		NReq:      sid_seq,
+	}
+	buf := new(bytes.Buffer)
+	mainPageTpl.Execute(buf, &data)
+	return buf.Bytes()
 }
