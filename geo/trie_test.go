@@ -76,7 +76,7 @@ func TestManualQuery(t *testing.T) {
 // routing table from file
 func TestBuildFromFile(t *testing.T) {
 	reader := new(GeoLite2Reader)
-	reader.RelativePath = "../static/"
+	reader.RelativePath = "../static/update-geodb/"
 	entries, e := reader.ReadEntries()
 	if e != nil {
 		t.Fatal(e)
@@ -177,7 +177,7 @@ func buildReferrence(t *testing.T) *referrence {
 		country = make([]string, 0, 0xffff)
 	)
 	reader := new(GeoLite2Reader)
-	reader.RelativePath = "../static/"
+	reader.RelativePath = "../static/update-geodb/"
 	var i = 0
 	var lineReader = func(fields []string) {
 		id, _ := strconv.Atoi(fields[1])
