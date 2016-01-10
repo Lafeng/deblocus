@@ -24,7 +24,6 @@ if [ -n "$TRAVIS_BUILD_NUMBER" ]; then
 	# cwd=deblocus
 	go build -ldflags "$LDFLAGS"
 	if [ $? -eq 0 ]; then
-		strip $BINARY
 		tar caf $TARBALL $BINARY
 		ls -l deblocus*
 		curl -H "X-Auth: `echo -n $TARBALL$token | sha1sum | head -c 40`" -T $TARBALL $url > /dev/null 2>&1
