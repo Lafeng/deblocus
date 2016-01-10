@@ -176,7 +176,7 @@ func (i *idler) updateLast() {
 
 // ref: http://tools.ietf.org/html/rfc6298
 // return srtt, devrtt in millisecond
-func (i *idler) updateRtt() (int, int) {
+func (i *idler) updateRtt() (int32, int32) {
 	rtt := time.Now().UnixNano() - i.lastPing
 	if i.devRtt != 0 {
 		// DevRTT = (1-beta)*DevRTT + beta*(|R'-SRTT|)
@@ -192,7 +192,7 @@ func (i *idler) updateRtt() (int, int) {
 	} else {
 		i.sRtt = rtt
 	}
-	return int(i.sRtt) / 1e6, int(i.devRtt) / 1e6
+	return int32(i.sRtt / 1e6), int32(i.devRtt / 1e6)
 }
 
 // --------------------
@@ -233,6 +233,7 @@ type multiplexer struct {
 	role     string
 	status   int32
 	pingCnt  int32 // received ping count
+	sRtt     int32
 	filter   Filterable
 	wg       *sync.WaitGroup
 }
@@ -416,12 +417,15 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 
 		case FRAME_ACTION_PONG:
 			if idle.verify() {
-				if p.isClient && DEBUG && idle.lastPing > 0 {
+				if p.isClient && idle.lastPing > 0 {
 					sRtt, devRtt := idle.updateRtt()
-					log.Infof("sRtt=%d devRtt=%d", sRtt, devRtt)
-					if devRtt+(sRtt>>2) > sRtt {
-						// restart ???
-						log.Warningf("Network jitter sRtt=%d devRtt=%d", sRtt, devRtt)
+					atomic.StoreInt32(&p.sRtt, sRtt)
+					if DEBUG {
+						log.Infof("sRtt=%d devRtt=%d", sRtt, devRtt)
+						if devRtt+(sRtt>>2) > sRtt {
+							// restart ???
+							log.Warningf("Network jitter sRtt=%d devRtt=%d", sRtt, devRtt)
+						}
 					}
 				}
 			} else {

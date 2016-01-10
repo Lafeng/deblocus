@@ -215,6 +215,7 @@ type connectionInfo struct {
 	pkType   string
 	pacFile  string
 	sPubKey  crypto.PublicKey
+	rawURL   string
 }
 
 func (d *connectionInfo) RemoteName() string {
@@ -263,6 +264,7 @@ func newConnectionInfo(uri string) (*connectionInfo, error) {
 	}
 	info.user = user.Username()
 	info.pass = passwd
+	info.rawURL = uri
 	return &info, nil
 }
 

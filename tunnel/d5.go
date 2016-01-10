@@ -393,7 +393,7 @@ func (n *d5sman) Connect(conn *Conn, tcPool []uint64) (session *Session, err err
 func (n *d5sman) fullHandshake(conn *Conn) (session *Session, err error) {
 	defer func() {
 		if exception.Catch(recover(), &err) {
-			log.Warningln("Handshake error", err)
+			log.Warningf("Handshake error=%v from=%s", err, n.clientAddr)
 		}
 	}()
 	var cf *CipherFactory

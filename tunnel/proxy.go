@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"text/template"
 	"time"
 
@@ -319,9 +320,13 @@ var (
 )
 
 type mainPageData struct {
-	Version   string
-	StartTime time.Time
-	NReq      uint32
+	Version    string
+	StartTime  time.Time
+	ReqCount   int32
+	Round      int32
+	AvgRtt     int32
+	Ready      bool
+	Connection string
 }
 
 func lazyInitTemplate() {
@@ -330,10 +335,18 @@ func lazyInitTemplate() {
 
 func (c *Client) renderMainPage() []byte {
 	initTplOnce.Do(lazyInitTemplate)
+	var rtt int32
+	if c.mux != nil {
+		rtt = atomic.LoadInt32(&c.mux.sRtt)
+	}
 	data := mainPageData{
-		Version:   VER_STRING,
-		StartTime: startTime,
-		NReq:      sid_seq,
+		Version:    VER_STRING,
+		StartTime:  startTime,
+		ReqCount:   atomic.LoadInt32(&c.reqCnt),
+		Round:      atomic.LoadInt32(&c.round),
+		Ready:      c.IsReady(),
+		AvgRtt:     rtt,
+		Connection: c.connInfo.rawURL,
 	}
 	buf := new(bytes.Buffer)
 	mainPageTpl.Execute(buf, &data)
