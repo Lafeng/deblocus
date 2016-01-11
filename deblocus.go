@@ -25,7 +25,7 @@ func setupCommands() *cli.App {
 			Destination: &context.vFlag,
 		},
 		cli.StringFlag{
-			Name:        "logdir, l",
+			Name:        "logdir, ld",
 			Usage:       "write log into the directory",
 			Destination: &context.logdir,
 		},
@@ -42,9 +42,12 @@ func setupCommands() *cli.App {
 	}
 	subOptions := []cli.Flag{
 		cli.StringFlag{
-			Name:        "o",
-			Usage:       "output file",
-			Destination: &context.output,
+			Name:  "type, t",
+			Usage: "Specify type of key to create.",
+		},
+		cli.StringFlag{
+			Name:  "output, o",
+			Usage: "Output file",
 		},
 		cli.StringFlag{
 			Name:  "addr, a",
@@ -55,10 +58,10 @@ func setupCommands() *cli.App {
 		{
 			Name:        "csc",
 			Usage:       "Create server config template",
-			ArgsUsage:   "deblocus csc [-o file]",
+			ArgsUsage:   "deblocus csc [options]",
 			Description: _csc_examples,
 			Action:      context.cscCommandHandler,
-			Flags:       []cli.Flag{subOptions[0]},
+			Flags:       subOptions[:2],
 		},
 		{
 			Name:        "ccc",
@@ -66,7 +69,7 @@ func setupCommands() *cli.App {
 			ArgsUsage:   "deblocus ccc [options] <username>",
 			Description: _ccc_examples,
 			Action:      context.cccCommandHandler,
-			Flags:       append(subOptions, globalOptions[0]),
+			Flags:       append(subOptions[1:], globalOptions[0]),
 		},
 		{
 			Name:        "keyinfo",
@@ -107,7 +110,8 @@ OPTIONS:
 
 const _csc_examples = `
    ./deblocus csc > deblocus.ini
-   ./deblocus csc -o deblocus.ini`
+   ./deblocus csc -o deblocus.ini
+   ./deblocus csc -t [ECC-P224,256,384,521 | RSA-1024,2048,4096]`
 
 const _ccc_examples = `
    ./deblocus ccc --addr=example.com:9008  user

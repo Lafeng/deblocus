@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	ex "github.com/Lafeng/deblocus/exception"
@@ -26,7 +27,6 @@ type Component interface {
 
 type bootContext struct {
 	configFile string
-	output     string
 	logdir     string
 	debug      bool
 	showVer    bool
@@ -74,16 +74,9 @@ func (ctx *bootContext) initConfig(r ServerRole) (role ServerRole) {
 
 // ./deblocus -csc [algo]
 func (ctx *bootContext) cscCommandHandler(c *cli.Context) {
-	var keyOpt string
-
-	switch args := c.Args(); len(args) {
-	case 0:
-	case 1:
-		keyOpt = args.Get(0)
-	default:
-		fatalAndCommandHelp(c)
-	}
-	err := CreateServerConfigTemplate(ctx.output, keyOpt)
+	keyType := c.String("type")
+	output := getOutputArg(c)
+	err := CreateServerConfigTemplate(output, keyType)
 	fatalError(err)
 }
 
@@ -93,8 +86,9 @@ func (ctx *bootContext) cccCommandHandler(c *cli.Context) {
 	ctx.initConfig(SR_SERVER)
 	if args := c.Args(); len(args) == 1 {
 		user := args.Get(0)
-		pubAddr := c.String("a")
-		err := ctx.cman.CreateClientConfig(ctx.output, user, pubAddr)
+		pubAddr := c.String("addr")
+		output := getOutputArg(c)
+		err := ctx.cman.CreateClientConfig(output, user, pubAddr)
 		fatalError(err)
 	} else {
 		fatalAndCommandHelp(c)
@@ -221,6 +215,14 @@ func (ctx *bootContext) setLogVerbose(verbose int) {
 	} else {
 		log.SetLogVerbose(verbose)
 	}
+}
+
+func getOutputArg(c *cli.Context) string {
+	output := c.String("output")
+	if output != NULL && !strings.Contains(output, ".") {
+		output += ".ini"
+	}
+	return output
 }
 
 func waitSignal() {

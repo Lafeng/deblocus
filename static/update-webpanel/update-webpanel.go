@@ -32,7 +32,7 @@ func main() {
 		log.Fatalln("Please change cwd to", self_dir)
 	}
 
-	content, err := ioutil.ReadFile(src_file)
+	mainPage, err := ioutil.ReadFile(src_file)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -42,12 +42,24 @@ func main() {
 	}
 	defer out.Close()
 
-	fmt.Fprint(out, format, "`")
-	out.Write(content)
+	fmt.Fprint(out, pkg_line, "\n\n")
+	// 404
+	fmt.Fprint(out, "const _TPL_HTTP404_BODY = `", tpl_web404_body, "`\n")
+	// mainpage
+	fmt.Fprint(out, "const _TPL_MAIN_PAGE = `")
+	out.Write(mainPage)
 	fmt.Fprintln(out, "`")
+
 	fmt.Println("Update done.")
 }
 
-const format = `package tunnel
+const pkg_line = `package tunnel`
 
-const _TPL_WEBPANEL = `
+const tpl_web404_body = `<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+<hr><center>%s</center>
+</body>
+</html>
+`

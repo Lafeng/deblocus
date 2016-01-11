@@ -177,7 +177,7 @@ func FingerprintOfKey(v interface{}) string {
 		buf.Write(k.N.Bytes())
 		buf.WriteRune(rune(k.E))
 	}
-	hs := hash160(buf.Bytes())
+	hs := hash128(buf.Bytes())
 	return strings.Replace(fmt.Sprintf("% x", hs), " ", ":", -1)
 }
 
@@ -197,13 +197,13 @@ func GenerateDSAKey(name string) (stdcrypto.PrivateKey, error) {
 			return rsa.GenerateKey(rand.Reader, 4096)
 		}
 	case "ECC":
-		curve, err := crypto.SelectCurve(name)
+		curve, err := crypto.SelectCurve(opt)
 		if err != nil {
-			return nil, err
+			return nil, UNSUPPORTED_CIPHER.Apply(name)
 		}
 		return ecdsa.GenerateKey(curve, rand.Reader)
 	}
-	return nil, UNRECOGNIZED_SYMBOLS.Apply(name)
+	return nil, UNSUPPORTED_CIPHER.Apply(name)
 }
 
 func MarshalPrivateKey(priv stdcrypto.PrivateKey) (b []byte) {
@@ -233,7 +233,7 @@ func preSharedKey(v interface{}) []byte {
 	case *ecdsa.PublicKey:
 		return k.X.Bytes()
 	}
-	return nil
+	panic(UNSUPPORTED_CIPHER)
 }
 
 func MarshalPublicKey(v interface{}) ([]byte, error) {
@@ -265,7 +265,7 @@ func DSAVerify(pub stdcrypto.PublicKey, sig, msg []byte) bool {
 		}
 		return ecdsa.Verify(k, msg, es.R, es.S)
 	}
-	panic("unknown key")
+	panic(UNSUPPORTED_CIPHER)
 }
 
 func DSASign(priv stdcrypto.PrivateKey, msg []byte) []byte {
@@ -275,5 +275,5 @@ func DSASign(priv stdcrypto.PrivateKey, msg []byte) []byte {
 		ThrowErr(err)
 		return b
 	}
-	return nil
+	panic(UNSUPPORTED_CIPHER)
 }

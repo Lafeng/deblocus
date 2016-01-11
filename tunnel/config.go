@@ -287,7 +287,7 @@ func (cman *ConfigMan) CreateClientConfig(file string, user string, addonAddr st
 	ii := ini.Empty()
 	// client section
 	dc, _ := ii.NewSection(CF_CLIENT)
-	dc.Comment = _d5c_header[1:]
+	dc.Comment = _CLT_CONF_HEADER[1:]
 	dc.ReflectFrom(conf)
 	// prepare server addr
 	if addonAddr == NULL {
@@ -468,7 +468,7 @@ func CreateServerConfigTemplate(file string, keyOpt string) (err error) {
 
 	ii := ini.Empty()
 	ds, _ := ii.NewSection(CF_SERVER)
-	ds.Comment = _d5s_header[1:]
+	ds.Comment = _SER_CONF_HEADER[1:]
 	err = ds.ReflectFrom(d5sConf)
 	if err != nil {
 		return
@@ -476,7 +476,7 @@ func CreateServerConfigTemplate(file string, keyOpt string) (err error) {
 	ks, _ := ii.NewSection(CF_PRIVKEY)
 	keyBytes := MarshalPrivateKey(d5sConf.privateKey)
 
-	ks.Comment = _d5s_middle[1:]
+	ks.Comment = _SER_CONF_MIDDLE[1:]
 	ks.NewKey(CF_KEY, base64.StdEncoding.EncodeToString(keyBytes))
 	_, err = ii.WriteTo(f)
 	return
@@ -495,6 +495,7 @@ func (d *serverConf) generateConnInfoOfUser(ii *ini.File, user string) error {
 	sec, _ := ii.NewSection(CF_CREDENTIAL)
 	sec.NewKey(CF_URL, url)
 	sec.NewKey(CF_KEY, base64.StdEncoding.EncodeToString(keyBytes))
+	sec.Comment = _COMMENTED_PAC_SECTION
 	return nil
 }
 
@@ -526,21 +527,26 @@ func setFieldsDefaultValue(str interface{}) {
 	}
 }
 
-const _d5s_header = `
+const _SER_CONF_HEADER = `
 # ---------------------------------------------
 # deblocus server configuration
 # wiki: https://github.com/Lafeng/deblocus/wiki
 # ---------------------------------------------
 `
 
-const _d5s_middle = `
+const _SER_CONF_MIDDLE = `
 ### Please take good care of this secret file during the server life cycle.
 ### DO NOT modify the following lines, unless you known what will happen.
 `
 
-const _d5c_header = `
+const _CLT_CONF_HEADER = `
 # ---------------------------------------------
 # deblocus client configuration
 # wiki: https://github.com/Lafeng/deblocus/wiki
 # ---------------------------------------------
+`
+
+const _COMMENTED_PAC_SECTION = `# Optional
+# [PAC.Server]
+# File = mypac.js
 `

@@ -286,22 +286,16 @@ func (c *Client) localServlet(conn net.Conn, reqUri string) {
 				goto error404
 			}
 			defer pacFile.Close()
-			buf := new(bytes.Buffer)
-			fmt.Fprint(buf, "HTTP/1.1 200 OK", CRLF)
-			fmt.Fprint(buf, "Content-Type: application/x-ns-proxy-autoconfig", CRLF)
-			fmt.Fprint(buf, "Content-Length: ", info.Size(), CRLF, CRLF)
-			setWTimeout(conn)
-			if _, err = conn.Write(buf.Bytes()); err == nil {
-				io.Copy(conn, pacFile)
+			entity := Entity{
+				contentType:   "application/x-ns-proxy-autoconfig",
+				contentLength: int(info.Size()),
+				stream:        pacFile,
 			}
+			writeHttpResponse(conn, 200, &entity)
 			return
 		}
 	case "/":
-		content := c.renderMainPage()
-		fmt.Fprint(conn, "HTTP/1.1 200 OK", CRLF)
-		fmt.Fprint(conn, "Content-Type: text/html", CRLF)
-		fmt.Fprint(conn, "Content-Length: ", len(content), CRLF, CRLF)
-		conn.Write(content)
+		writeHttpResponse(conn, 200, c.renderMainPage())
 		return
 	}
 
@@ -309,8 +303,42 @@ error404:
 	// other local request or pacFile not specified
 	log.Warningln("Unrecognized Request", reqUri)
 	// respond 404
+	writeHttpResponse(conn, 404, fmt.Sprintf(_TPL_HTTP404_BODY, VER_STRING))
+}
+
+func writeHttpResponse(conn net.Conn, statusCode int, content interface{}) {
+	var entity Entity
+	var isStream bool
+	var text []byte
+	switch body := content.(type) {
+	case *Entity:
+		entity = *body
+		isStream = true
+	case []byte:
+		entity.contentLength, text = len(body), body
+	case string:
+		entity.contentLength, text = len(body), []byte(body)
+	}
+	if len(text) > 0 {
+		if text[0] == '<' {
+			entity.contentType = "text/html"
+		} else {
+			entity.contentType = "text/plain"
+		}
+	}
+	buf := new(bytes.Buffer)
+	fmt.Fprint(buf, "HTTP/1.1 ", statusCode, " ", http.StatusText(statusCode), CRLF)
+	fmt.Fprint(buf, "Content-Type: ", entity.contentType, CRLF)
+	fmt.Fprint(buf, "Content-Length: ", entity.contentLength, CRLF, CRLF)
 	setWTimeout(conn)
-	fmt.Fprint(conn, "HTTP/1.1 404 Not found", CRLF, CRLF)
+	_, err := conn.Write(buf.Bytes())
+	if err == nil {
+		if isStream {
+			io.Copy(conn, entity.stream)
+		} else {
+			conn.Write(text)
+		}
+	}
 }
 
 var (
@@ -318,6 +346,12 @@ var (
 	initTplOnce = new(sync.Once)
 	startTime   = time.Now()
 )
+
+type Entity struct {
+	contentType   string
+	contentLength int
+	stream        io.Reader
+}
 
 type mainPageData struct {
 	Version    string
@@ -330,7 +364,7 @@ type mainPageData struct {
 }
 
 func lazyInitTemplate() {
-	mainPageTpl = template.Must(template.New("main").Parse(_TPL_WEBPANEL))
+	mainPageTpl = template.Must(template.New("main").Parse(_TPL_MAIN_PAGE))
 }
 
 func (c *Client) renderMainPage() []byte {
@@ -347,6 +381,9 @@ func (c *Client) renderMainPage() []byte {
 		Ready:      c.IsReady(),
 		AvgRtt:     rtt,
 		Connection: c.connInfo.rawURL,
+	}
+	if data.Round > 0 {
+		data.Round--
 	}
 	buf := new(bytes.Buffer)
 	mainPageTpl.Execute(buf, &data)

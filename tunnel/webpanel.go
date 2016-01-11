@@ -1,6 +1,14 @@
 package tunnel
 
-const _TPL_WEBPANEL = `<!DOCTYPE html>
+const _TPL_HTTP404_BODY = `<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+<hr><center>%s</center>
+</body>
+</html>
+`
+const _TPL_MAIN_PAGE = `<!DOCTYPE html>
 <html>
  <head> 
   <title>deblocus</title> 

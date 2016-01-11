@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/binary"
@@ -233,6 +234,12 @@ func setRTimeout(conn net.Conn) {
 func setWTimeout(conn net.Conn) {
 	e := conn.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
 	ThrowErr(e)
+}
+
+func hash128(byteArray []byte) []byte {
+	md := md5.New()
+	md.Write(byteArray)
+	return md.Sum(nil)
 }
 
 func hash160(byteArray []byte) []byte {

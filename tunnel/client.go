@@ -47,7 +47,7 @@ func NewClient(cman *ConfigMan) *Client {
 		lock:      new(sync.Mutex),
 		connInfo:  cman.cConf.connInfo,
 		state:     CLT_WORKING,
-		pendingTK: NewTimedWait(true), // waiting tokens
+		pendingTK: NewTimedWait(false), // waiting tokens
 	}
 	return clt
 }
