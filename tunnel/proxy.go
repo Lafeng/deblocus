@@ -275,6 +275,7 @@ func openReadOnlyFile(file string) (f *os.File, info os.FileInfo, err error) {
 }
 
 func (c *Client) localServlet(conn net.Conn, reqUri string) {
+	initTplOnce.Do(lazyInitTemplate)
 	defer conn.Close()
 
 	switch reqUri {
@@ -286,7 +287,7 @@ func (c *Client) localServlet(conn net.Conn, reqUri string) {
 				goto error404
 			}
 			defer pacFile.Close()
-			entity := Entity{
+			entity := respEntity{
 				contentType:   "application/x-ns-proxy-autoconfig",
 				contentLength: int(info.Size()),
 				stream:        pacFile,
@@ -295,7 +296,7 @@ func (c *Client) localServlet(conn net.Conn, reqUri string) {
 			return
 		}
 	case "/":
-		writeHttpResponse(conn, 200, c.renderMainPage())
+		writeHttpResponse(conn, 200, c.renderPage("main"))
 		return
 	}
 
@@ -303,17 +304,16 @@ error404:
 	// other local request or pacFile not specified
 	log.Warningln("Unrecognized Request", reqUri)
 	// respond 404
-	writeHttpResponse(conn, 404, fmt.Sprintf(_TPL_HTTP404_BODY, VER_STRING))
+	writeHttpResponse(conn, 404, c.renderPage("404"))
 }
 
 func writeHttpResponse(conn net.Conn, statusCode int, content interface{}) {
-	var entity Entity
+	var entity respEntity
 	var isStream bool
 	var text []byte
 	switch body := content.(type) {
-	case *Entity:
-		entity = *body
-		isStream = true
+	case *respEntity:
+		entity, isStream = *body, true
 	case []byte:
 		entity.contentLength, text = len(body), body
 	case string:
@@ -342,15 +342,39 @@ func writeHttpResponse(conn net.Conn, statusCode int, content interface{}) {
 }
 
 var (
-	mainPageTpl *template.Template
-	initTplOnce = new(sync.Once)
-	startTime   = time.Now()
+	webPanelTpl     *template.Template
+	webPanelBuilder = make(map[string]pageDataBuilder)
+	initTplOnce     = new(sync.Once)
+	startTime       = time.Now()
 )
 
-type Entity struct {
+type respEntity struct {
 	contentType   string
 	contentLength int
 	stream        io.Reader
+}
+
+type pageDataBuilder func(*Client) interface{}
+
+func lazyInitTemplate() {
+	webPanelTpl = template.New("")
+	var tpl *template.Template
+	// main
+	tpl = template.Must(template.New("main").Parse(_TPL_PAGE_MAIN))
+	webPanelTpl.AddParseTree(tpl.Name(), tpl.Tree)
+	webPanelBuilder[tpl.Name()] = buildMainPageData
+	// 404
+	tpl = template.Must(template.New("404").Parse(_TPL_PAGE_404))
+	webPanelTpl.AddParseTree(tpl.Name(), tpl.Tree)
+	webPanelBuilder[tpl.Name()] = build404PageData
+}
+
+func (c *Client) renderPage(page string) []byte {
+	builder := webPanelBuilder[page]
+	data := builder(c)
+	buf := new(bytes.Buffer)
+	webPanelTpl.ExecuteTemplate(buf, page, data)
+	return buf.Bytes()
 }
 
 type mainPageData struct {
@@ -363,12 +387,7 @@ type mainPageData struct {
 	Connection string
 }
 
-func lazyInitTemplate() {
-	mainPageTpl = template.Must(template.New("main").Parse(_TPL_MAIN_PAGE))
-}
-
-func (c *Client) renderMainPage() []byte {
-	initTplOnce.Do(lazyInitTemplate)
+func buildMainPageData(c *Client) interface{} {
 	var rtt int32
 	if c.mux != nil {
 		rtt = atomic.LoadInt32(&c.mux.sRtt)
@@ -385,7 +404,11 @@ func (c *Client) renderMainPage() []byte {
 	if data.Round > 0 {
 		data.Round--
 	}
-	buf := new(bytes.Buffer)
-	mainPageTpl.Execute(buf, &data)
-	return buf.Bytes()
+	return &data
+}
+
+func build404PageData(c *Client) interface{} {
+	return &mainPageData{
+		Version: VER_STRING,
+	}
 }
