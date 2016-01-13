@@ -13,7 +13,7 @@ const (
 const (
 	ver_major uint8  = 0
 	ver_minor uint8  = 13
-	ver_build uint16 = 3780 // echo $((`date +%-j`+365))
+	ver_build uint16 = 3782 // echo $((`date +%-j`+365))
 )
 
 var (
