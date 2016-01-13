@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -39,9 +38,8 @@ const (
 )
 
 const (
-	HTTP_PROXY_VER_LINE = "HTTP/1.1 200 Connection established"
-	HTTP_PROXY_AGENT    = "Proxy-Agent: "
-	CRLF                = "\r\n"
+	HTTP_PROXY_STATUS_LINE = "HTTP/1.1 200 Connection established"
+	CRLF                   = "\r\n"
 )
 
 var (
@@ -80,7 +78,7 @@ func (s socks5Handler) handshake() bool {
 	n, err = io.ReadAtLeast(s.conn, buf, nmethods)
 	if err != nil || n != nmethods {
 		err = INVALID_SOCKS5_HEADER
-		exception.Spawn(&err, "socks: read header [% x]", hex.EncodeToString(buf))
+		exception.Spawn(&err, "socks: read header [% x]", buf)
 		goto errHandler
 	}
 
@@ -204,19 +202,17 @@ func httpProxyHandshake(conn *pushbackInputStream) (proto int, target string, er
 		return
 	}
 
-	buf := new(bytes.Buffer)
 	// http tunnel, direct into tunnel
 	if req.Method == "CONNECT" {
 		proto = PROT_HTTP_T
 		target = req.Host
 
 		// response http header
-		buf.WriteString(HTTP_PROXY_VER_LINE)
-		buf.WriteString(CRLF)
-		buf.WriteString(HTTP_PROXY_AGENT + "/" + VER_STRING)
-		buf.WriteString(CRLF + CRLF)
 		setWTimeout(conn)
-		conn.Write(buf.Bytes())
+		_, err = fmt.Fprint(conn, HTTP_PROXY_STATUS_LINE, CRLF, CRLF)
+		if err != nil {
+			return
+		}
 
 	} else { // plain http request
 
@@ -237,6 +233,7 @@ func httpProxyHandshake(conn *pushbackInputStream) (proto int, target string, er
 					delete(req.Header, k)
 				}
 			}
+			buf := new(bytes.Buffer)
 			// serialize modified request to buffer
 			req.Write(buf)
 			// rollback

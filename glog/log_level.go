@@ -2,7 +2,7 @@ package glog
 
 const (
 	// generic error message
-	LV_ERR_DETAIL = 1
+	LV_ERR_DETAIL = 2
 	// error stack or DEBUG
 	LV_ERR_STACK = 2
 
