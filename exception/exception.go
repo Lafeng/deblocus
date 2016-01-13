@@ -36,7 +36,11 @@ func New(msg string) *Exception {
 
 func Detail(err error) string {
 	if err != nil && (log.V(log.LV_ERR_DETAIL) == true || DEBUG) {
-		return fmt.Sprintf("(Error:%T::%s)", err, err)
+		var ori = err
+		if ex, y := err.(*Exception); y && ex.Origin != nil {
+			ori = ex.Origin
+		}
+		return fmt.Sprintf("(Error:%T::%s)", ori, err)
 	}
 	return ""
 }
