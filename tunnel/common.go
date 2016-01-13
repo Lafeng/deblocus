@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"os"
@@ -224,6 +225,17 @@ func IsTimeout(e error) bool {
 		return err.Timeout()
 	}
 	return false
+}
+
+func IsClosedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if err == io.EOF {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "closed") || strings.Contains(msg, "reset")
 }
 
 func setRTimeout(conn net.Conn) {

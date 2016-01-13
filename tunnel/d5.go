@@ -52,6 +52,7 @@ var (
 	INCOMPATIBLE_VERSION = exception.New("Incompatible Version")
 	UNRECOGNIZED_REQ     = exception.New("Unrecognized Request")
 	ERR_TIME_ERROR       = exception.New("Time Error")
+	ABORTED_ERROR        = exception.New("")
 )
 
 // len_inByte enum: 1,2,4
@@ -133,12 +134,19 @@ func (n *d5cman) Connect(p *tunParams) (conn *Conn, err error) {
 		n.dbcHello, n.sRand = nil, nil
 		if exception.Catch(recover(), &err) {
 			SafeClose(rawConn)
-			if err == ERR_TIME_ERROR {
-				line := string(bytes.Repeat([]byte{'+'}, 30))
-				log.Warningln(line)
-				log.Warningln("Maybe your clock is inaccurate, or your client credential is invalid.")
-				log.Warningln(line)
-				os.Exit(2)
+			if t, y := err.(*exception.Exception); y {
+				// must terminate
+				switch t.Origin {
+				case ERR_TIME_ERROR:
+					line := string(bytes.Repeat([]byte{'+'}, 30))
+					log.Warningln(line)
+					log.Warningln("Maybe your clock is inaccurate, or your client credential is invalid.")
+					log.Warningln(line)
+					os.Exit(2)
+				case INCOMPATIBLE_VERSION:
+					log.Warningln(err)
+					os.Exit(3)
+				}
 			}
 		}
 	}()
@@ -222,9 +230,9 @@ func (n *d5cman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 	setRTimeout(conn)
 	dhk, err = ReadFullByLen(1, conn)
 	if err != nil {
-		// maybe: use closed conn error caused by dbcHello
-		if strings.Contains(err.Error(), "closed") {
-			return nil, ERR_TIME_ERROR
+		// maybe: closed conn or reset by peer error caused by dbcHello
+		if IsClosedError(err) {
+			return nil, ERR_TIME_ERROR.Apply(NULL)
 		} else {
 			exception.Spawn(&err, "dh: read response")
 			return
@@ -393,7 +401,11 @@ func (n *d5sman) Connect(conn *Conn, tcPool []uint64) (session *Session, err err
 func (n *d5sman) fullHandshake(conn *Conn) (session *Session, err error) {
 	defer func() {
 		if exception.Catch(recover(), &err) {
-			log.Warningf("Handshake error=%v from=%s", err, n.clientAddr)
+			if t, y := err.(*exception.Exception); y && t.Origin == ABORTED_ERROR {
+				log.Warningf("Handshake aborted by client from=%s", n.clientAddr)
+			} else {
+				log.Warningf("Handshake error=%v from=%s", err, n.clientAddr)
+			}
 		}
 	}()
 	var cf *CipherFactory
@@ -486,7 +498,12 @@ func (n *d5sman) authenticate(conn *Conn, session *Session) error {
 	setRTimeout(conn)
 	hashSRand, err := ReadFullByLen(1, conn)
 	if err != nil {
-		return exception.Spawn(&err, "srand: read connection")
+		// client aborted
+		if IsClosedError(err) {
+			return ABORTED_ERROR.Apply(err)
+		} else {
+			return exception.Spawn(&err, "srand: read connection")
+		}
 	}
 
 	myHashSRand := hash256(n.sRand)

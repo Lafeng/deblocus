@@ -11,17 +11,23 @@ import (
 var DEBUG bool
 
 type Exception struct {
-	msg string
+	Origin *Exception
+	msg    string
 }
 
 func (e *Exception) Error() string {
-	return e.msg
+	if e.Origin != nil {
+		return fmt.Sprintf("%s %s", e.Origin, e.msg)
+	} else {
+		return e.msg
+	}
 }
 
-func (e *Exception) Apply(appendage interface{}) *Exception {
-	newE := new(Exception)
-	newE.msg = fmt.Sprintf("%s %v", e.msg, appendage)
-	return newE
+func (e *Exception) Apply(extra interface{}) *Exception {
+	return &Exception{
+		Origin: e,
+		msg:    fmt.Sprint(extra),
+	}
 }
 
 func New(msg string) *Exception {
