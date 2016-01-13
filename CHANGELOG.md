@@ -2,41 +2,48 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.13.3780-beta 16/1/13
+- update handshake protocol;
+- update configuration file format;
+- update command interactive interface;
+- add web panel for statistics;
+- add pac file service;
+
 ## 0.12.3520-beta 15/12/18
-bug fixes;
-build on go1.5.2;
+- bug fixes;
+- build on go1.5.2;
 
 ## 0.12.2970-beta 15/10/24
-implement high-performance encryption;
-implement verifying packet header checksum;
-implement support for aarch64(armv8);
-and some improvements;
+- implement high-performance encryption;
+- implement verifying packet header checksum;
+- implement support for aarch64(armv8);
+- and some improvements;
 
 ## 0.11.2810-beta 15/10/4
-improve compatibility of literal ipv6 address;
-improve security by update iv generation;
+- improve compatibility of literal ipv6 address;
+- improve security by update iv generation;
 
 ## 0.11.2770-beta 15/10/4
-improve the security of d5 protocol;
-add chacha encryption implementation;
-and bug fixes;
+- improve the security of d5 protocol;
+- add chacha encryption implementation;
+- and bug fixes;
 
 ## 0.10.2640-beta 15/9/20
-fix incorrect geo switch
+- fix incorrect geo switch
 
 ## 0.10.2630-beta 15/9/20
-implement filtering dest network
-improve on multiplexer spec
-change some configuration options
+- implement filtering dest network
+- improve on multiplexer spec
+- change some configuration options
 
 ## 0.9.2520-beta 15/9/9
-update initial cipher and nextsid method
+- update initial cipher and nextsid method
 - update cipher to use empty one during initialization
 - next_sid update to atomic operation
 
 ## 0.9.2500-beta 15/9/7
-fix http tunnel handshaking error that was caused by a redundant LF in version string
-update rest interval in sema test
+- fix http tunnel handshaking error that was caused by a redundant LF in version string
+- update rest interval in sema test
 
 ## 0.9.2470-beta 15/9/4
 fix some potential issues of data race
