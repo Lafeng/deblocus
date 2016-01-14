@@ -49,7 +49,7 @@ This product includes GeoLite2 data created by MaxMind, available from <http://w
 
 ## 介绍
 
-安全高效的局部代理(Socks5/HTTP)工具，可满足在企业网络/公共WiFi等场景下安全通信的需要。
+安全高效的局部代理(Socks5/HTTP)工具，用于在企业网络/公共WiFi等场景下安全通信。
 
 ## 使用
 
