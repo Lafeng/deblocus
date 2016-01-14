@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
-## 0.13.3782-beta 16/1/13
+## 0.13.3790-beta 16/1/13
 - update handshake protocol;
 - update configuration file format;
 - update command interactive interface;
