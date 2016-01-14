@@ -72,7 +72,7 @@ func (ctx *bootContext) initConfig(r ServerRole) (role ServerRole) {
 	return role
 }
 
-// ./deblocus -csc [algo]
+// ./deblocus csc [-type algo]
 func (ctx *bootContext) cscCommandHandler(c *cli.Context) {
 	keyType := c.String("type")
 	output := getOutputArg(c)
@@ -80,7 +80,7 @@ func (ctx *bootContext) cscCommandHandler(c *cli.Context) {
 	fatalError(err)
 }
 
-// ./deblocus -ccc SERV_ADDR:PORT USER
+// ./deblocus ccc [-addr SERV_ADDR:PORT] USER
 func (ctx *bootContext) cccCommandHandler(c *cli.Context) {
 	// need server config
 	ctx.initConfig(SR_SERVER)
@@ -107,7 +107,7 @@ func (ctx *bootContext) startCommandHandler(c *cli.Context) {
 	}
 	// option as pseudo-command: help, version
 	if ctx.showVer {
-		fmt.Fprintln(os.Stderr, versionString())
+		fmt.Println(versionString())
 		return
 	}
 
@@ -231,12 +231,12 @@ func waitSignal() {
 	for sig := range sigChan {
 		switch sig {
 		case Bye:
-			context.doClose()
 			log.Exitln("Exiting.")
+			context.doClose()
 			return
 		case syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM:
-			context.doClose()
 			log.Exitln("Terminated by", sig)
+			context.doClose()
 			return
 		case USR2:
 			context.doStats()
