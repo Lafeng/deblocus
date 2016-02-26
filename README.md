@@ -9,14 +9,14 @@ Current version is v0.13.3790-beta
 
 ## Introduction
 
-deblocus is a tunneling software that allows secure TCP connection through the server by acting as a SOCKS5/HTTP proxy server on the client side.
+deblocus is a tunneling software that allows encrypted TCP connection through the server by acting as a SOCKS5/HTTP proxy server on the client side.
 
 ## Features
 
 - Traffic encrypted with dynamic session key
 	* deblocus has perfect [forward secrecy](https://en.wikipedia.org/wiki/Forward_secrecy).
 - Tunnel's communication was provided with mildly obfuscated traffic based on special protocol
-	* Keep communications secure and privacy over untrusted networks.
+	* Keep communications encrypted and privacy over untrusted networks.
 - TCP multiplexing inside tunnel and Fast-Open over application layer
 	* Optimized connectivity for massive short requests, latency greatly reduced to nearly 1-RTT.
 - Filtering traffic to specified country (using GeoLite2 data)
