@@ -71,6 +71,7 @@ var (
 	sid_seq      uint32
 	bytePoolOnce sync.Once
 	bytePool     *bytepool.BytePool
+	dialer       *Dialer
 )
 
 var (
@@ -221,6 +222,9 @@ func (f *frame) free() {
 func initBytePool() {
 	bytePool = new(bytepool.BytePool)
 	bytePool.Init(time.Minute, 1<<20)
+	dialer = new(Dialer)
+	dialer.Timeout = time.Second * 3
+	dialer.DualStack = determineDualStack()
 }
 
 // --------------------
@@ -465,7 +469,7 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		denied = p.filter.Filter(target)
 	}
 	if !denied {
-		dstConn, err = net.DialTimeout("tcp", target, GENERAL_SO_TIMEOUT)
+		dstConn, err = dialer.Dial("tcp", target)
 	}
 	if err != nil || denied {
 		p.router.removePreRegistered(key)

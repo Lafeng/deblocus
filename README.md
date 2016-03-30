@@ -1,6 +1,6 @@
 # deblocus
 
-Current version is v0.13.3790-beta
+Current version is v0.13.4550-beta
 
 [![Build Status](https://travis-ci.org/Lafeng/deblocus.svg?branch=master)](https://travis-ci.org/Lafeng/deblocus)
 [![MIT License](https://img.shields.io/packagist/l/doctrine/orm.svg)](http://opensource.org/licenses/MIT)
@@ -29,7 +29,7 @@ deblocus is a tunneling software that allows encrypted TCP connection through th
 1. Download [executables](https://github.com/Lafeng/deblocus/releases) or compile it from source.
 2. Read [Wiki](https://github.com/Lafeng/deblocus/wiki) to learn more.
 
-Supported architectures and operating systems: 
+Supported architectures and operating systems:
 
 - Binary distributions: Linux/amd64, Mac OS X/amd64, Windows/amd64
 - Build from source: FreeBSD/amd64, Linux/aarch64

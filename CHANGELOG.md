@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.13.4550-beta 16/3/30
+- support priority on ipv4/ipv6 dual stack
+
 ## 0.13.3790-beta 16/1/13
 - update handshake protocol;
 - update configuration file format;
@@ -100,8 +103,8 @@ update tunnel structure
 - Update dyna iv
 
 ## [0.6.0352-alpha] - 2015-2-4
-### Added 
-- Small modify; 
+### Added
+- Small modify;
 
 
 ## [0.6.0351-alpha] - 2015-2-4
