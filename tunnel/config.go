@@ -2,7 +2,7 @@ package tunnel
 
 import (
 	"bytes"
-	"crypto"
+	stdcrypto "crypto"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/Lafeng/deblocus/auth"
+	"github.com/Lafeng/deblocus/crypto"
 	"github.com/Lafeng/deblocus/exception"
 	"github.com/go-ini/ini"
 	"github.com/kardianos/osext"
@@ -214,7 +215,7 @@ type connectionInfo struct {
 	pass     string
 	pkType   string
 	pacFile  string
-	sPubKey  crypto.PublicKey
+	sPubKey  stdcrypto.PublicKey
 	rawURL   string
 }
 
@@ -364,8 +365,8 @@ type serverConf struct {
 	DenyDest   string       `importable:"OFF"`
 	AuthSys    auth.AuthSys `ini:"-"`
 	ListenAddr *net.TCPAddr `ini:"-"`
-	privateKey crypto.PrivateKey
-	publicKey  crypto.PublicKey
+	privateKey stdcrypto.PrivateKey
+	publicKey  stdcrypto.PublicKey
 }
 
 func (d *serverConf) validate() error {
@@ -438,7 +439,7 @@ func (cman *ConfigMan) ParseServConf() (d5s *serverConf, err error) {
 		return
 	}
 	d5s.privateKey = priv
-	d5s.publicKey = priv.(crypto.Signer).Public()
+	d5s.publicKey = priv.(stdcrypto.Signer).Public()
 	err = d5s.validate()
 	return
 }
@@ -458,7 +459,7 @@ func CreateServerConfigTemplate(file string, keyOpt string) (err error) {
 	defer f.Sync()
 
 	d5sConf := new(serverConf)
-	setFieldsDefaultValue(d5sConf)
+	d5sConf.setDefaultValue()
 	// uppercase algo name
 	keyOpt = strings.ToUpper(keyOpt)
 	d5sConf.privateKey, err = GenerateDSAKey(keyOpt)
@@ -497,6 +498,20 @@ func (d *serverConf) generateConnInfoOfUser(ii *ini.File, user string) error {
 	sec.NewKey(CF_KEY, base64.StdEncoding.EncodeToString(keyBytes))
 	sec.Comment = _COMMENTED_PAC_SECTION
 	return nil
+}
+
+// set default values by field comment
+// set recommended values by detecting
+func (d *serverConf) setDefaultValue() {
+	setFieldsDefaultValue(d)
+	host, err := os.Hostname()
+	if err == nil {
+		host = regexp.MustCompile(`\W`).ReplaceAllString(host, "")
+		d.ServerName = strings.ToUpper(host)
+	}
+	if crypto.HasAESHardware() == 0 {
+		d.Cipher = "CHACHA12"
+	}
 }
 
 func setFieldsDefaultValue(str interface{}) {

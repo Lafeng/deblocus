@@ -48,14 +48,14 @@ func NewAESDecrypter(block cipher.Block, iv []byte) (cipher.Stream, error) {
 }
 
 // compat impl.
-func has_aes_hardware() int {
+func HasAESHardware() int {
 	return 0
 }
 
-func is_NEON_capable() int {
+func IsNEONCapable() int {
 	return 0
 }
 
-func dump_cpu_features() []uint32 {
+func GetCpuid() []uint32 {
 	return nil
 }

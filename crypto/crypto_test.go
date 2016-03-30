@@ -163,7 +163,7 @@ func test_cpu_internal() {
 	var msg = func(format string, args ...interface{}) {
 		fmt.Fprintf(os.Stderr, "> CPU "+format+"\n", args...)
 	}
-	code := get_cpuid()
+	code := GetCpuid()
 	features := make([]string, 0, 32)
 	var features_table [][]interface{}
 	switch len(code) {
@@ -186,7 +186,7 @@ func test_cpu_internal() {
 	}
 
 capability:
-	msg("AES-hardware=%d NEON-capable=%d", has_aes_hardware(), is_NEON_capable())
+	msg("AES-hardware=%d NEON-capable=%d", HasAESHardware(), IsNEONCapable())
 }
 
 func Test_ChaCha_Stream(t *testing.T) {

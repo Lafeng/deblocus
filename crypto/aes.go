@@ -253,15 +253,15 @@ func get_error() string {
 // The following 3 methods
 // provided by ASM in libcrypto-boringssl
 // Only available on amd64
-func has_aes_hardware() int {
+func HasAESHardware() int {
 	return int(C.EVP_has_aes_hardware())
 }
 
-func is_NEON_capable() int {
+func IsNEONCapable() int {
 	return int(C.CRYPTO_is_NEON_capable())
 }
 
-func get_cpuid() []uint32 {
+func GetCpuid() []uint32 {
 	var cpuid [4]uint32
 	n := C.read_cpuid((*C.uint32_t)(unsafe.Pointer(&cpuid[0])))
 	return cpuid[:int(n)]
