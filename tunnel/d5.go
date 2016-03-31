@@ -140,7 +140,7 @@ func (n *d5cman) Connect(p *tunParams) (conn *Conn, err error) {
 				case ERR_TIME_ERROR:
 					line := string(bytes.Repeat([]byte{'+'}, 30))
 					log.Warningln(line)
-					log.Warningln("Maybe your clock is inaccurate, or your client credential is invalid.")
+					log.Warningln("Maybe connection was reset, your clock is not in sync with server, or your client credential is invalid.")
 					log.Warningln(line)
 					os.Exit(2)
 				case INCOMPATIBLE_VERSION:
