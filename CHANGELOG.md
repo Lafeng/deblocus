@@ -2,7 +2,9 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
-## 0.13.4550-beta 16/3/30
+## 0.13.4560-beta 16/3/31
+- add notice for ccc
+- improve handshake failed message
 - support priority on ipv4/ipv6 dual stack
 
 ## 0.13.3790-beta 16/1/13

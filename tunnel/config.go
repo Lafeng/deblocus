@@ -303,6 +303,9 @@ func (cman *ConfigMan) CreateClientConfig(file string, user string, addonAddr st
 	err = cman.sConf.generateConnInfoOfUser(ii, user)
 	if err == nil {
 		_, err = ii.WriteTo(f)
+		if addonAddr == NULL {
+			fmt.Fprint(f, _NOTICE_MOD_ADDR)
+		}
 	}
 	return
 }
@@ -564,4 +567,10 @@ const _CLT_CONF_HEADER = `
 const _COMMENTED_PAC_SECTION = `# Optional
 # [PAC.Server]
 # File = mypac.js
+`
+
+const _NOTICE_MOD_ADDR = `
+# +-----------------------------------------------------------------+
+# | May need to modify the "localhost:9008" to your public address. |
+# +-----------------------------------------------------------------+
 `
