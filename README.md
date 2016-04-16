@@ -22,7 +22,7 @@ deblocus is a tunneling software that allows encrypted TCP connection through th
 - Filtering traffic to specified country (using GeoLite2 data)
 	* You can avoid the proxy was used for some inappropriate purposes.
 - High-performance encryption implementation
-	* Could enjoy high throughput and low resource consumption.
+	* You can enjoy high throughput and low resource consumption.
 
 ## Quickstart
 
