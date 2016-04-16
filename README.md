@@ -32,7 +32,7 @@ deblocus is a tunneling software that allows encrypted TCP connection through th
 Supported architectures and operating systems:
 
 - Binary distributions: Linux/amd64, Mac OS X/amd64, Windows/amd64
-- Build from source: FreeBSD/amd64, Linux/aarch64
+- Build from source: FreeBSD/amd64, Linux/aarch64 and above
 
 ## Acknowledgements
 
