@@ -2,6 +2,10 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.13.4720-beta 16/4/16
+- Go 1.6.1
+- Update GeoLite2
+
 ## 0.13.4560-beta 16/3/31
 - add notice for ccc
 - improve handshake failed message
