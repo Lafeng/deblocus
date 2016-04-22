@@ -284,6 +284,8 @@ func (p *multiplexer) destroy() {
 }
 
 func (p *multiplexer) HandleRequest(prot string, client net.Conn, target string) {
+	defer p.wg.Done()
+	p.wg.Add(1)
 	if tun := p.pool.Select(); tun != nil {
 		sid := next_sid()
 		if log.V(log.LV_REQ) {
