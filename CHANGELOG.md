@@ -2,6 +2,10 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.13.4780-beta 16/4/16
+- fix a potential invalid pointer
+- build with Go1.6.2
+
 ## 0.13.4720-beta 16/4/16
 - Go 1.6.1
 - Update GeoLite2
