@@ -1,6 +1,6 @@
 language: go
 go:
-  - 1.6.1
+  - 1.6.2
 env:
   global:
     - TARGET_ARCH=amd64
