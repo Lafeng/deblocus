@@ -73,15 +73,16 @@ func (ctx *bootContext) initConfig(r ServerRole) (role ServerRole) {
 }
 
 // ./deblocus csc [-type algo]
-func (ctx *bootContext) cscCommandHandler(c *cli.Context) {
+func (ctx *bootContext) cscCommandHandler(c *cli.Context) error {
 	keyType := c.String("type")
 	output := getOutputArg(c)
 	err := CreateServerConfigTemplate(output, keyType)
 	fatalError(err)
+	return nil
 }
 
 // ./deblocus ccc [-addr SERV_ADDR:PORT] USER
-func (ctx *bootContext) cccCommandHandler(c *cli.Context) {
+func (ctx *bootContext) cccCommandHandler(c *cli.Context) error {
 	// need server config
 	ctx.initConfig(SR_SERVER)
 	if args := c.Args(); len(args) == 1 {
@@ -93,22 +94,24 @@ func (ctx *bootContext) cccCommandHandler(c *cli.Context) {
 	} else {
 		fatalAndCommandHelp(c)
 	}
+	return nil
 }
 
-func (ctx *bootContext) keyInfoCommandHandler(c *cli.Context) {
+func (ctx *bootContext) keyInfoCommandHandler(c *cli.Context) error {
 	// need config
 	role := ctx.initConfig(SR_AUTO)
 	fmt.Fprintln(os.Stderr, ctx.cman.KeyInfo(role))
+	return nil
 }
 
-func (ctx *bootContext) startCommandHandler(c *cli.Context) {
+func (ctx *bootContext) startCommandHandler(c *cli.Context) error {
 	if len(c.Args()) > 0 {
 		fatalAndCommandHelp(c)
 	}
 	// option as pseudo-command: help, version
 	if ctx.showVer {
 		fmt.Println(versionString())
-		return
+		return nil
 	}
 
 	role := ctx.initConfig(SR_AUTO)
@@ -119,6 +122,7 @@ func (ctx *bootContext) startCommandHandler(c *cli.Context) {
 		go ctx.startClient()
 	}
 	waitSignal()
+	return nil
 }
 
 func (ctx *bootContext) startClient() {
