@@ -266,13 +266,15 @@ func newClientMultiplexer() *multiplexer {
 	return m
 }
 
-// destroy each listener of all pooled tun, and destroy egress queues
+// destroy the whole mux
 func (p *multiplexer) destroy() {
+	// don't close repeatedly
 	if atomic.LoadInt32(&p.status) < 0 {
 		return
 	}
 	defer func() {
 		if !ex.Catch(recover(), nil) {
+			// no error occurred, then set closed
 			atomic.StoreInt32(&p.status, MUX_CLOSED)
 		}
 	}()
@@ -283,43 +285,58 @@ func (p *multiplexer) destroy() {
 	p.pool = nil
 }
 
-func (p *multiplexer) HandleRequest(prot string, client net.Conn, target string) {
-	defer p.wg.Done()
-	p.wg.Add(1)
+// serve client request
+func (p *multiplexer) HandleRequest(protocol string, req net.Conn, target string) {
+	// select a tunnel to serve client request
 	if tun := p.pool.Select(); tun != nil {
+		// grab semaphore here and release it using defer
+		p.wg.Add(1)
+		defer p.wg.Done()
+
 		sid := next_sid()
-		if log.V(log.LV_REQ) {
-			log.Infof("%s->[%s] from=%s sid=%d\n", prot, target, ipAddr(client.RemoteAddr()), sid)
-		}
 		key := sessionKey(tun, sid)
-		edge := p.router.register(key, target, tun, client, true) // write edge
-		p.relay(edge, tun, sid)                                   // read edge
+		// ingress: register in router table
+		// asynchronously transmit data from the tunnel to the edge connection
+		edge := p.router.register(key, target, tun, req, true)
+		if log.V(log.LV_REQ) {
+			log.Infof("%s->[%s] from=%s sid=%d\n",
+				protocol, target, ipAddr(req.RemoteAddr()), sid)
+		}
+		// egress: transmit data from the edge connection to the tunnel
+		p.relay(edge, tun, sid)
 	} else {
+		// offline
 		log.Warningln(ERR_TUN_NA)
 		time.Sleep(time.Second)
-		SafeClose(client)
+		SafeClose(req)
 	}
 }
 
+// destory resources associated with the tun
 func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
-	if p.router != nil {
-		p.router.cleanOfTun(tun)
-	}
 	if p.pool != nil {
 		p.pool.Remove(tun)
 	}
-	SafeClose(tun)
-	// waitting for child(w) goroutine to end
+	if p.router != nil {
+		p.router.cleanOfTun(tun)
+	}
+	// waitting for the end of egress goroutines
 	p.wg.Wait()
+	SafeClose(tun)
+	// no reference to tun
 	tun.cipher.Cleanup()
 }
 
+// This thread will listen on the tunnel, and process ingress data packets,
+// and route them to correct session.
 // TODO notify peer to slow down when queue increased too fast
 func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) error {
+	// set priority for selecting tunnel
 	tun.priority = &TSPriority{0, 1e9}
 	p.pool.Push(tun)
 	defer p.onTunDisconnected(tun, handler)
 	tun.SetSockOpt(1, 0, 1)
+
 	var (
 		header = make([]byte, FRAME_HEADER_LEN)
 		idle   = NewIdler(interval, p.isClient)
@@ -330,24 +347,26 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 		key    string
 	)
 	if !p.isClient {
-		// server first ping client
+		// the server needs to ping client at first
 		// make client aware of using a valid token.
 		idle.ping(tun)
 	}
 	for {
 		idle.newRound(tun)
+		// read frame header
 		nr, er = io.ReadFull(tun, header)
 		if nr == FRAME_HEADER_LEN {
 			frm, er = parse_frame(header)
 			if er == nil && len(frm.data) > 0 {
-				// read All and discard tail random
+				// read all data and discard random tail
 				nr, er = io.ReadFull(tun, frm.data)
 				frm.data = frm.data[:frm.length]
 			}
 		}
 		if er != nil {
-			// shutdown
+			// Exit: shutdown
 			if atomic.LoadInt32(&p.status) < 0 {
+				// suppress disconnected message
 				time.Sleep(time.Second)
 				return nil
 			}
@@ -359,19 +378,20 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 			case ERR_PING_TIMEOUT:
 				er = ex.New("Peer was unresponsive then close")
 			}
-			// abandon this connection
+			// Exit: abandon this connection
 			return er
 		}
-		// prefix tun.identifier
+		// prepare the session key of the frame
 		key = sessionKey(tun, frm.sid)
 
 		switch frm.action {
+		// stop egress
 		case FRAME_ACTION_CLOSE_W:
 			if edge, _ := router.getRegistered(key); edge != nil {
 				edge.bitwiseCompareAndSet(TCP_CLOSE_W)
 				edge.deliver(frm)
 			}
-
+		// stop ingress
 		case FRAME_ACTION_CLOSE_R:
 			if edge, _ := router.getRegistered(key); edge != nil {
 				edge.bitwiseCompareAndSet(TCP_CLOSE_R)
@@ -381,23 +401,27 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 		case FRAME_ACTION_DATA:
 			edge, pre := router.getRegistered(key)
 			if edge != nil {
+				// normally
 				edge.deliver(frm)
 			} else if pre {
+				// in fastOpen
 				router.preDeliver(key, frm)
 			} else {
 				if log.V(log.LV_WARN) {
 					log.Warningln("Peer sent data to an unexisted socket.", key, frm)
 				}
-				// trigger sending close to notice peer.
+				// notice peer to stop sending
 				pack(header, FRAME_ACTION_CLOSE_R, frm.sid, nil)
 				if er = frameWriteBuffer(tun, header); er != nil {
 					return er
 				}
 			}
 
+			// for c/s proxy, this only exist in server side
 		case FRAME_ACTION_OPEN:
 			router.preRegister(key)
-			p.wg.Add(1)
+			p.wg.Add(1) // grab semaphore here
+			// ingress: connect to final destination
 			go p.connectToDest(frm, key, tun)
 
 		case FRAME_ACTION_OPEN_N, FRAME_ACTION_OPEN_Y, FRAME_ACTION_OPEN_DENIED:
@@ -456,8 +480,11 @@ func sessionKey(tun *Conn, sid uint16) string {
 	}
 }
 
+// Server: open a connection to destination by frame
+// then transmit data of dest to the tunnel
 func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 	defer func() {
+		// release semaphore
 		p.wg.Done()
 		ex.Catch(recover(), nil)
 	}()
@@ -468,12 +495,15 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		denied  = false
 	)
 	if p.filter != nil {
+		// denyDest filter
 		denied = p.filter.Filter(target)
 	}
 	if !denied {
 		dstConn, err = dialer.Dial("tcp", target)
 	}
 	if err != nil || denied {
+		// can't accept
+		// remove it from router and clean buffer
 		p.router.removePreRegistered(key)
 		if denied {
 			frm.action = FRAME_ACTION_OPEN_DENIED
@@ -484,15 +514,19 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		}
 		frameWriteHead(tun, frm)
 	} else {
+		// really register
+		dstConn.SetReadDeadline(ZERO_TIME)
 		edge := p.router.register(key, target, tun, dstConn, false) // write edge
 		if log.V(log.LV_SVR_OPEN) {
 			log.Infoln("OPEN", target, "for", key)
 		}
-		dstConn.SetReadDeadline(ZERO_TIME)
 		frm.action = FRAME_ACTION_OPEN_Y
+		// notify peer
 		if frameWriteHead(tun, frm) == nil {
-			p.relay(edge, tun, frm.sid) // read edge
-		} else { // send open_y failed
+			// ingress: transmit edge data to tunnel
+			p.relay(edge, tun, frm.sid)
+		} else {
+			// send notice/open_y failed
 			SafeClose(tun)
 		}
 	}
@@ -531,6 +565,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		}
 	}()
 	if edge.active { // for client
+		// send destination to server
 		_len := pack(buf, FRAME_ACTION_OPEN, sid, []byte(edge.dest[2:])) // dest with a leading mark
 		if frameWriteBuffer(tun, buf[:_len]) != nil {
 			SafeClose(tun)
@@ -591,7 +626,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 				return
 			}
 		}
-		// timeout to recheck open signal
+		// timeout cause of rechecking then open-signal in fastOpen
 		if er != nil && !(_fast_open && IsTimeout(er)) {
 			if er != io.EOF && DEBUG {
 				log.Infof("Read to the end of edge total=%d err=(%v)", tn, er)
@@ -601,6 +636,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 	}
 }
 
+// best to send message to peer in some critical cases
 func (p *multiplexer) bestSend(data []byte, action_desc string) bool {
 	var buf = make([]byte, FRAME_HEADER_LEN+len(data))
 	pack(buf, FRAME_ACTION_TOKENS, 0, data)
