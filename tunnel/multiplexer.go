@@ -309,12 +309,8 @@ func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
 		p.pool.Remove(tun)
 	}
 	SafeClose(tun)
-
-	wm := newWgMonitor(p)
-	go wm.startMonitor()
 	// waitting for child(w) goroutine to end
 	p.wg.Wait()
-	wm.release()
 	tun.cipher.Cleanup()
 }
 
@@ -431,7 +427,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 					sRtt, devRtt := idle.updateRtt()
 					atomic.StoreInt32(&p.sRtt, sRtt)
 					if DEBUG {
-						// log.Infof("sRtt=%d devRtt=%d", sRtt, devRtt)
+						log.Infof("sRtt=%d devRtt=%d", sRtt, devRtt)
 						if devRtt+(sRtt>>2) > sRtt {
 							// restart ???
 							log.Warningf("Network jitter sRtt=%d devRtt=%d", sRtt, devRtt)
