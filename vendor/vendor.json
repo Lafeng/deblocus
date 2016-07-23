@@ -1,0 +1,43 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "usVa/Y2ussWnG0DvjQyb8mNIRYo=",
+			"path": "github.com/cloudflare/golibs/bytepool",
+			"revision": "5dc3e4a42ae09abdc41c37ab3dad35a6b4d8fd9b",
+			"revisionTime": "2016-03-14T08:56:29Z"
+		},
+		{
+			"checksumSHA1": "hw9zjMNkIXagO6I9XenyFqbCQOU=",
+			"path": "github.com/codegangsta/cli",
+			"revision": "11c134509d89c2018675f369955218a180dc7428",
+			"revisionTime": "2016-07-16T16:11:36Z"
+		},
+		{
+			"checksumSHA1": "XF9y8gdmQBB4WuO3gGf1c8CNnnM=",
+			"path": "github.com/dchest/siphash",
+			"revision": "6d8617816bb5d8268011ffbfb8720f17ce9af63c",
+			"revisionTime": "2015-10-25T05:24:29Z"
+		},
+		{
+			"checksumSHA1": "ce2QegjKgslVfAicMRgHSjeygiI=",
+			"path": "github.com/go-ini/ini",
+			"revision": "cf53f9204df4fbdd7ec4164b57fa6184ba168292",
+			"revisionTime": "2016-07-08T17:31:50Z"
+		},
+		{
+			"checksumSHA1": "6nmAJBw2phU9MUmkUnqFvbO5urg=",
+			"path": "github.com/kardianos/osext",
+			"revision": "29ae4ffbc9a6fe9fb2bc5029050ce6996ea1d3bc",
+			"revisionTime": "2015-12-22T15:32:29Z"
+		},
+		{
+			"checksumSHA1": "MF8JV/reLfgsbAA1uN7cEWjHI6A=",
+			"path": "github.com/monnand/dhkx",
+			"revision": "b14d0234819af886cf14b4d9f6d2b18f6e23f3c9",
+			"revisionTime": "2013-08-05T01:24:04Z"
+		}
+	],
+	"rootPath": "github.com/Lafeng/deblocus"
+}

@@ -248,6 +248,8 @@ func (c *Client) eventHandler(e event, msg ...interface{}) {
 }
 
 func (t *Client) Stats() string {
+	wm := newWgMonitor(t.mux)
+	wm.dumpRouter()
 	return fmt.Sprintf("Client -> %s Conn=%d TK=%d",
 		t.connInfo.sAddr, atomic.LoadInt32(&t.dtCnt), len(t.token)/TKSZ)
 }
