@@ -191,8 +191,12 @@ func (r *egressRouter) cleanOfTun(tun *Conn) {
 	var prefix = tun.identifier
 	var frm = &frame{action: FRAME_ACTION_CLOSE}
 	for k, e := range r.registry {
-		if strings.HasPrefix(k, prefix) && e.queue != nil {
-			e.queue._push(frm)
+		if strings.HasPrefix(k, prefix) {
+			if e.queue != nil {
+				e.queue._push(frm)
+			} else {
+				SafeClose(e.conn)
+			}
 			delete(r.registry, k)
 		}
 	}

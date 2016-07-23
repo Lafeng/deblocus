@@ -75,6 +75,10 @@ func (c *Client) restart() (tun *Conn, rn int32) {
 	c.pendingTK.clearAll()
 	// release mux
 	if c.mux != nil {
+		// spin wait for all mux.Listen() goroutines exits
+		for atomic.LoadInt32(&c.dtCnt) > 0 {
+			time.Sleep(time.Second)
+		}
 		c.mux.destroy()
 	}
 	c.mux = newClientMultiplexer()
@@ -110,12 +114,7 @@ func (c *Client) StartTun(mustRestart bool) {
 		if mustRestart {
 			// clear mustRestart
 			mustRestart = false
-			// prevent concurrently
-			if atomic.CompareAndSwapInt32(&c.state, CLT_WORKING, CLT_PENDING) {
-				tun, rn = c.restart()
-			} else {
-				return
-			}
+			tun, rn = c.restart()
 		}
 		if atomic.LoadInt32(&c.state) == CLT_WORKING {
 			var dtcnt int32
@@ -133,7 +132,7 @@ func (c *Client) StartTun(mustRestart bool) {
 			}
 
 			if log.V(log.LV_CLT_CONNECT) {
-				log.Infof("Tun %s is established\n", tun.identifier)
+				log.Infof("Tun %s is established", tun.identifier)
 			}
 
 			dtcnt = atomic.AddInt32(&c.dtCnt, 1)
@@ -141,7 +140,7 @@ func (c *Client) StartTun(mustRestart bool) {
 			dtcnt = atomic.AddInt32(&c.dtCnt, -1)
 
 			if log.V(log.LV_CLT_CONNECT) {
-				log.Errorf("Tun %s was disconnected %s Reconnect after %s\n",
+				log.Errorf("Tun %s was disconnected %s Reconnect after %s",
 					tun.identifier, ex.Detail(err), RETRY_INTERVAL)
 			}
 			// reset
@@ -155,8 +154,11 @@ func (c *Client) StartTun(mustRestart bool) {
 
 			// restart: all connections were disconnected
 			if dtcnt <= 0 {
-				log.Errorf("Currently offline, all connections %s were lost\n", c.connInfo.RemoteName())
-				go c.StartTun(true)
+				if atomic.CompareAndSwapInt32(&c.state, CLT_WORKING, CLT_PENDING) {
+					log.Errorf("Currently offline, all connections %s were lost",
+						c.connInfo.RemoteName())
+					go c.StartTun(true)
+				}
 				return
 			}
 		} else {
