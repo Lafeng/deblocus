@@ -11,6 +11,7 @@ import (
 type Conn struct {
 	net.Conn
 	cipher     cipherKit
+	closed     int32
 	identifier string
 	wlock      *sync.Mutex
 	priority   *TSPriority
@@ -58,12 +59,18 @@ func (c *Conn) Write(b []byte) (int, error) {
 	return c.Conn.Write(b)
 }
 
+func (c *Conn) isClosed() bool {
+	return atomic.LoadInt32(&c.closed) > 0
+}
+
 func (c *Conn) Close() error {
+	atomic.AddInt32(&c.closed, 1)
 	return c.Conn.Close()
 }
 
 func (c *Conn) CloseRead() {
 	if conn, ok := c.Conn.(*net.TCPConn); ok {
+		atomic.AddInt32(&c.closed, 1)
 		conn.CloseRead()
 	}
 }

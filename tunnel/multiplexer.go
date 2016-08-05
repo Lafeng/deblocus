@@ -38,7 +38,7 @@ const (
 
 const (
 	FRAME_HEADER_LEN = 8
-	FRAME_MAX_LEN    = 0x7fff //0xffff
+	FRAME_MAX_LEN    = 0xffff
 )
 
 const (
@@ -239,7 +239,6 @@ type multiplexer struct {
 	pingCnt  int32 // received ping count
 	sRtt     int32
 	filter   Filterable
-	wg       *sync.WaitGroup
 }
 
 func newServerMultiplexer() *multiplexer {
@@ -248,7 +247,6 @@ func newServerMultiplexer() *multiplexer {
 		isClient: false,
 		pool:     NewConnPool(),
 		role:     "SVR",
-		wg:       new(sync.WaitGroup),
 	}
 	m.router = newEgressRouter(m)
 	return m
@@ -260,7 +258,6 @@ func newClientMultiplexer() *multiplexer {
 		isClient: true,
 		pool:     NewConnPool(),
 		role:     "CLT",
-		wg:       new(sync.WaitGroup),
 	}
 	m.router = newEgressRouter(m)
 	return m
@@ -289,10 +286,6 @@ func (p *multiplexer) destroy() {
 func (p *multiplexer) HandleRequest(protocol string, req net.Conn, target string) {
 	// select a tunnel to serve client request
 	if tun := p.pool.Select(); tun != nil {
-		// grab semaphore here and release it using defer
-		p.wg.Add(1)
-		defer p.wg.Done()
-
 		sid := next_sid()
 		key := sessionKey(tun, sid)
 		// ingress: register in router table
@@ -314,15 +307,13 @@ func (p *multiplexer) HandleRequest(protocol string, req net.Conn, target string
 
 // destory resources associated with the tun
 func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
+	SafeClose(tun)
 	if p.pool != nil {
 		p.pool.Remove(tun)
 	}
 	if p.router != nil {
 		p.router.cleanOfTun(tun)
 	}
-	// waitting for the end of egress goroutines
-	p.wg.Wait()
-	SafeClose(tun)
 	// no reference to tun
 	tun.cipher.Cleanup()
 }
@@ -420,7 +411,6 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 			// for c/s proxy, this only exist in server side
 		case FRAME_ACTION_OPEN:
 			router.preRegister(key)
-			p.wg.Add(1) // grab semaphore here
 			// ingress: connect to final destination
 			go p.connectToDest(frm, key, tun)
 
@@ -483,11 +473,6 @@ func sessionKey(tun *Conn, sid uint16) string {
 // Server: open a connection to destination by frame
 // then transmit data of dest to the tunnel
 func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
-	defer func() {
-		// release semaphore
-		p.wg.Done()
-		ex.Catch(recover(), nil)
-	}()
 	var (
 		dstConn net.Conn
 		err     error
@@ -627,7 +612,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 			}
 		}
 		// timeout cause of rechecking then open-signal in fastOpen
-		if er != nil && !(_fast_open && IsTimeout(er)) {
+		if tun.isClosed() || (er != nil && !(_fast_open && IsTimeout(er))) {
 			if er != io.EOF && DEBUG {
 				log.Infof("Read to the end of edge total=%d err=(%v)", tn, er)
 			}
