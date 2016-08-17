@@ -69,9 +69,9 @@ const sid_max uint32 = 0xffff
 var (
 	// [1, 0xfffe]
 	sid_seq      uint32
+	dialer       net.Dialer
 	bytePoolOnce sync.Once
 	bytePool     *bytepool.BytePool
-	dialer       *Dialer
 )
 
 var (
@@ -222,9 +222,9 @@ func (f *frame) free() {
 func initBytePool() {
 	bytePool = new(bytepool.BytePool)
 	bytePool.Init(time.Minute, 1<<20)
-	dialer = new(Dialer)
 	dialer.Timeout = time.Second * 3
-	dialer.DualStack = determineDualStack()
+	dialer.DualStack = false
+	//dialer.DualStack = determineDualStack()
 }
 
 // --------------------
