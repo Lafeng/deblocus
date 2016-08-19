@@ -2,6 +2,11 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.13.5970-beta 16/4/16
+- fix reconnecting issue #43
+- remove custom dialer
+- build with Go1.7
+
 ## 0.13.4780-beta 16/4/16
 - fix a potential invalid pointer
 - build with Go1.6.2
