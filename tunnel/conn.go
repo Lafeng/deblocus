@@ -3,7 +3,6 @@ package tunnel
 import (
 	"fmt"
 	"net"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
