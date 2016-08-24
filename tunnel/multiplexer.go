@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -314,8 +315,8 @@ func (p *multiplexer) onTunDisconnected(tun *Conn, handler event_handler) {
 	if p.router != nil {
 		p.router.cleanOfTun(tun)
 	}
-	// no reference to tun
-	tun.cipher.Cleanup()
+	// use finalizer to cleanup
+	runtime.SetFinalizer(tun, cleanupConn)
 }
 
 // This thread will listen on the tunnel, and process ingress data packets,
@@ -612,7 +613,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 			}
 		}
 		// timeout cause of rechecking then open-signal in fastOpen
-		if tun.isClosed() || (er != nil && !(_fast_open && IsTimeout(er))) {
+		if er != nil && !(_fast_open && IsTimeout(er)) {
 			if er != io.EOF && DEBUG {
 				log.Infof("Read to the end of edge total=%d err=(%v)", tn, er)
 			}

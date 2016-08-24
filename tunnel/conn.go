@@ -3,6 +3,7 @@ package tunnel
 import (
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -114,6 +115,13 @@ func (c *Conn) Update() {
 		}
 	} else {
 		atomic.StoreInt64(&c.priority.rank, 1e9)
+	}
+}
+
+func cleanupConn(c *Conn) {
+	if c != nil && c.cipher != nil {
+		c.cipher.Cleanup()
+		c.cipher = nil
 	}
 }
 
