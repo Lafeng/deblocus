@@ -37,6 +37,15 @@ const (
 	IDENTITY_SEP = "\x00"
 )
 
+const (
+	EFB_CODE_PRE_AUTH byte = 1
+)
+
+const (
+	EMSG_PRE_AUTH   = "Your clock is not in sync with the server, or your client credential is invalid."
+	EMSG_HIDDEN_EFB = "Maybe the connection was reset, " + EMSG_PRE_AUTH
+)
+
 var (
 	// for main package injection
 	VERSION    uint32
@@ -51,7 +60,9 @@ var (
 	INCONSISTENT_HASH    = exception.New("Inconsistent Hashsum")
 	INCOMPATIBLE_VERSION = exception.New("Incompatible Version")
 	UNRECOGNIZED_REQ     = exception.New("Unrecognized Request")
-	ERR_TIME_ERROR       = exception.New("Time Error")
+	ERR_PRE_AUTH_UNKNOWN = exception.New("Pre-auth failed")
+	ERR_PRE_AUTH         = exception.New(EMSG_PRE_AUTH)
+	ERR_HIDDEN_EFB       = exception.New(EMSG_HIDDEN_EFB)
 	ABORTED_ERROR        = exception.New("")
 )
 
@@ -70,7 +81,9 @@ func ReadFullByLen(len_inByte int, reader io.Reader) (buf []byte, err error) {
 	case 4:
 		buf = make([]byte, binary.BigEndian.Uint32(lb))
 	}
-	_, err = io.ReadFull(reader, buf)
+	if len(buf) > 0 {
+		_, err = io.ReadFull(reader, buf)
+	}
 	return
 }
 
@@ -135,17 +148,23 @@ func (n *d5cman) Connect(p *tunParams) (conn *Conn, err error) {
 		if exception.Catch(recover(), &err) {
 			SafeClose(rawConn)
 			if t, y := err.(*exception.Exception); y {
+				if t.Origin != nil {
+					t = t.Origin
+				}
+				var exitCode int
 				// must terminate
-				switch t.Origin {
-				case ERR_TIME_ERROR:
+				switch t {
+				case ERR_PRE_AUTH, ERR_PRE_AUTH_UNKNOWN, ERR_HIDDEN_EFB:
+					exitCode = 2
+				case INCOMPATIBLE_VERSION:
+					exitCode = 3
+				}
+				if exitCode > 0 {
 					line := string(bytes.Repeat([]byte{'+'}, 30))
 					log.Warningln(line)
-					log.Warningln("Maybe the connection was reset, your clock is not in sync with the server, or your client credential is invalid.")
-					log.Warningln(line)
-					os.Exit(2)
-				case INCOMPATIBLE_VERSION:
 					log.Warningln(err)
-					os.Exit(3)
+					log.Warningln(line)
+					os.Exit(exitCode)
 				}
 			}
 		}
@@ -230,13 +249,24 @@ func (n *d5cman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 	setRTimeout(conn)
 	dhk, err = ReadFullByLen(1, conn)
 	if err != nil {
-		// maybe: closed conn or reset by peer error caused by dbcHello
-		if IsClosedError(err) {
-			return nil, ERR_TIME_ERROR.Apply(NULL)
-		} else {
-			exception.Spawn(&err, "dh: read response")
-			return
+		if len(dhk) > 0 { // can recv error feedback
+			code, rt := parseErrorFeedback(dhk)
+			rTime := rt.Format(time.StampMilli)
+			switch code {
+			case EFB_CODE_PRE_AUTH:
+				err = ERR_PRE_AUTH.Apply("Remote Time " + rTime)
+			default:
+				err = ERR_PRE_AUTH_UNKNOWN.Apply("Remote Time " + rTime)
+			}
+
+		} else { // no error feedback OR network error occurred actually
+			if IsClosedError(err) {
+				err = ERR_HIDDEN_EFB
+			} else { // other unknown error
+				exception.Spawn(&err, "dh: read response")
+			}
 		}
+		return
 	}
 
 	setRTimeout(conn)
@@ -387,6 +417,11 @@ func (n *d5sman) Connect(conn *Conn, tcPool []uint64) (session *Session, err err
 					return n.resumeSession(conn)
 				}
 			}
+
+		} else if n.errFeedback { // can give error feedback
+			sendErrorFeedback(conn, EFB_CODE_PRE_AUTH)
+			log.Warningf("Failed to pre-auth client from=%s", n.clientAddr)
+			return nil, UNRECOGNIZED_REQ
 		}
 
 	} // then may be a prober
@@ -567,6 +602,26 @@ func (n *d5sman) deserializeIdentity(block []byte) (user, pass string, e error) 
 	}
 	user, pass = fields[0], fields[1]
 	return
+}
+
+func parseErrorFeedback(buf []byte) (code byte, rt time.Time) {
+	if len(buf) == 0xff && buf[0] == 0xee {
+		code = buf[1]
+		if rt.UnmarshalBinary(buf[3:18]) == nil {
+			return
+		}
+	}
+	panic(ERR_PRE_AUTH_UNKNOWN)
+}
+
+func sendErrorFeedback(conn net.Conn, code byte) {
+	var buf = make([]byte, 19)
+	buf[0] = 0xff
+	buf[1] = 0xee
+	buf[2] = code
+	ts, _ := time.Now().MarshalBinary()
+	copy(buf[4:], ts)
+	conn.Write(buf)
 }
 
 func randMinArray() []byte {

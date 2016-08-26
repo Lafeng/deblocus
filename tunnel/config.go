@@ -359,17 +359,19 @@ func (cman *ConfigMan) ParseClientConf() (conf *clientConf, err error) {
 
 // Server config definitions
 type serverConf struct {
-	Listen     string       `importable:":9008"`
-	Auth       string       `importable:"file://_USER_PASS_FILE_PATH_"`
-	Cipher     string       `importable:"AES128CTR"`
-	ServerName string       `importable:"_MY_SERVER"`
-	Parallels  int          `importable:"2"`
-	Verbose    int          `importable:"1"`
-	DenyDest   string       `importable:"OFF"`
-	AuthSys    auth.AuthSys `ini:"-"`
-	ListenAddr *net.TCPAddr `ini:"-"`
-	privateKey stdcrypto.PrivateKey
-	publicKey  stdcrypto.PublicKey
+	Listen        string       `importable:":9008"`
+	Auth          string       `importable:"file://_USER_PASS_FILE_PATH_"`
+	Cipher        string       `importable:"AES128CTR"`
+	ServerName    string       `importable:"_MY_SERVER"`
+	Parallels     int          `importable:"2"`
+	Verbose       int          `importable:"1"`
+	DenyDest      string       `importable:"OFF"`
+	ErrorFeedback string       `importable:"true"`
+	AuthSys       auth.AuthSys `ini:"-"`
+	ListenAddr    *net.TCPAddr `ini:"-"`
+	errFeedback   bool
+	privateKey    stdcrypto.PrivateKey
+	publicKey     stdcrypto.PublicKey
 }
 
 func (d *serverConf) validate() error {
@@ -409,6 +411,12 @@ func (d *serverConf) validate() error {
 			d.DenyDest = NULL
 		} else if !regexp.MustCompile("[A-Za-z]{2}").MatchString(d.DenyDest) {
 			return CONF_ERROR.Apply("DenyDest must be ISO3166-1 2-letter Country Code")
+		}
+	}
+	if len(d.ErrorFeedback) > 0 {
+		d.errFeedback, e = strconv.ParseBool(d.ErrorFeedback)
+		if e != nil {
+			return CONF_ERROR.Apply("ErrorFeedback")
 		}
 	}
 	return nil
