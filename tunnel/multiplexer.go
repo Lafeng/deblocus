@@ -479,6 +479,7 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		err     error
 		target  = string(frm.data)
 		denied  = false
+		router  *egressRouter
 	)
 	if p.filter != nil {
 		// denyDest filter
@@ -487,10 +488,16 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 	if !denied {
 		dstConn, err = dialer.Dial("tcp", target)
 	}
+	// check mux status to prevent mux.fields were cleaned
+	if atomic.LoadInt32(&p.status) >= 0 {
+		router = p.router
+	} else {
+		return
+	}
 	if err != nil || denied {
 		// can't accept
 		// remove it from router and clean buffer
-		p.router.removePreRegistered(key)
+		router.removePreRegistered(key)
 		if denied {
 			frm.action = FRAME_ACTION_OPEN_DENIED
 			log.Warningf("Denied request [%s] for %s\n", target, key)
@@ -502,7 +509,7 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 	} else {
 		// really register
 		dstConn.SetReadDeadline(ZERO_TIME)
-		edge := p.router.register(key, target, tun, dstConn, false) // write edge
+		edge := router.register(key, target, tun, dstConn, false) // write edge
 		if log.V(log.LV_SVR_OPEN) {
 			log.Infoln("OPEN", target, "for", key)
 		}
