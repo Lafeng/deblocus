@@ -241,6 +241,7 @@ type multiplexer struct {
 	pingCnt   int32 // received ping count
 	sRtt      int32
 	filter    Filterable
+	closeLock sync.Mutex
 	blacklist *lrucache.LRUCache
 }
 
@@ -280,6 +281,8 @@ func (p *multiplexer) destroy() {
 		}
 	}()
 	atomic.StoreInt32(&p.status, MUX_PENDING_CLOSE)
+	p.closeLock.Lock()
+	defer p.closeLock.Unlock()
 	p.router.destroy() // destroy queue
 	p.pool.destroy()
 	p.router = nil
@@ -482,7 +485,6 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		err     error
 		target  = string(frm.data)
 		denied  = false
-		router  *egressRouter
 	)
 	if p.filter != nil {
 		// denyDest filter
@@ -491,16 +493,19 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 	if !denied {
 		dstConn, err = dialer.Dial("tcp", target)
 	}
+
+	p.closeLock.Lock()
 	// check mux status to prevent mux.fields were cleaned
-	if atomic.LoadInt32(&p.status) >= 0 {
-		router = p.router
-	} else {
+	if atomic.LoadInt32(&p.status) < 0 {
+		p.closeLock.Unlock()
 		return
 	}
-	if err != nil || denied {
-		// can't accept
+
+	if err != nil || denied { // can't accept
 		// remove it from router and clean buffer
-		router.removePreRegistered(key)
+		p.router.removePreRegistered(key)
+		p.closeLock.Unlock()
+
 		if denied {
 			frm.action = FRAME_ACTION_OPEN_DENIED
 			log.Warningf("Denied request [%s] for %s\n", target, key)
@@ -509,15 +514,18 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 			log.Warningf("Cannot connect to [%s] for %s error: %s\n", target, key, err)
 		}
 		frameWriteHead(tun, frm)
-	} else {
-		// really register
+
+	} else { // accept and register really
 		dstConn.SetReadDeadline(ZERO_TIME)
-		edge := router.register(key, target, tun, dstConn, false) // write edge
+		var edge = p.router.register(key, target, tun, dstConn, false) // write edge
+		p.closeLock.Unlock()
+
 		if log.V(log.LV_SVR_OPEN) {
 			log.Infoln("OPEN", target, "for", key)
 		}
-		frm.action = FRAME_ACTION_OPEN_Y
+
 		// notify peer
+		frm.action = FRAME_ACTION_OPEN_Y
 		if frameWriteHead(tun, frm) == nil {
 			// ingress: transmit edge data to tunnel
 			p.relay(edge, tun, frm.sid)
