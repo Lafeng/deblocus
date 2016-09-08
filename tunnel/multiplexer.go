@@ -15,6 +15,7 @@ import (
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/glog"
 	"github.com/cloudflare/golibs/bytepool"
+	"github.com/cloudflare/golibs/lrucache"
 )
 
 const (
@@ -232,14 +233,15 @@ func initBytePool() {
 // multiplexer
 // --------------------
 type multiplexer struct {
-	isClient bool
-	pool     *ConnPool
-	router   *egressRouter
-	role     string
-	status   int32
-	pingCnt  int32 // received ping count
-	sRtt     int32
-	filter   Filterable
+	isClient  bool
+	pool      *ConnPool
+	router    *egressRouter
+	role      string
+	status    int32
+	pingCnt   int32 // received ping count
+	sRtt      int32
+	filter    Filterable
+	blacklist *lrucache.LRUCache
 }
 
 func newServerMultiplexer() *multiplexer {
@@ -256,9 +258,10 @@ func newServerMultiplexer() *multiplexer {
 func newClientMultiplexer() *multiplexer {
 	bytePoolOnce.Do(initBytePool)
 	m := &multiplexer{
-		isClient: true,
-		pool:     NewConnPool(),
-		role:     "CLT",
+		isClient:  true,
+		pool:      NewConnPool(),
+		role:      "CLT",
+		blacklist: lrucache.NewLRUCache(256),
 	}
 	m.router = newEgressRouter(m)
 	return m
@@ -527,9 +530,10 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 
 func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 	var (
-		buf  = bytePool.Get(FRAME_MAX_LEN)
-		code byte
-		src  = edge.conn
+		buf      = bytePool.Get(FRAME_MAX_LEN)
+		code     byte
+		src      = edge.conn
+		destHost = edge.dest[2:] // dest with a leading mark
 	)
 	defer func() {
 		// actively close then notify peer
@@ -558,8 +562,13 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		}
 	}()
 	if edge.active { // for client
+		// check blacklist
+		if _, y := p.blacklist.GetNotStale(destHost); y {
+			code = FRAME_ACTION_OPEN_DENIED
+			return
+		}
 		// send destination to server
-		_len := pack(buf, FRAME_ACTION_OPEN, sid, []byte(edge.dest[2:])) // dest with a leading mark
+		_len := pack(buf, FRAME_ACTION_OPEN, sid, []byte(destHost))
 		if frameWriteBuffer(tun, buf[:_len]) != nil {
 			SafeClose(tun)
 			return
@@ -596,9 +605,15 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 						log.Errorf("Waiting open-signal sid=%d timeout for %s\n", sid, edge.dest)
 					}
 					// timeout or open-signal received
-					if code == FRAME_ACTION_OPEN_Y {
-						_fast_open = false // fastopen finished
-					} else {
+					switch code {
+					case FRAME_ACTION_OPEN_Y:
+						// fastopen finished
+						_fast_open = false
+					case FRAME_ACTION_OPEN_DENIED:
+						// update blacklist
+						p.blacklist.Set(destHost, true, time.Now().Add(time.Hour))
+						return
+					default:
 						return
 					}
 				}
