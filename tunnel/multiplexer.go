@@ -50,7 +50,7 @@ const (
 
 const (
 	FAST_OPEN              = true
-	FAST_OPEN_BUF_MAX_SIZE = 1 << 15 // 32k
+	FAST_OPEN_BUF_MAX_SIZE = 1 << 16 // 64k
 )
 
 const (
@@ -241,7 +241,7 @@ type multiplexer struct {
 	pingCnt   int32 // received ping count
 	sRtt      int32
 	filter    Filterable
-	closeLock sync.Mutex
+	sLock     sync.Mutex
 	blacklist *lrucache.LRUCache
 }
 
@@ -281,8 +281,8 @@ func (p *multiplexer) destroy() {
 		}
 	}()
 	atomic.StoreInt32(&p.status, MUX_PENDING_CLOSE)
-	p.closeLock.Lock()
-	defer p.closeLock.Unlock()
+	p.sLock.Lock()
+	defer p.sLock.Unlock()
 	p.router.destroy() // destroy queue
 	p.pool.destroy()
 	p.router = nil
@@ -494,17 +494,17 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 		dstConn, err = dialer.Dial("tcp", target)
 	}
 
-	p.closeLock.Lock()
+	p.sLock.Lock()
 	// check mux status to prevent mux.fields were cleaned
 	if atomic.LoadInt32(&p.status) < 0 {
-		p.closeLock.Unlock()
+		p.sLock.Unlock()
 		return
 	}
 
 	if err != nil || denied { // can't accept
 		// remove it from router and clean buffer
 		p.router.removePreRegistered(key)
-		p.closeLock.Unlock()
+		p.sLock.Unlock()
 
 		if denied {
 			frm.action = FRAME_ACTION_OPEN_DENIED
@@ -518,7 +518,7 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 	} else { // accept and register really
 		dstConn.SetReadDeadline(ZERO_TIME)
 		var edge = p.router.register(key, target, tun, dstConn, false) // write edge
-		p.closeLock.Unlock()
+		p.sLock.Unlock()
 
 		if log.V(log.LV_SVR_OPEN) {
 			log.Infoln("OPEN", target, "for", key)
@@ -539,9 +539,9 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 	var (
 		buf      = bytePool.Get(FRAME_MAX_LEN)
-		code     byte
-		src      = edge.conn
 		destHost = edge.dest[2:] // dest with a leading mark
+		src      = edge.conn
+		code     byte
 	)
 	defer func() {
 		// actively close then notify peer
@@ -559,20 +559,17 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 			closeR(src)
 		} else { // remote open failed
 			SafeClose(src)
-			if log.V(log.LV_REQ) {
-				switch code {
-				case FRAME_ACTION_OPEN_N:
-					log.Infof("Remote open %s failed", edge.dest)
-				case FRAME_ACTION_OPEN_DENIED:
-					log.Infof("Request %s was denied by remote", edge.dest)
-				}
-			}
 		}
 	}()
-	if edge.active { // for client
+
+	// for client
+	if edge.active {
 		// check blacklist
 		if _, y := p.blacklist.GetNotStale(destHost); y {
 			code = FRAME_ACTION_OPEN_DENIED
+			if log.V(log.LV_REQ) {
+				log.Infof("Request %s was denied", edge.dest)
+			}
 			return
 		}
 		// send destination to server
@@ -583,57 +580,70 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		}
 	}
 
+	// return true if the request must be aborted
+	var checkOpenSignal = func(p_fastOpen *bool, code byte) bool {
+		switch code {
+		case FRAME_ACTION_OPEN_Y:
+			// fastopen finished
+			*p_fastOpen = false
+			return false
+
+		case FRAME_ACTION_OPEN_DENIED:
+			// update blacklist
+			p.blacklist.Set(destHost, true, time.Now().Add(time.Hour))
+			if log.V(log.LV_REQ) {
+				log.Infof("Request %s was denied by remote", edge.dest)
+			}
+
+		case FRAME_ACTION_OPEN_N:
+			if log.V(log.LV_REQ) {
+				log.Infof("Remote open %s failed", edge.dest)
+			}
+		}
+		return true
+	}
+
 	var (
 		tn         int // total
 		nr         int
 		er         error
 		_fast_open = p.isClient
+		dataBuf    = buf[FRAME_HEADER_LEN:]
 	)
 	for {
 		if _fast_open {
-			// In fastOpening, the timeout will give rise to recheck fastopen state
-			src.SetReadDeadline(time.Now().Add(READ_TMO_IN_FASTOPEN))
-			received := false
 			select {
-			case code = <-edge.ready:
-				received = true
-			default:
-			}
-			if received {
-				if code == FRAME_ACTION_OPEN_Y {
-					_fast_open = false // fastopen finished
-				} else {
+			case code = <-edge.ready: // received
+				if checkOpenSignal(&_fast_open, code) {
 					return
 				}
-			} else { // ready-chan was not ready
-				if tn >= FAST_OPEN_BUF_MAX_SIZE { // must waiting for signal
+
+			default: // ready-chan was not ready
+				// buffer too large then must wait for signal
+				if tn >= FAST_OPEN_BUF_MAX_SIZE {
 					select {
 					case code = <-edge.ready:
 					case <-time.After(WAITING_OPEN_TIMEOUT):
 						log.Errorf("Waiting open-signal sid=%d timeout for %s\n", sid, edge.dest)
 					}
 					// timeout or open-signal received
-					switch code {
-					case FRAME_ACTION_OPEN_Y:
-						// fastopen finished
-						_fast_open = false
-					case FRAME_ACTION_OPEN_DENIED:
-						// update blacklist
-						p.blacklist.Set(destHost, true, time.Now().Add(time.Hour))
-						return
-					default:
+					if checkOpenSignal(&_fast_open, code) {
 						return
 					}
 				}
 			}
-			// Received signal-y then finish fastopen
+
+			// fastopen has been finished
 			if !_fast_open {
 				// read forever
 				src.SetReadDeadline(ZERO_TIME)
+			} else {
+				// In fastOpening, use timeout to recheck fastopen state
+				src.SetReadDeadline(time.Now().Add(READ_TMO_IN_FASTOPEN))
 			}
 		}
 
-		nr, er = src.Read(buf[FRAME_HEADER_LEN:])
+		nr, er = src.Read(dataBuf)
 		if nr > 0 {
 			tn += nr
 			pack(buf, FRAME_ACTION_DATA, sid, uint16(nr))
