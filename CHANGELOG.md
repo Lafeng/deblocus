@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Lafeng/deblocus](https://github.com/Lafeng/deblocus).
 
+## 0.13.6250-beta 16/9/16
+- fix crash issue in server side
+- add cache for denied targets
+- add pre-auth error feedback
+- build with Go1.7.1
+
 ## 0.13.5970-beta 16/4/16
 - fix reconnecting issue #43
 - remove custom dialer
