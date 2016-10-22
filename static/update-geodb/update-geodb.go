@@ -146,7 +146,6 @@ func buildGeoDB() ([]byte, []byte, []byte) {
 `
 
 var footer = `
-
 func decompress(b []byte, lens int) []byte {
 	zr, e := zlib.NewReader(bytes.NewReader(b))
 	if e != nil {
