@@ -5,32 +5,32 @@
 		{
 			"checksumSHA1": "usVa/Y2ussWnG0DvjQyb8mNIRYo=",
 			"path": "github.com/cloudflare/golibs/bytepool",
-			"revision": "5dc3e4a42ae09abdc41c37ab3dad35a6b4d8fd9b",
-			"revisionTime": "2016-03-14T08:56:29Z"
+			"revision": "1152ff83e2196a3dbc9d5d59fcf91d1de1624417",
+			"revisionTime": "2016-09-05T10:01:43Z"
 		},
 		{
-			"checksumSHA1": "hw9zjMNkIXagO6I9XenyFqbCQOU=",
+			"checksumSHA1": "BfEO33iOn7WG/+yNXETj2ze64rs=",
 			"path": "github.com/codegangsta/cli",
-			"revision": "11c134509d89c2018675f369955218a180dc7428",
-			"revisionTime": "2016-07-16T16:11:36Z"
+			"revision": "55f715e28c46073d0e217e2ce8eb46b0b45e3db6",
+			"revisionTime": "2016-10-06T03:53:53Z"
 		},
 		{
-			"checksumSHA1": "XF9y8gdmQBB4WuO3gGf1c8CNnnM=",
+			"checksumSHA1": "xqVDKHGnakGlcRhmWd1j9JYmfLc=",
 			"path": "github.com/dchest/siphash",
-			"revision": "6d8617816bb5d8268011ffbfb8720f17ce9af63c",
-			"revisionTime": "2015-10-25T05:24:29Z"
+			"revision": "4ebf1de738443ea7f45f02dc394c4df1942a126d",
+			"revisionTime": "2016-08-31T15:17:26Z"
 		},
 		{
-			"checksumSHA1": "ce2QegjKgslVfAicMRgHSjeygiI=",
+			"checksumSHA1": "cVyhKIRI2gQrgpn5qrBeAqErmWM=",
 			"path": "github.com/go-ini/ini",
-			"revision": "cf53f9204df4fbdd7ec4164b57fa6184ba168292",
-			"revisionTime": "2016-07-08T17:31:50Z"
+			"revision": "6e4869b434bd001f6983749881c7ead3545887d8",
+			"revisionTime": "2016-08-27T06:11:18Z"
 		},
 		{
-			"checksumSHA1": "6nmAJBw2phU9MUmkUnqFvbO5urg=",
+			"checksumSHA1": "g+afVQQVopBLiLB5pFZp/8s6aBs=",
 			"path": "github.com/kardianos/osext",
-			"revision": "29ae4ffbc9a6fe9fb2bc5029050ce6996ea1d3bc",
-			"revisionTime": "2015-12-22T15:32:29Z"
+			"revision": "c2c54e542fb797ad986b31721e1baedf214ca413",
+			"revisionTime": "2016-08-11T00:15:26Z"
 		},
 		{
 			"checksumSHA1": "MF8JV/reLfgsbAA1uN7cEWjHI6A=",
