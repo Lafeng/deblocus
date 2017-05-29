@@ -283,16 +283,24 @@ func (cman *ConfigMan) CreateClientConfig(file string, user string, addonAddr st
 	}
 	defer f.Sync()
 
-	conf := new(clientConf)
+	var sAddr string
+	var conf = new(clientConf)
+	var newIni = ini.Empty()
 	setFieldsDefaultValue(conf)
-	ii := ini.Empty()
 	// client section
-	dc, _ := ii.NewSection(CF_CLIENT)
+	dc, _ := newIni.NewSection(CF_CLIENT)
 	dc.Comment = _CLT_CONF_HEADER[1:]
 	dc.ReflectFrom(conf)
 	// prepare server addr
 	if addonAddr == NULL {
-		cman.sConf.Listen = "localhost:9008"
+		sAddr = findFirstUnicastAddress()
+		if sAddr == NULL {
+			sAddr = "localhost:9008"
+		} else {
+			sPort := findServerListenPort(cman.sConf.Listen)
+			sAddr = fmt.Sprint(sAddr, ":", sPort)
+		}
+		cman.sConf.Listen = sAddr
 	} else {
 		err = IsValidHost(addonAddr)
 		cman.sConf.Listen = addonAddr
@@ -300,11 +308,12 @@ func (cman *ConfigMan) CreateClientConfig(file string, user string, addonAddr st
 			return
 		}
 	}
-	err = cman.sConf.generateConnInfoOfUser(ii, user)
+	err = cman.sConf.generateConnInfoOfUser(newIni, user)
 	if err == nil {
-		_, err = ii.WriteTo(f)
+		_, err = newIni.WriteTo(f)
 		if addonAddr == NULL {
-			fmt.Fprint(f, _NOTICE_MOD_ADDR)
+			var notice = strings.Replace(_NOTICE_MOD_ADDR, "ADDR", sAddr, -1)
+			fmt.Fprint(f, notice)
 		}
 	}
 	return
@@ -553,6 +562,28 @@ func setFieldsDefaultValue(str interface{}) {
 	}
 }
 
+func findServerListenPort(addr string) int {
+	n, e := net.ResolveTCPAddr("tcp", addr)
+	if e != nil {
+		return 9008
+	}
+	return n.Port
+}
+
+func findFirstUnicastAddress() string {
+	nic, e := net.InterfaceAddrs()
+	if nic != nil && e == nil {
+		for _, v := range nic {
+			if i, _ := v.(*net.IPNet); i != nil {
+				if i.IP.IsGlobalUnicast() {
+					return i.IP.String()
+				}
+			}
+		}
+	}
+	return NULL
+}
+
 const _SER_CONF_HEADER = `
 # ---------------------------------------------
 # deblocus server configuration
@@ -579,6 +610,6 @@ const _COMMENTED_PAC_SECTION = `# Optional
 
 const _NOTICE_MOD_ADDR = `
 # +-----------------------------------------------------------------+
-# | May need to modify the "localhost:9008" to your public address. |
+#   May need to modify the "ADDR" to your public address.
 # +-----------------------------------------------------------------+
 `
