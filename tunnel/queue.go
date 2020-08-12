@@ -77,6 +77,15 @@ func (e *edgeConn) bitwiseCompareAndSet(mask uint32) bool {
 	return false
 }
 
+// send msg to the ready chan then close it
+func (e *edgeConn) sendThenClose(val uint8) {
+	defer func() { // catch exception
+		_ = recover()
+	}()
+	e.ready <- val
+	close(e.ready)
+}
+
 // ------------------------------
 // EgressRouter
 // ------------------------------

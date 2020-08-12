@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/codegangsta/cli"
+	"github.com/urfave/cli/v2"
 )
 
 func setupCommands() *cli.App {
@@ -14,47 +14,53 @@ func setupCommands() *cli.App {
 	app.HideVersion = true
 	//app.HideHelp = true
 	globalOptions := []cli.Flag{
-		cli.StringFlag{
-			Name:        "config, c",
+		&cli.StringFlag{
+			Name:        "config",
+			Aliases:     []string{"c"},
 			Usage:       "indicate Config path if it in nontypical path",
 			Destination: &context.configFile,
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name:        "v",
 			Usage:       "Verbose log level",
 			Destination: &context.vFlag,
 		},
-		cli.StringFlag{
-			Name:        "logdir, ld",
+		&cli.StringFlag{
+			Name:        "logdir",
+			Aliases:     []string{"ld"},
 			Usage:       "write log into the directory",
 			Destination: &context.logdir,
 		},
-		cli.BoolFlag{
-			Name:        "version, V",
+		&cli.BoolFlag{
+			Name:        "version",
+			Aliases:     []string{"V"},
 			Usage:       "show version",
 			Destination: &context.showVer,
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:        "debug",
 			Usage:       "debug",
 			Destination: &context.debug,
 		},
 	}
 	subOptions := []cli.Flag{
-		cli.StringFlag{
-			Name:  "type, t",
-			Usage: "Specify type of key to create.",
+		&cli.StringFlag{
+			Name:    "type",
+			Aliases: []string{"t"},
+			Usage:   "Specify type of key to create.",
 		},
-		cli.StringFlag{
-			Name:  "output, o",
-			Usage: "Output file",
+		&cli.StringFlag{
+			Name:    "output",
+			Aliases: []string{"o"},
+			Usage:   "Output file",
 		},
-		cli.StringFlag{
-			Name:  "addr, a",
-			Usage: "Public Address",
+		&cli.StringFlag{
+			Name:    "addr",
+			Aliases: []string{"a"},
+			Usage:   "Public Address",
 		},
 	}
-	app.Commands = []cli.Command{
+	app.Commands = []*cli.Command{
 		{
 			Name:        "csc",
 			Usage:       "Create server config template",

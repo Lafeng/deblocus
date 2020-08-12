@@ -181,6 +181,12 @@ func detectProtocol(pbconn *pushbackInputStream) (int, error) {
 	defer pbconn.Unread(b)
 	var head = b[0]
 
+	if head != 5 {
+		var t = make([]byte, 100)
+		pbconn.Read(t)
+		dumpHex("proto head", t)
+	}
+
 	switch {
 	case head == 5:
 		return PROT_SOCKS5, nil

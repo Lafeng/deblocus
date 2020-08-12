@@ -427,8 +427,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 				if log.V(log.LV_ACT_FRM) {
 					log.Infoln(p.role, "received OPEN_x", frm)
 				}
-				edge.ready <- frm.action
-				close(edge.ready)
+				edge.sendThenClose(frm.action)
 			} else {
 				if log.V(log.LV_WARN) {
 					log.Warningln("Peer sent OPEN_x to an unexisted socket.", key, frm)

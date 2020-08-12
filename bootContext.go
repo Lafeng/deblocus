@@ -12,7 +12,7 @@ import (
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/glog"
 	. "github.com/Lafeng/deblocus/tunnel"
-	"github.com/codegangsta/cli"
+	"github.com/urfave/cli/v2"
 )
 
 var (
@@ -85,7 +85,7 @@ func (ctx *bootContext) cscCommandHandler(c *cli.Context) error {
 func (ctx *bootContext) cccCommandHandler(c *cli.Context) error {
 	// need server config
 	ctx.initConfig(SR_SERVER)
-	if args := c.Args(); len(args) == 1 {
+	if args := c.Args(); args.Len() == 1 {
 		user := args.Get(0)
 		pubAddr := c.String("addr")
 		output := getOutputArg(c)
@@ -105,7 +105,7 @@ func (ctx *bootContext) keyInfoCommandHandler(c *cli.Context) error {
 }
 
 func (ctx *bootContext) startCommandHandler(c *cli.Context) error {
-	if len(c.Args()) > 0 {
+	if c.Args().Len() > 0 {
 		fatalAndCommandHelp(c)
 	}
 	// option as pseudo-command: help, version
@@ -264,7 +264,7 @@ func fatalError(err error, args ...interface{}) {
 
 func fatalAndCommandHelp(c *cli.Context) {
 	// app root
-	if c.Parent() == nil {
+	if c.Command == nil {
 		cli.HelpPrinter(os.Stderr, cli.AppHelpTemplate, c.App)
 	} else { // command
 		cli.HelpPrinter(os.Stderr, cli.CommandHelpTemplate, c.Command)
