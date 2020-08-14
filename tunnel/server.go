@@ -261,7 +261,7 @@ func NewServer(cman *ConfigMan) *Server {
 	return s
 }
 
-func (t *Server) TunnelServe(raw *net.TCPConn) {
+func (t *Server) TunnelServe(raw net.Conn) {
 	var conn = NewConn(raw, nullCipherKit)
 	defer func() {
 		ex.Catch(recover(), nil)

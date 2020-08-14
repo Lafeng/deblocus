@@ -132,9 +132,19 @@ func (i *idler) newRound(tun *Conn) {
 	} */
 }
 
-func (i *idler) consumeError(er error) uint {
+func (i *idler) consumeError(err error) uint {
 	if i.enabled {
-		if netErr, y := er.(net.Error); y && netErr.Timeout() {
+		var timeoutError bool
+		var netError, ok = err.(net.Error)
+		if ok { // tcp timeout
+			timeoutError = netError.Timeout()
+		} else {
+			// kcp: sess.go L47
+			// errTimeout          = errors.New("timeout")
+			timeoutError = err.Error() == "timeout"
+		}
+
+		if timeoutError {
 			if i.waiting {
 				return ERR_PING_TIMEOUT
 			} else {

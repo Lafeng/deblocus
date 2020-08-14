@@ -42,6 +42,11 @@ const (
 )
 
 const (
+	KCP_FEC_DATASHARD   = 10
+	KCP_FEC_PARITYSHARD = 3
+)
+
+const (
 	EMSG_PRE_AUTH   = "Your clock is not in sync with the server, or your client credential is invalid."
 	EMSG_HIDDEN_EFB = "Maybe the connection was reset, " + EMSG_PRE_AUTH
 )
@@ -135,10 +140,10 @@ const (
 // d5 client handshake protocol
 //
 type d5cman struct {
-	*connectionInfo
-	dhKey    crypto.DHKE
-	dbcHello []byte
-	sRand    []byte
+	transport *Transport
+	dhKey     crypto.DHKE
+	dbcHello  []byte
+	sRand     []byte
 }
 
 func (n *d5cman) Connect(p *tunParams) (conn *Conn, err error) {
@@ -169,7 +174,7 @@ func (n *d5cman) Connect(p *tunParams) (conn *Conn, err error) {
 			}
 		}
 	}()
-	rawConn, err = net.DialTimeout("tcp", n.sAddr, GENERAL_SO_TIMEOUT)
+	rawConn, err = n.transport.Dail()
 	n.dhKey, _ = crypto.NewDHKey(DH_METHOD)
 	if err != nil {
 		return
@@ -191,19 +196,19 @@ func (n *d5cman) Connect(p *tunParams) (conn *Conn, err error) {
 		return
 	}
 	p.cipherFactory = cf
-	conn.SetId(n.provider, false)
+	conn.SetId(n.transport.provider, false)
 	return
 }
 
 func (n *d5cman) ResumeSession(p *tunParams, token []byte) (conn *Conn, err error) {
 	var rawConn net.Conn
-	rawConn, err = net.DialTimeout("tcp", n.sAddr, GENERAL_SO_TIMEOUT)
+	rawConn, err = n.transport.Dail()
 	if err != nil {
 		exception.Spawn(&err, "resume: connnecting")
 		return
 	}
 	conn = NewConn(rawConn, nullCipherKit)
-	obf := makeDbcHello(TYPE_RES, preSharedKey(n.sPubKey))
+	obf := makeDbcHello(TYPE_RES, preSharedKey(n.transport.pubKey))
 	w := newMsgWriter()
 	w.WriteMsg(obf)
 	w.WriteMsg(token)
@@ -215,7 +220,7 @@ func (n *d5cman) ResumeSession(p *tunParams, token []byte) (conn *Conn, err erro
 	}
 
 	conn.SetupCipher(p.cipherFactory, token)
-	conn.SetId(n.provider, false)
+	conn.SetId(n.transport.provider, false)
 	return conn, nil
 }
 
@@ -223,7 +228,7 @@ func (n *d5cman) ResumeSession(p *tunParams, token []byte) (conn *Conn, err erro
 // dbcHello~256 | dhPubLen~2 | dhPub~?
 func (n *d5cman) requestDHExchange(conn *Conn) (err error) {
 	// obfuscated header
-	obf := makeDbcHello(TYPE_NEW, preSharedKey(n.sPubKey))
+	obf := makeDbcHello(TYPE_NEW, preSharedKey(n.transport.pubKey))
 	w := newMsgWriter().WriteMsg(obf)
 	if len(obf) > DPH_P2 {
 		n.dbcHello = obf[DPH_P2:]
@@ -276,7 +281,7 @@ func (n *d5cman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 		return
 	}
 
-	if !DSAVerify(n.sPubKey, dhkSign, dhk) {
+	if !DSAVerify(n.transport.pubKey, dhkSign, dhk) {
 		// MITM ?
 		return nil, VALIDATION_FAILED
 	}
@@ -294,7 +299,7 @@ func (n *d5cman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 	}
 
 	// setup cipher
-	cf = NewCipherFactory(n.cipher, key, n.dbcHello)
+	cf = NewCipherFactory(n.transport.cipher, key, n.dbcHello)
 	conn.SetupCipher(cf, n.sRand)
 	return
 }
@@ -587,7 +592,7 @@ func (n *d5sman) authenticate(conn *Conn, session *Session) error {
 }
 
 func (n *d5cman) serializeIdentity() []byte {
-	identity := n.user + IDENTITY_SEP + n.pass
+	identity := n.transport.user + IDENTITY_SEP + n.transport.pass
 	if len(identity) > 255 {
 		panic("identity too long")
 	}

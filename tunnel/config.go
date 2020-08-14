@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
+
 	"os"
 	"os/user"
 	"path/filepath"
@@ -29,6 +29,7 @@ const (
 	CF_SERVER     = "deblocus.Server"
 	CF_URL        = "URL"
 	CF_KEY        = "Key"
+	CF_TRANSPORT  = "Transport"
 	CF_CRYPTO     = "Crypto"
 	CF_PRIVKEY    = "PrivateKey"
 	CF_CREDENTIAL = "Credential"
@@ -160,6 +161,7 @@ func (cman *ConfigMan) ListenAddr(expectedRole ServerRole) *net.TCPAddr {
 	return nil
 }
 
+// export client ini
 func (cman *ConfigMan) KeyInfo(expectedRole ServerRole) string {
 	var buf = new(bytes.Buffer)
 	if expectedRole&SR_SERVER != 0 {
@@ -169,7 +171,7 @@ func (cman *ConfigMan) KeyInfo(expectedRole ServerRole) string {
 		fmt.Fprintln(buf, "  fingerprint:", FingerprintOfKey(key))
 	}
 	if expectedRole&SR_CLIENT != 0 {
-		key := cman.cConf.connInfo.sPubKey
+		key := cman.cConf.transport.pubKey
 		fmt.Fprintln(buf, "Credential Key in", cman.filepath)
 		fmt.Fprintln(buf, "         type:", NameOfKey(key))
 		fmt.Fprintln(buf, "  fingerprint:", FingerprintOfKey(key))
@@ -179,94 +181,33 @@ func (cman *ConfigMan) KeyInfo(expectedRole ServerRole) string {
 
 // client config definitions
 type clientConf struct {
-	Listen     string       `importable:":9009"`
-	Verbose    int          `importable:"1"`
+	Listen     string `importable:":9009"`
+	Verbose    int    `importable:"1"`
+	pacFile    string
 	ListenAddr *net.TCPAddr `ini:"-"`
-	connInfo   *connectionInfo
+	transport  *Transport
 }
 
 func (c *clientConf) validate() error {
-	if c.connInfo == nil {
+	if c.transport == nil {
 		return CONF_MISS.Apply("Not found credential")
 	}
 	if c.Listen == NULL {
 		return CONF_MISS.Apply("Listen")
 	}
-	a, e := net.ResolveTCPAddr("tcp", c.Listen)
+	addr, e := net.ResolveTCPAddr("tcp", c.Listen)
 	if e != nil {
 		return LOCAL_BIND_ERROR.Apply(e)
 	}
-	pkType := NameOfKey(c.connInfo.sPubKey)
-	if pkType != c.connInfo.pkType {
+	pkType := NameOfKey(c.transport.pubKey)
+	if pkType != c.transport.pubKeyType {
 		return CONF_ERROR.Apply(pkType)
 	}
-	if c.connInfo.pacFile != NULL && IsNotExist(c.connInfo.pacFile) {
-		return CONF_ERROR.Apply("File Not Found " + c.connInfo.pacFile)
+	if c.pacFile != NULL && IsNotExist(c.pacFile) {
+		return CONF_ERROR.Apply("File Not Found " + c.pacFile)
 	}
-	c.ListenAddr = a
+	c.ListenAddr = addr
 	return nil
-}
-
-type connectionInfo struct {
-	sAddr    string
-	provider string
-	cipher   string
-	user     string
-	pass     string
-	pkType   string
-	pacFile  string
-	sPubKey  stdcrypto.PublicKey
-	rawURL   string
-}
-
-func (d *connectionInfo) RemoteName() string {
-	if d.provider != NULL {
-		return d.provider
-	} else {
-		return d.sAddr
-	}
-}
-
-func newConnectionInfo(uri string) (*connectionInfo, error) {
-	url, err := url.Parse(uri)
-	if err != nil {
-		return nil, err
-	}
-	if url.Scheme != "d5" {
-		return nil, CONF_ERROR.Apply(url.Scheme)
-	}
-
-	_, err = net.ResolveTCPAddr("tcp", url.Host)
-	if err != nil {
-		return nil, HOST_UNREACHABLE.Apply(err)
-	}
-	var tmp string
-	var info = connectionInfo{sAddr: url.Host}
-	if len(url.Path) > 1 {
-		info.provider, tmp = SubstringBefore(url.Path[1:], "=")
-	}
-	if info.provider == NULL {
-		return nil, CONF_MISS.Apply("Provider")
-	}
-
-	info.pkType, info.cipher = SubstringBefore(tmp, "/")
-	_, err = GetAvailableCipher(info.cipher)
-	if err != nil {
-		return nil, err
-	}
-
-	user := url.User
-	if user == nil || user.Username() == NULL {
-		return nil, CONF_MISS.Apply("user")
-	}
-	passwd, ok := user.Password()
-	if !ok || passwd == NULL {
-		return nil, CONF_MISS.Apply("passwd")
-	}
-	info.user = user.Username()
-	info.pass = passwd
-	info.rawURL = uri
-	return &info, nil
 }
 
 // public for external handler
@@ -320,49 +261,64 @@ func (cman *ConfigMan) CreateClientConfig(file string, user string, addonAddr st
 }
 
 // public for external
-func (cman *ConfigMan) ParseClientConf() (conf *clientConf, err error) {
+func (cman *ConfigMan) ParseClientConf() (cli *clientConf, err error) {
 	ii := cman.iniInstance
 	secDc, err := ii.GetSection(CF_CLIENT)
 	if err != nil {
 		return
 	}
-	conf = new(clientConf)
-	err = secDc.MapTo(conf)
+
+	cli = new(clientConf)
+	err = secDc.MapTo(cli)
 	if err != nil {
 		return
 	}
-	cr, err := ii.GetSection(CF_CREDENTIAL)
+
+	credSec, err := ii.GetSection(CF_CREDENTIAL)
 	if err != nil {
 		return
 	}
-	url, err := cr.GetKey(CF_URL)
+	url, err := credSec.GetKey(CF_URL)
 	if err != nil {
 		return
 	}
-	connInfo, err := newConnectionInfo(url.String())
+
+	transport, err := newTransport(url.String())
 	if err != nil {
 		return
 	}
-	pubkeyObj, err := cr.GetKey(CF_KEY)
+
+	pubkeyObj, err := credSec.GetKey(CF_KEY)
 	if err != nil {
 		return
 	}
+
 	pubkeyBytes, err := base64.StdEncoding.DecodeString(pubkeyObj.String())
 	if err != nil {
 		return
 	}
+
 	pubkey, err := UnmarshalPublicKey(pubkeyBytes)
 	if err != nil {
 		return
 	}
+
 	secPac, _ := ii.GetSection(CF_PAC)
 	if secPac != nil && secPac.Haskey(CF_FILE) {
 		pacFile, _ := secPac.GetKey(CF_FILE)
-		connInfo.pacFile = pacFile.String()
+		cli.pacFile = pacFile.String()
 	}
-	connInfo.sPubKey = pubkey
-	conf.connInfo = connInfo
-	err = conf.validate()
+	transport.pubKey = pubkey
+	cli.transport = transport
+
+	if transportKey, err := credSec.GetKey(CF_TRANSPORT); err == nil {
+		err = transport.parseTransport(transportKey.String())
+		if err != nil {
+			return cli, err
+		}
+	}
+
+	err = cli.validate()
 	return
 }
 
@@ -512,7 +468,7 @@ func (d *serverConf) generateConnInfoOfUser(ii *ini.File, user string) error {
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("d5://%s:%s@%s/%s=%s/%s", u.Name, u.Pass, d.Listen, d.ServerName, NameOfKey(d.publicKey), d.Cipher)
+	url := fmt.Sprintf("d5://%s:%s@%s/%s/%s/%s", u.Name, u.Pass, d.Listen, d.ServerName, NameOfKey(d.publicKey), d.Cipher)
 	sec, _ := ii.NewSection(CF_CREDENTIAL)
 	sec.NewKey(CF_URL, url)
 	sec.NewKey(CF_KEY, base64.StdEncoding.EncodeToString(keyBytes))

@@ -30,6 +30,7 @@ const (
 )
 
 const (
+	PROT_SOCKS4  = 0
 	PROT_UNKNOWN = 1
 	PROT_SOCKS5  = 2
 	PROT_HTTP    = 3
@@ -181,22 +182,25 @@ func detectProtocol(pbconn *pushbackInputStream) (int, error) {
 	defer pbconn.Unread(b)
 	var head = b[0]
 
-	if head != 5 {
-		var t = make([]byte, 100)
-		pbconn.Read(t)
-		dumpHex("proto head", t)
-	}
-
+	var proto int
 	switch {
 	case head == 5:
-		return PROT_SOCKS5, nil
+		proto = PROT_SOCKS5
 	case head >= 'A' && head <= 'z':
-		return PROT_HTTP, nil
+		proto = PROT_HTTP
 	case head == 4: // socks4, socks4a
-		return PROT_UNKNOWN, nil
+		proto = PROT_SOCKS4
 	default:
-		return PROT_UNKNOWN, nil
+		proto = PROT_UNKNOWN
 	}
+
+	if DEBUG && proto == PROT_UNKNOWN {
+		var t = make([]byte, 100)
+		copy(t, b)
+		pbconn.Read(t[2:])
+		dumpHex("proto head", t)
+	}
+	return proto, nil
 }
 
 func httpProxyHandshake(conn *pushbackInputStream) (proto int, target string, err error) {
@@ -283,8 +287,8 @@ func (c *Client) localServlet(conn net.Conn, reqUri string) {
 
 	switch reqUri {
 	case "/wpad.dat":
-		if c.connInfo.pacFile != NULL { // has pac setting
-			pacFile, info, err := openReadOnlyFile(c.connInfo.pacFile)
+		if c.pacFile != NULL { // has pac setting
+			pacFile, info, err := openReadOnlyFile(c.pacFile)
 			if err != nil {
 				log.Errorln("Read PAC file", err)
 				goto error404
@@ -402,7 +406,7 @@ func buildMainPageData(c *Client) interface{} {
 		Round:      atomic.LoadInt32(&c.round),
 		Ready:      c.IsReady(),
 		AvgRtt:     rtt,
-		Connection: c.connInfo.rawURL,
+		Connection: c.transport.rawURL,
 	}
 	if data.Round > 0 {
 		data.Round--

@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	ex "github.com/Lafeng/deblocus/exception"
 	log "github.com/Lafeng/deblocus/glog"
 	. "github.com/Lafeng/deblocus/tunnel"
 	"github.com/urfave/cli/v2"
+	kcp "github.com/xtaci/kcp-go/v5"
 )
 
 var (
@@ -32,6 +34,7 @@ type bootContext struct {
 	showVer    bool
 	vSpecified bool
 	vFlag      int
+	signals    int32
 	cman       *ConfigMan
 	components []Component
 	closeable  []io.Closer
@@ -116,11 +119,15 @@ func (ctx *bootContext) startCommandHandler(c *cli.Context) error {
 
 	role := ctx.initConfig(SR_AUTO)
 	if role&SR_SERVER != 0 {
-		go ctx.startServer()
+		log.Infoln(versionString())
+		go ctx.startServer1()
+		go ctx.startServer2()
 	}
+
 	if role&SR_CLIENT != 0 {
 		go ctx.startClient()
 	}
+
 	waitSignal()
 	return nil
 }
@@ -159,10 +166,9 @@ func (ctx *bootContext) startClient() {
 	}
 }
 
-func (ctx *bootContext) startServer() {
-	defer func() {
-		sigChan <- Bye
-	}()
+// start TCP Server
+func (ctx *bootContext) startServer1() {
+	defer ctx.serverOffline()
 	var (
 		conn *net.TCPConn
 		ln   *net.TCPListener
@@ -170,15 +176,12 @@ func (ctx *bootContext) startServer() {
 	)
 
 	server := NewServer(ctx.cman)
-	addr := ctx.cman.ListenAddr(SR_SERVER)
-
-	ln, err = net.ListenTCP("tcp", addr)
+	ln, err = net.ListenTCP("tcp", server.ListenAddr)
 	fatalError(err)
 	defer ln.Close()
 
 	ctx.register(server, ln)
-	log.Infoln(versionString())
-	log.Infoln("Server is listening on", addr)
+	log.Infoln("Server is listening on", ln.Addr())
 
 	for {
 		conn, err = ln.AcceptTCP()
@@ -187,6 +190,39 @@ func (ctx *bootContext) startServer() {
 		} else {
 			SafeClose(conn)
 		}
+	}
+}
+
+// start UDP Server
+func (ctx *bootContext) startServer2() {
+	defer ctx.serverOffline()
+	var (
+		conn *kcp.UDPSession
+		ln   *kcp.Listener
+		err  error
+	)
+
+	server := NewServer(ctx.cman)
+	ln, err = kcp.ListenWithOptions(server.Listen, nil, KCP_FEC_DATASHARD, KCP_FEC_PARITYSHARD)
+	fatalError(err)
+	defer ln.Close()
+
+	ctx.register(server, ln)
+	log.Infoln("Server is listening on", ln.Addr())
+
+	for {
+		conn, err = ln.AcceptKCP()
+		if err == nil {
+			go server.TunnelServe(conn)
+		} else {
+			SafeClose(conn)
+		}
+	}
+}
+
+func (ctx *bootContext) serverOffline() {
+	if atomic.AddInt32(&ctx.signals, 1) == 2 {
+		sigChan <- Bye
 	}
 }
 
@@ -212,6 +248,7 @@ func (ctx *bootContext) doClose() {
 	}
 }
 
+/*
 func (ctx *bootContext) setLogVerbose(verbose int) {
 	// prefer command line v option
 	if ctx.vFlag >= 0 {
@@ -220,6 +257,7 @@ func (ctx *bootContext) setLogVerbose(verbose int) {
 		log.SetLogVerbose(verbose)
 	}
 }
+*/
 
 func getOutputArg(c *cli.Context) string {
 	output := c.String("output")
@@ -264,11 +302,7 @@ func fatalError(err error, args ...interface{}) {
 
 func fatalAndCommandHelp(c *cli.Context) {
 	// app root
-	if c.Command == nil {
-		cli.HelpPrinter(os.Stderr, cli.AppHelpTemplate, c.App)
-	} else { // command
-		cli.HelpPrinter(os.Stderr, cli.CommandHelpTemplate, c.Command)
-	}
+	fmt.Println("Unknown input --->", strings.Join(c.Args().Slice(), " "))
 	context.doClose()
-	os.Exit(1)
+	cli.ShowAppHelpAndExit(c, 2)
 }

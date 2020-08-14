@@ -33,19 +33,21 @@ type Client struct {
 	mux       *multiplexer
 	token     []byte
 	params    *tunParams
-	connInfo  *connectionInfo
+	transport *Transport
 	lock      sync.Locker
 	dtCnt     int32
 	reqCnt    int32
 	state     int32
 	round     int32
 	pendingTK *timedWait
+	pacFile   string
 }
 
 func NewClient(cman *ConfigMan) *Client {
 	clt := &Client{
+		transport: cman.cConf.transport,
+		pacFile:   cman.cConf.pacFile,
 		lock:      new(sync.Mutex),
-		connInfo:  cman.cConf.connInfo,
 		state:     CLT_WORKING,
 		pendingTK: NewTimedWait(false), // waiting tokens
 	}
@@ -54,16 +56,16 @@ func NewClient(cman *ConfigMan) *Client {
 
 func (c *Client) initialConnect() (tun *Conn) {
 	var theParam = new(tunParams)
-	var man = &d5cman{connectionInfo: c.connInfo}
+	var man = &d5cman{transport: c.transport}
 	var err error
 	tun, err = man.Connect(theParam)
 	if err != nil {
 		log.Errorf("Failed to connect to %s %s Retry after %s",
-			c.connInfo.RemoteName(), ex.Detail(err), RETRY_INTERVAL)
+			c.transport.RemoteName(), ex.Detail(err), RETRY_INTERVAL)
 		return nil
 	} else {
 		log.Infof("Login to server %s with %s successfully",
-			c.connInfo.RemoteName(), c.connInfo.user)
+			c.transport.RemoteName(), c.transport.user)
 		c.params = theParam
 		c.token = theParam.token
 		return
@@ -156,7 +158,7 @@ func (c *Client) StartTun(mustRestart bool) {
 			if dtcnt <= 0 {
 				if atomic.CompareAndSwapInt32(&c.state, CLT_WORKING, CLT_PENDING) {
 					log.Errorf("Currently offline, all connections %s were lost",
-						c.connInfo.RemoteName())
+						c.transport.RemoteName())
 					go c.StartTun(true)
 				}
 				return
@@ -236,7 +238,7 @@ func (t *Client) createDataTun() (c *Conn, err error) {
 	if err != nil {
 		return
 	}
-	man := &d5cman{connectionInfo: t.connInfo}
+	man := &d5cman{transport: t.transport}
 	return man.ResumeSession(t.params, token)
 }
 
@@ -249,7 +251,7 @@ func (c *Client) eventHandler(e event, msg ...interface{}) {
 
 func (t *Client) Stats() string {
 	return fmt.Sprintf("Client -> %s Conn=%d TK=%d",
-		t.connInfo.sAddr, atomic.LoadInt32(&t.dtCnt), len(t.token)/TKSZ)
+		t.transport.remoteAddr, atomic.LoadInt32(&t.dtCnt), len(t.token)/TKSZ)
 }
 
 func (t *Client) Close() {
