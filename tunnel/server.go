@@ -88,7 +88,7 @@ func (t *Session) tokensHandle(args []byte) {
 	}
 }
 
-func (t *Session) DataTunServe(tun *Conn, isNewSession bool) {
+func (t *Session) ListenTunnel(tun *Conn, isNewSession bool) {
 	defer func() {
 		if atomic.AddInt32(&t.activeCnt, -1) <= 0 {
 			t.destroy()
@@ -225,8 +225,8 @@ type Server struct {
 	filter     Filterable
 }
 
-func NewServer(cman *ConfigMan) *Server {
-	conf := cman.sConf
+func NewServer(config *ConfigContext) *Server {
+	conf := config.server
 	s := &Server{
 		serverConf: conf,
 		sharedKey:  preSharedKey(conf.publicKey),
@@ -261,22 +261,20 @@ func NewServer(cman *ConfigMan) *Server {
 	return s
 }
 
-func (t *Server) TunnelServe(raw net.Conn) {
+func (t *Server) HandleNewConnection(raw net.Conn) {
 	var conn = NewConn(raw, nullCipherKit)
 	defer func() {
 		ex.Catch(recover(), nil)
 	}()
 
-	man := &d5sman{
-		Server:     t,
-		clientAddr: raw.RemoteAddr(),
-	}
+	var protocol = newD5ServerProtocol(t, raw.RemoteAddr())
 	// read atomically
 	tcPool := *(*[]uint64)(atomic.LoadPointer(&t.tcPool))
-	session, err := man.Connect(conn, tcPool)
+	// handshake or resume a session
+	session, err := protocol.Connect(conn, tcPool)
 
 	if err == nil {
-		go session.DataTunServe(conn, man.isNewSession)
+		session.ListenTunnel(conn, protocol.isNewSession)
 	} else {
 		SafeClose(raw)
 		if session != nil {

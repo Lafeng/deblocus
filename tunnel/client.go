@@ -43,10 +43,10 @@ type Client struct {
 	pacFile   string
 }
 
-func NewClient(cman *ConfigMan) *Client {
+func NewClient(config *ConfigContext) *Client {
 	clt := &Client{
-		transport: cman.cConf.transport,
-		pacFile:   cman.cConf.pacFile,
+		transport: config.client.transport,
+		pacFile:   config.client.pacFile,
 		lock:      new(sync.Mutex),
 		state:     CLT_WORKING,
 		pendingTK: NewTimedWait(false), // waiting tokens
@@ -56,9 +56,9 @@ func NewClient(cman *ConfigMan) *Client {
 
 func (c *Client) initialConnect() (tun *Conn) {
 	var theParam = new(tunParams)
-	var man = &d5cman{transport: c.transport}
+	var protocol = newD5ClientProtocol(c)
 	var err error
-	tun, err = man.Connect(theParam)
+	tun, err = protocol.Connect(theParam)
 	if err != nil {
 		log.Errorf("Failed to connect to %s %s Retry after %s",
 			c.transport.RemoteName(), ex.Detail(err), RETRY_INTERVAL)
@@ -238,8 +238,7 @@ func (t *Client) createDataTun() (c *Conn, err error) {
 	if err != nil {
 		return
 	}
-	man := &d5cman{transport: t.transport}
-	return man.ResumeSession(t.params, token)
+	return newD5ClientProtocol(t).ResumeSession(t.params, token)
 }
 
 func (c *Client) eventHandler(e event, msg ...interface{}) {

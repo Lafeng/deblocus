@@ -87,7 +87,7 @@ func setupCommands() *cli.App {
 		},
 	}
 	app.Flags = globalOptions
-	app.Before = context.initialize
+	app.Before = context.beforeHandler
 	app.Action = context.startCommandHandler
 	cli.CommandHelpTemplate = CommandHelpTemplate
 	return app

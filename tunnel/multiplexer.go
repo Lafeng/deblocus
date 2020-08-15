@@ -133,23 +133,11 @@ func (i *idler) newRound(tun *Conn) {
 }
 
 func (i *idler) consumeError(err error) uint {
-	if i.enabled {
-		var timeoutError bool
-		var netError, ok = err.(net.Error)
-		if ok { // tcp timeout
-			timeoutError = netError.Timeout()
+	if i.enabled && IsTimeout(err) {
+		if i.waiting {
+			return ERR_PING_TIMEOUT
 		} else {
-			// kcp: sess.go L47
-			// errTimeout          = errors.New("timeout")
-			timeoutError = err.Error() == "timeout"
-		}
-
-		if timeoutError {
-			if i.waiting {
-				return ERR_PING_TIMEOUT
-			} else {
-				return ERR_NEW_PING
-			}
+			return ERR_NEW_PING
 		}
 	}
 	return ERR_UNKNOWN
@@ -244,7 +232,7 @@ func initBytePool() {
 // --------------------
 type multiplexer struct {
 	isClient  bool
-	pool      *ConnPool
+	pool      *ConnPool // similar to Link Aggregation
 	router    *egressRouter
 	role      string
 	status    int32

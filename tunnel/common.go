@@ -6,11 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
 	"math/rand"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -157,18 +154,6 @@ func dumpHex(title string, byteArray []byte) {
 	fmt.Println("---DUMP-END-->", title)
 }
 
-func ipAddr(addr net.Addr) string {
-	switch addr.(type) {
-	case *net.TCPAddr:
-		return addr.(*net.TCPAddr).IP.String()
-	case *net.UDPAddr:
-		return addr.(*net.UDPAddr).IP.String()
-	case *net.IPAddr:
-		return addr.(*net.IPAddr).IP.String()
-	}
-	return addr.String()
-}
-
 func ThrowErr(e interface{}) {
 	if e != nil {
 		panic(e)
@@ -179,73 +164,6 @@ func ThrowIf(condition bool, e interface{}) {
 	if condition {
 		panic(e)
 	}
-}
-
-func SafeClose(conn net.Conn) {
-	defer func() {
-		_ = recover()
-	}()
-	if conn != nil {
-		conn.Close()
-	}
-}
-
-func closeR(conn net.Conn) {
-	defer func() { _ = recover() }()
-	if t, y := conn.(*net.TCPConn); y {
-		t.CloseRead()
-	} else {
-		conn.Close()
-	}
-}
-
-func closeW(conn net.Conn) {
-	defer func() { _ = recover() }()
-	if t, y := conn.(*net.TCPConn); y {
-		t.CloseWrite()
-	} else {
-		conn.Close()
-	}
-}
-
-func IsValidHost(addr string) (err error) {
-	var h, p string
-	h, p, err = net.SplitHostPort(addr)
-	if err != nil {
-		return
-	}
-	if h == NULL || p == NULL {
-		err = errors.New("Invalid address " + addr)
-	}
-	return
-}
-
-func IsTimeout(e error) bool {
-	if err, y := e.(net.Error); y {
-		return err.Timeout()
-	}
-	return false
-}
-
-func IsClosedError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if err == io.EOF {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "closed") || strings.Contains(msg, "reset")
-}
-
-func setRTimeout(conn net.Conn) {
-	e := conn.SetReadDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
-	ThrowErr(e)
-}
-
-func setWTimeout(conn net.Conn) {
-	e := conn.SetWriteDeadline(time.Now().Add(GENERAL_SO_TIMEOUT))
-	ThrowErr(e)
 }
 
 func hash128(byteArray []byte) []byte {

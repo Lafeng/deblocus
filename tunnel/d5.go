@@ -139,14 +139,20 @@ const (
 //
 // d5 client handshake protocol
 //
-type d5cman struct {
+type d5ClientProtocol struct {
 	transport *Transport
 	dhKey     crypto.DHKE
 	dbcHello  []byte
 	sRand     []byte
 }
 
-func (n *d5cman) Connect(p *tunParams) (conn *Conn, err error) {
+func newD5ClientProtocol(c *Client) *d5ClientProtocol {
+	return &d5ClientProtocol{
+		transport: c.transport,
+	}
+}
+
+func (n *d5ClientProtocol) Connect(p *tunParams) (conn *Conn, err error) {
 	var rawConn net.Conn
 	defer func() {
 		n.dbcHello, n.sRand = nil, nil
@@ -200,7 +206,7 @@ func (n *d5cman) Connect(p *tunParams) (conn *Conn, err error) {
 	return
 }
 
-func (n *d5cman) ResumeSession(p *tunParams, token []byte) (conn *Conn, err error) {
+func (n *d5ClientProtocol) ResumeSession(p *tunParams, token []byte) (conn *Conn, err error) {
 	var rawConn net.Conn
 	rawConn, err = n.transport.Dail()
 	if err != nil {
@@ -226,7 +232,7 @@ func (n *d5cman) ResumeSession(p *tunParams, token []byte) (conn *Conn, err erro
 
 // 1-send dbcHello,dhPub
 // dbcHello~256 | dhPubLen~2 | dhPub~?
-func (n *d5cman) requestDHExchange(conn *Conn) (err error) {
+func (n *d5ClientProtocol) requestDHExchange(conn *Conn) (err error) {
 	// obfuscated header
 	obf := makeDbcHello(TYPE_NEW, preSharedKey(n.transport.pubKey))
 	w := newMsgWriter().WriteMsg(obf)
@@ -248,7 +254,7 @@ func (n *d5cman) requestDHExchange(conn *Conn) (err error) {
 
 // read dhPub from server and verify sign
 // dhPubLen~1 | dhPub~? | signLen~1 | sign~? | rand
-func (n *d5cman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
+func (n *d5ClientProtocol) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 	var dhk, dhkSign []byte
 	// recv: rhPub~2+256 or ecdhPub~2+32
 	setRTimeout(conn)
@@ -306,7 +312,7 @@ func (n *d5cman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 
 // verify encrypted message
 // hashHello, version
-func (n *d5cman) validate(conn *Conn) error {
+func (n *d5ClientProtocol) validate(conn *Conn) error {
 	setRTimeout(conn)
 	hashHello, err := ReadFullByLen(1, conn)
 	if err != nil {
@@ -331,7 +337,7 @@ func (n *d5cman) validate(conn *Conn) error {
 
 // report hashRand0 then request authentication
 // get tun params and tokens
-func (n *d5cman) authThenFinishSetting(conn *Conn, t *tunParams) error {
+func (n *d5ClientProtocol) authThenFinishSetting(conn *Conn, t *tunParams) error {
 	var err error
 	w := newMsgWriter()
 	// hash sRand
@@ -382,7 +388,7 @@ func (n *d5cman) authThenFinishSetting(conn *Conn, t *tunParams) error {
 //
 // Server handshake protocol
 //
-type d5sman struct {
+type d5ServerProtocol struct {
 	*Server
 	dbcHello     []byte
 	sRand        []byte
@@ -390,8 +396,15 @@ type d5sman struct {
 	isNewSession bool
 }
 
+func newD5ServerProtocol(s *Server, peer net.Addr) *d5ServerProtocol {
+	return &d5ServerProtocol{
+		Server:     s,
+		clientAddr: peer,
+	}
+}
+
 // external conn lifecycle
-func (n *d5sman) Connect(conn *Conn, tcPool []uint64) (session *Session, err error) {
+func (n *d5ServerProtocol) Connect(conn *Conn, tcPool []uint64) (session *Session, err error) {
 	var (
 		nr  int
 		buf = make([]byte, DPH_P2)
@@ -438,7 +451,7 @@ func (n *d5sman) Connect(conn *Conn, tcPool []uint64) (session *Session, err err
 }
 
 // new connection
-func (n *d5sman) fullHandshake(conn *Conn) (session *Session, err error) {
+func (n *d5ServerProtocol) fullHandshake(conn *Conn) (session *Session, err error) {
 	defer func() {
 		if exception.Catch(recover(), &err) {
 			if t, y := err.(*exception.Exception); y && t.Origin == ABORTED_ERROR {
@@ -460,7 +473,7 @@ func (n *d5sman) fullHandshake(conn *Conn) (session *Session, err error) {
 }
 
 // quick resume session
-func (n *d5sman) resumeSession(conn *Conn) (session *Session, err error) {
+func (n *d5ServerProtocol) resumeSession(conn *Conn) (session *Session, err error) {
 	token := make([]byte, TKSZ)
 	setRTimeout(conn)
 	// just read once
@@ -482,7 +495,7 @@ func (n *d5sman) resumeSession(conn *Conn) (session *Session, err error) {
 // finish DHE
 // 1, dhPub, dhSign, rand
 // 2, hashHello, version
-func (n *d5sman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
+func (n *d5ServerProtocol) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 	var dhPub, key []byte
 	dhKey, _ := crypto.NewDHKey(DH_METHOD)
 
@@ -533,7 +546,7 @@ func (n *d5sman) finishDHExchange(conn *Conn) (cf *CipherFactory, err error) {
 	return
 }
 
-func (n *d5sman) authenticate(conn *Conn, session *Session) error {
+func (n *d5ServerProtocol) authenticate(conn *Conn, session *Session) error {
 	var err error
 	setRTimeout(conn)
 	hashSRand, err := ReadFullByLen(1, conn)
@@ -591,7 +604,7 @@ func (n *d5sman) authenticate(conn *Conn, session *Session) error {
 	return exception.Spawn(&err, "setting: write connection")
 }
 
-func (n *d5cman) serializeIdentity() []byte {
+func (n *d5ClientProtocol) serializeIdentity() []byte {
 	identity := n.transport.user + IDENTITY_SEP + n.transport.pass
 	if len(identity) > 255 {
 		panic("identity too long")
@@ -599,7 +612,7 @@ func (n *d5cman) serializeIdentity() []byte {
 	return []byte(identity)
 }
 
-func (n *d5sman) deserializeIdentity(block []byte) (user, pass string, e error) {
+func (n *d5ServerProtocol) deserializeIdentity(block []byte) (user, pass string, e error) {
 	fields := strings.Split(string(block), IDENTITY_SEP)
 	if len(fields) != 2 {
 		e = ILLEGAL_STATE.Apply("incorrect identity format")

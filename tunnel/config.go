@@ -47,22 +47,22 @@ var (
 	CONF_ERROR           = exception.New("Error field in config:")
 )
 
-type ServerRole uint32
+type ServiceRole uint32
 
 const (
-	SR_AUTO   ServerRole = ^ServerRole(0)
-	SR_CLIENT ServerRole = 0x0f
-	SR_SERVER ServerRole = 0xf0
+	SR_AUTO   ServiceRole = ^ServiceRole(0)
+	SR_CLIENT ServiceRole = 0x0f
+	SR_SERVER ServiceRole = 0xf0
 )
 
-type ConfigMan struct {
+type ConfigContext struct {
 	filepath    string
 	iniInstance *ini.File
-	sConf       *serverConf
-	cConf       *clientConf
+	server      *serverConf
+	client      *clientConf
 }
 
-func DetectConfig(specifiedFile string) (*ConfigMan, error) {
+func NewConfigContextFromFile(specifiedFile string) (*ConfigContext, error) {
 	var paths []string
 	if specifiedFile == NULL {
 		paths = []string{CONFIG_NAME} // cwd
@@ -104,75 +104,56 @@ func DetectConfig(specifiedFile string) (*ConfigMan, error) {
 	}
 
 	iniInstance, err := ini.Load(*file)
-	return &ConfigMan{
+	return &ConfigContext{
 		filepath:    *file,
 		iniInstance: iniInstance,
 	}, err
 }
 
-func (cman *ConfigMan) InitConfigByRole(expectedRole ServerRole) (r ServerRole, err error) {
-	if expectedRole&SR_CLIENT != 0 {
-		if _, err = cman.iniInstance.GetSection(CF_CLIENT); err == nil {
-			r |= SR_CLIENT
-			cman.cConf, err = cman.ParseClientConf()
-		} else if expectedRole == SR_AUTO { // AUTO ignore
-			err = nil
-		}
-		if err != nil {
-			goto abort
-		}
+func (cc *ConfigContext) Initialize(expectedRole ServiceRole) (role ServiceRole, err error) {
+	if _, err = cc.iniInstance.GetSection(CF_CLIENT); err == nil {
+		role = SR_CLIENT
+		cc.client, err = cc.parseClient()
+	} else if _, err = cc.iniInstance.GetSection(CF_SERVER); err == nil {
+		role = SR_SERVER
+		cc.server, err = cc.parseServer()
 	}
 
-	if expectedRole&SR_SERVER != 0 {
-		if _, err = cman.iniInstance.GetSection(CF_SERVER); err == nil {
-			r |= SR_SERVER
-			cman.sConf, err = cman.ParseServConf()
-		} else if expectedRole == SR_AUTO { // AUTO ignore
-			err = nil
-		}
-		if err != nil {
-			goto abort
-		}
+	if role == 0 {
+		err = errors.New("No service role defined in config file")
 	}
-
-	cman.iniInstance = nil
-
-abort:
-	return r, err
+	if expectedRole != SR_AUTO && role != expectedRole {
+		err = errors.New("Unexpected config file for current operation")
+	}
+	cc.iniInstance = nil
+	return
 }
 
-func (cman *ConfigMan) LogV(expectedRole ServerRole) int {
-	if expectedRole&SR_SERVER != 0 {
-		return cman.sConf.Verbose
-	}
+func (cc *ConfigContext) LogV(expectedRole ServiceRole) int {
 	if expectedRole&SR_CLIENT != 0 {
-		return cman.cConf.Verbose
+		return cc.client.Verbose
+	}
+	if expectedRole&SR_SERVER != 0 {
+		return cc.server.Verbose
 	}
 	return -1
 }
 
-func (cman *ConfigMan) ListenAddr(expectedRole ServerRole) *net.TCPAddr {
-	if expectedRole&SR_SERVER != 0 {
-		return cman.sConf.ListenAddr
-	}
-	if expectedRole&SR_CLIENT != 0 {
-		return cman.cConf.ListenAddr
-	}
-	return nil
+func (cc *ConfigContext) ClientConf() *clientConf {
+	return cc.client
 }
 
 // export client ini
-func (cman *ConfigMan) KeyInfo(expectedRole ServerRole) string {
+func (cc *ConfigContext) KeyInfo(expectedRole ServiceRole) string {
 	var buf = new(bytes.Buffer)
-	if expectedRole&SR_SERVER != 0 {
-		key := cman.sConf.publicKey
-		fmt.Fprintln(buf, "Server Key in", cman.filepath)
+	if expectedRole == SR_CLIENT {
+		key := cc.client.transport.pubKey
+		fmt.Fprintln(buf, "Credential Key in", cc.filepath)
 		fmt.Fprintln(buf, "         type:", NameOfKey(key))
 		fmt.Fprintln(buf, "  fingerprint:", FingerprintOfKey(key))
-	}
-	if expectedRole&SR_CLIENT != 0 {
-		key := cman.cConf.transport.pubKey
-		fmt.Fprintln(buf, "Credential Key in", cman.filepath)
+	} else if expectedRole == SR_SERVER {
+		key := cc.server.publicKey
+		fmt.Fprintln(buf, "Server Key in", cc.filepath)
 		fmt.Fprintln(buf, "         type:", NameOfKey(key))
 		fmt.Fprintln(buf, "  fingerprint:", FingerprintOfKey(key))
 	}
@@ -211,7 +192,7 @@ func (c *clientConf) validate() error {
 }
 
 // public for external handler
-func (cman *ConfigMan) CreateClientConfig(file string, user string, addonAddr string) (err error) {
+func (cc *ConfigContext) CreateClientConfig(file string, user string, addonAddr string) (err error) {
 	var f *os.File
 	if file == NULL {
 		f = os.Stdout
@@ -238,18 +219,18 @@ func (cman *ConfigMan) CreateClientConfig(file string, user string, addonAddr st
 		if sAddr == NULL {
 			sAddr = "localhost:9008"
 		} else {
-			sPort := findServerListenPort(cman.sConf.Listen)
+			sPort := findServerListenPort(cc.server.Listen)
 			sAddr = fmt.Sprint(sAddr, ":", sPort)
 		}
-		cman.sConf.Listen = sAddr
+		cc.server.Listen = sAddr
 	} else {
 		err = IsValidHost(addonAddr)
-		cman.sConf.Listen = addonAddr
+		cc.server.Listen = addonAddr
 		if err != nil {
 			return
 		}
 	}
-	err = cman.sConf.generateConnInfoOfUser(newIni, user)
+	err = cc.server.generateConnInfoOfUser(newIni, user)
 	if err == nil {
 		_, err = newIni.WriteTo(f)
 		if addonAddr == NULL {
@@ -260,9 +241,8 @@ func (cman *ConfigMan) CreateClientConfig(file string, user string, addonAddr st
 	return
 }
 
-// public for external
-func (cman *ConfigMan) ParseClientConf() (cli *clientConf, err error) {
-	ii := cman.iniInstance
+func (cc *ConfigContext) parseClient() (cli *clientConf, err error) {
+	ii := cc.iniInstance
 	secDc, err := ii.GetSection(CF_CLIENT)
 	if err != nil {
 		return
@@ -387,9 +367,8 @@ func (d *serverConf) validate() error {
 	return nil
 }
 
-// public for external handler
-func (cman *ConfigMan) ParseServConf() (d5s *serverConf, err error) {
-	ii := cman.iniInstance
+func (cc *ConfigContext) parseServer() (d5s *serverConf, err error) {
+	ii := cc.iniInstance
 	sec, err := ii.GetSection(CF_SERVER)
 	if err != nil {
 		return
@@ -473,6 +452,8 @@ func (d *serverConf) generateConnInfoOfUser(ii *ini.File, user string) error {
 	sec.NewKey(CF_URL, url)
 	sec.NewKey(CF_KEY, base64.StdEncoding.EncodeToString(keyBytes))
 	sec.Comment = _COMMENTED_PAC_SECTION
+
+	// todo: key of transport
 	return nil
 }
 

@@ -221,3 +221,11 @@ func (v values) getInt(k string, defaultValue int) (int, error) {
 		return strconv.Atoi(value)
 	}
 }
+
+func CreateTCPServerListener(server *Server) (*net.TCPListener, error) {
+	return net.ListenTCP("tcp", server.ListenAddr)
+}
+
+func CreateUDPServerListener(server *Server) (net.Listener, error) {
+	return kcp.ListenWithOptions(server.Listen, nil, KCP_FEC_DATASHARD, KCP_FEC_PARITYSHARD)
+}

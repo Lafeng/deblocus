@@ -25,17 +25,6 @@ func NewConn(conn net.Conn, cipher cipherKit) *Conn {
 	}
 }
 
-func port(addr net.Addr) int {
-	switch v := addr.(type) {
-	case *net.TCPAddr:
-		return v.Port
-	case *net.UDPAddr:
-		return v.Port
-	default:
-		return 0
-	}
-}
-
 func (c *Conn) SetId(name string, isServ bool) {
 	ra := c.RemoteAddr()
 	if isServ {

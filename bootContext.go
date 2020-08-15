@@ -14,7 +14,6 @@ import (
 	log "github.com/Lafeng/deblocus/glog"
 	. "github.com/Lafeng/deblocus/tunnel"
 	"github.com/urfave/cli/v2"
-	kcp "github.com/xtaci/kcp-go/v5"
 )
 
 var (
@@ -35,13 +34,13 @@ type bootContext struct {
 	vSpecified bool
 	vFlag      int
 	signals    int32
-	cman       *ConfigMan
+	config     *ConfigContext
 	components []Component
 	closeable  []io.Closer
 }
 
 // global before handler
-func (ctx *bootContext) initialize(c *cli.Context) (err error) {
+func (ctx *bootContext) beforeHandler(c *cli.Context) (err error) {
 	// inject parameters into package.tunnel
 	VER_STRING = versionString()
 	VERSION = version
@@ -55,24 +54,23 @@ func (ctx *bootContext) initialize(c *cli.Context) (err error) {
 	return nil
 }
 
-func (ctx *bootContext) initConfig(r ServerRole) (role ServerRole) {
+func (ctx *bootContext) initialize(role ServiceRole) (current ServiceRole) {
 	var err error
 	// load config file
-	ctx.cman, err = DetectConfig(ctx.configFile)
+	ctx.config, err = NewConfigContextFromFile(ctx.configFile)
 	fatalError(err)
+
 	// parse config file
-	role, err = ctx.cman.InitConfigByRole(r)
-	if role == 0 {
-		err = fmt.Errorf("No server role defined in config")
-	}
+	current, err = ctx.config.Initialize(role)
 	fatalError(err)
+
 	if !ctx.vSpecified { // no -v
 		// set logV with config.v
-		if v := ctx.cman.LogV(role); v > 0 {
+		if v := ctx.config.LogV(current); v > 0 {
 			log.SetLogVerbose(v)
 		}
 	}
-	return role
+	return
 }
 
 // ./deblocus csc [-type algo]
@@ -87,12 +85,12 @@ func (ctx *bootContext) cscCommandHandler(c *cli.Context) error {
 // ./deblocus ccc [-addr SERV_ADDR:PORT] USER
 func (ctx *bootContext) cccCommandHandler(c *cli.Context) error {
 	// need server config
-	ctx.initConfig(SR_SERVER)
+	ctx.initialize(SR_SERVER)
 	if args := c.Args(); args.Len() == 1 {
 		user := args.Get(0)
 		pubAddr := c.String("addr")
 		output := getOutputArg(c)
-		err := ctx.cman.CreateClientConfig(output, user, pubAddr)
+		err := ctx.config.CreateClientConfig(output, user, pubAddr)
 		fatalError(err)
 	} else {
 		fatalAndCommandHelp(c)
@@ -102,8 +100,8 @@ func (ctx *bootContext) cccCommandHandler(c *cli.Context) error {
 
 func (ctx *bootContext) keyInfoCommandHandler(c *cli.Context) error {
 	// need config
-	role := ctx.initConfig(SR_AUTO)
-	fmt.Fprintln(os.Stderr, ctx.cman.KeyInfo(role))
+	role := ctx.initialize(SR_AUTO)
+	fmt.Fprintln(os.Stderr, ctx.config.KeyInfo(role))
 	return nil
 }
 
@@ -117,15 +115,15 @@ func (ctx *bootContext) startCommandHandler(c *cli.Context) error {
 		return nil
 	}
 
-	role := ctx.initConfig(SR_AUTO)
-	if role&SR_SERVER != 0 {
+	var role = ctx.initialize(SR_AUTO)
+	switch role {
+	case SR_CLIENT:
+		go ctx.startClient()
+
+	case SR_SERVER:
 		log.Infoln(versionString())
 		go ctx.startServer1()
 		go ctx.startServer2()
-	}
-
-	if role&SR_CLIENT != 0 {
-		go ctx.startClient()
 	}
 
 	waitSignal()
@@ -133,17 +131,17 @@ func (ctx *bootContext) startCommandHandler(c *cli.Context) error {
 }
 
 func (ctx *bootContext) startClient() {
-	defer func() {
-		sigChan <- Bye
-	}()
+	defer ctx.onRoleFinished(SR_CLIENT)
+
 	var (
 		conn *net.TCPConn
 		ln   *net.TCPListener
 		err  error
 	)
 
-	client := NewClient(ctx.cman)
-	addr := ctx.cman.ListenAddr(SR_CLIENT)
+	config := ctx.config
+	client := NewClient(config)
+	addr := config.ClientConf().ListenAddr
 
 	ln, err = net.ListenTCP("tcp", addr)
 	fatalError(err)
@@ -168,25 +166,26 @@ func (ctx *bootContext) startClient() {
 
 // start TCP Server
 func (ctx *bootContext) startServer1() {
-	defer ctx.serverOffline()
+	defer ctx.onRoleFinished(SR_SERVER)
+
 	var (
-		conn *net.TCPConn
-		ln   *net.TCPListener
-		err  error
+		server *Server = NewServer(ctx.config)
+		conn   *net.TCPConn
+		ln     *net.TCPListener
+		err    error
 	)
 
-	server := NewServer(ctx.cman)
-	ln, err = net.ListenTCP("tcp", server.ListenAddr)
+	ln, err = CreateTCPServerListener(server)
 	fatalError(err)
 	defer ln.Close()
 
-	ctx.register(server, ln)
 	log.Infoln("Server is listening on", ln.Addr())
+	ctx.register(server, ln)
 
 	for {
 		conn, err = ln.AcceptTCP()
 		if err == nil {
-			go server.TunnelServe(conn)
+			go server.HandleNewConnection(conn)
 		} else {
 			SafeClose(conn)
 		}
@@ -195,34 +194,41 @@ func (ctx *bootContext) startServer1() {
 
 // start UDP Server
 func (ctx *bootContext) startServer2() {
-	defer ctx.serverOffline()
+	defer ctx.onRoleFinished(SR_SERVER)
+
 	var (
-		conn *kcp.UDPSession
-		ln   *kcp.Listener
-		err  error
+		server *Server = NewServer(ctx.config)
+		conn   net.Conn
+		ln     net.Listener
+		err    error
 	)
 
-	server := NewServer(ctx.cman)
-	ln, err = kcp.ListenWithOptions(server.Listen, nil, KCP_FEC_DATASHARD, KCP_FEC_PARITYSHARD)
+	ln, err = CreateUDPServerListener(server)
 	fatalError(err)
 	defer ln.Close()
 
-	ctx.register(server, ln)
 	log.Infoln("Server is listening on", ln.Addr())
+	ctx.register(server, ln)
 
 	for {
-		conn, err = ln.AcceptKCP()
+		conn, err = ln.Accept()
 		if err == nil {
-			go server.TunnelServe(conn)
+			go server.HandleNewConnection(conn)
 		} else {
 			SafeClose(conn)
 		}
 	}
 }
 
-func (ctx *bootContext) serverOffline() {
-	if atomic.AddInt32(&ctx.signals, 1) == 2 {
+func (ctx *bootContext) onRoleFinished(role ServiceRole) {
+	switch role {
+	case SR_CLIENT:
 		sigChan <- Bye
+
+	case SR_SERVER:
+		if atomic.AddInt32(&ctx.signals, 1) == 2 {
+			sigChan <- Bye
+		}
 	}
 }
 
