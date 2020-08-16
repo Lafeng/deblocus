@@ -183,7 +183,7 @@ func (t *Transport) dailKcpConnection() (net.Conn, error) {
 	*/
 	// config.NoDelay, config.Interval, config.Resend, config.NoCongestion
 	var p = t.kcpParams
-	kcpconn.SetNoDelay(p[0], p[1], p[1], p[1])
+	kcpconn.SetNoDelay(p[0], p[1], p[2], p[3])
 	kcpconn.SetWindowSize(t.swnd, t.rwnd)
 	kcpconn.SetMtu(t.mtu) // 1464
 	kcpconn.SetACKNoDelay(true)
