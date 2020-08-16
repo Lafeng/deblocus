@@ -243,6 +243,7 @@ func (cc *ConfigContext) CreateClientConfig(file string, user string, addonAddr 
 
 func (cc *ConfigContext) parseClient() (cli *clientConf, err error) {
 	ii := cc.iniInstance
+	// check client
 	secDc, err := ii.GetSection(CF_CLIENT)
 	if err != nil {
 		return
@@ -254,6 +255,7 @@ func (cc *ConfigContext) parseClient() (cli *clientConf, err error) {
 		return
 	}
 
+	// credential
 	credSec, err := ii.GetSection(CF_CREDENTIAL)
 	if err != nil {
 		return
@@ -263,11 +265,13 @@ func (cc *ConfigContext) parseClient() (cli *clientConf, err error) {
 		return
 	}
 
+	// parse protocol URL
 	transport, err := newTransport(url.String())
 	if err != nil {
 		return
 	}
 
+	// pubKey
 	pubkeyObj, err := credSec.GetKey(CF_KEY)
 	if err != nil {
 		return
@@ -283,6 +287,7 @@ func (cc *ConfigContext) parseClient() (cli *clientConf, err error) {
 		return
 	}
 
+	// check PAC
 	secPac, _ := ii.GetSection(CF_PAC)
 	if secPac != nil && secPac.Haskey(CF_FILE) {
 		pacFile, _ := secPac.GetKey(CF_FILE)
@@ -291,6 +296,7 @@ func (cc *ConfigContext) parseClient() (cli *clientConf, err error) {
 	transport.pubKey = pubkey
 	cli.transport = transport
 
+	// parse transport URL
 	if transportKey, err := credSec.GetKey(CF_TRANSPORT); err == nil {
 		err = transport.parseTransport(transportKey.String())
 		if err != nil {
@@ -299,6 +305,55 @@ func (cc *ConfigContext) parseClient() (cli *clientConf, err error) {
 	}
 
 	err = cli.validate()
+	return
+}
+
+func (cc *ConfigContext) parseServer() (serv *serverConf, err error) {
+	ii := cc.iniInstance
+	// check server
+	sec, err := ii.GetSection(CF_SERVER)
+	if err != nil {
+		return
+	}
+	serv = new(serverConf)
+	if err = sec.MapTo(serv); err != nil {
+		return
+	}
+
+	// pub & priv key
+	kSec, err := ii.GetSection(CF_PRIVKEY)
+	if err != nil {
+		return
+	}
+	key, err := kSec.GetKey(CF_KEY)
+	if err != nil {
+		return
+	}
+	keyBytes, err := base64.StdEncoding.DecodeString(key.String())
+	if err != nil {
+		return
+	}
+	priv, err := UnmarshalPrivateKey(keyBytes)
+	if err != nil {
+		return
+	}
+	serv.privateKey = priv
+	serv.publicKey = priv.(stdcrypto.Signer).Public()
+
+	// parse transport URL
+	if sec.HasKey(CF_TRANSPORT) {
+		transportValues := sec.Key(CF_TRANSPORT).ValueWithShadows()
+		for _, transportURL := range transportValues {
+			var transport = &Transport{asServer: true}
+			serv.Transports = append(serv.Transports, transport)
+			err = transport.parseTransport(transportURL)
+			if err != nil {
+				return serv, err
+			}
+		}
+	}
+
+	err = serv.validate()
 	return
 }
 
@@ -314,6 +369,7 @@ type serverConf struct {
 	ErrorFeedback string       `importable:"true"`
 	AuthSys       auth.AuthSys `ini:"-"`
 	ListenAddr    *net.TCPAddr `ini:"-"`
+	Transports    []*Transport
 	errFeedback   bool
 	privateKey    stdcrypto.PrivateKey
 	publicKey     stdcrypto.PublicKey
@@ -365,38 +421,6 @@ func (d *serverConf) validate() error {
 		}
 	}
 	return nil
-}
-
-func (cc *ConfigContext) parseServer() (d5s *serverConf, err error) {
-	ii := cc.iniInstance
-	sec, err := ii.GetSection(CF_SERVER)
-	if err != nil {
-		return
-	}
-	d5s = new(serverConf)
-	if err = sec.MapTo(d5s); err != nil {
-		return
-	}
-	kSec, err := ii.GetSection(CF_PRIVKEY)
-	if err != nil {
-		return
-	}
-	key, err := kSec.GetKey(CF_KEY)
-	if err != nil {
-		return
-	}
-	keyBytes, err := base64.StdEncoding.DecodeString(key.String())
-	if err != nil {
-		return
-	}
-	priv, err := UnmarshalPrivateKey(keyBytes)
-	if err != nil {
-		return
-	}
-	d5s.privateKey = priv
-	d5s.publicKey = priv.(stdcrypto.Signer).Public()
-	err = d5s.validate()
-	return
 }
 
 // public for external handler

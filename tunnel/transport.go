@@ -21,6 +21,7 @@ type Transport struct {
 	pass       string
 	pubKeyType string
 	pubKey     stdcrypto.PublicKey
+	asServer   bool
 	transType  string
 	kcpMode    string
 	kcpParams  []int
@@ -57,31 +58,33 @@ kcp:
 			t.kcpParams = []int{0, 40, 2, 1}
 		case "fast":
 			t.kcpParams = []int{0, 20, 2, 1}
-		case "super":
+		case "turbo":
 			t.kcpParams = []int{0, 10, 2, 1}
 		default:
 			goto err
 		}
 
 		var params = values(u.Query())
-		t.mtu, err = params.getInt("mtu", 1462)
-		if err != nil {
+		if t.mtu, err = params.getInt("mtu", 1462); err != nil {
 			goto err
 		}
 
-		t.rwnd, err = params.getInt("rwnd", 1024)
-		if err != nil {
+		if t.rwnd, err = params.getInt("rwnd", 1024); err != nil {
 			goto err
 		}
 
-		t.rbuf, err = params.getInt("rbuf", 1<<24)
-		if err != nil {
+		if t.rbuf, err = params.getInt("rbuf", 1<<24); err != nil {
 			goto err
 		}
 
 		// all verified
-		t.swnd = t.rwnd >> 1
-		t.sbuf = t.rbuf >> 1
+		if t.asServer {
+			t.swnd = t.rwnd
+			t.sbuf = t.rbuf
+		} else {
+			t.swnd = t.rwnd >> 1
+			t.sbuf = t.rbuf >> 1
+		}
 		return nil
 	}
 
@@ -172,17 +175,19 @@ func (t *Transport) dailKcpConnection() (net.Conn, error) {
 	if err != nil {
 		return kcpconn, err
 	}
+	err = t.setupKcpConnection(kcpconn)
+	return kcpconn, err
+}
 
-	/*
-		nodelay : Whether nodelay mode is enabled, 0 is not enabled; 1 enabled.
-		interval ：Protocol internal work interval, in milliseconds, such as 10 ms or 20 ms.
-		resend ：Fast retransmission mode, 0 represents off by default, 2 can be set (2 ACK spans will result in direct retransmission)
-		nc ：Whether to turn off flow control, 0 represents “Do not turn off” by default, 1 represents “Turn off”.
-		Normal Mode: ikcp_nodelay(kcp, 0, 40, 0, 0);
-		Turbo Mode： ikcp_nodelay(kcp, 1, 10, 2, 1);
-	*/
-	// config.NoDelay, config.Interval, config.Resend, config.NoCongestion
+func (t *Transport) setupKcpConnection(kcpconn *kcp.UDPSession) (err error) {
+	// nodelay : Whether nodelay mode is enabled, 0 is not enabled; 1 enabled.
+	// interval ：Protocol internal work interval, in milliseconds, such as 10 ms or 20 ms.
+	// resend ：Fast retransmission mode, 0 represents off by default, 2 can be set (2 ACK spans will result in direct retransmission)
+	// nc ：Whether to turn off flow control, 0 represents “Do not turn off” by default, 1 represents “Turn off”.
+	// Normal Mode: ikcp_nodelay(kcp, 0, 40, 0, 0);
+	// Turbo Mode： ikcp_nodelay(kcp, 1, 10, 2, 1);
 	var p = t.kcpParams
+	// config.NoDelay, config.Interval, config.Resend, config.NoCongestion
 	kcpconn.SetNoDelay(p[0], p[1], p[2], p[3])
 	kcpconn.SetWindowSize(t.swnd, t.rwnd)
 	kcpconn.SetMtu(t.mtu) // 1464
@@ -190,16 +195,42 @@ func (t *Transport) dailKcpConnection() (net.Conn, error) {
 	kcpconn.SetStreamMode(true)
 	kcpconn.SetWriteDelay(false)
 
-	if err := kcpconn.SetDSCP(46); err != nil {
+	if err = kcpconn.SetDSCP(46); err != nil {
 		log.Errorln("SetDSCP:", err)
+		goto returnErr
 	}
-	if err := kcpconn.SetReadBuffer(t.rbuf); err != nil {
+	if err = kcpconn.SetReadBuffer(t.rbuf); err != nil {
 		log.Errorln("SetReadBuffer:", err)
+		goto returnErr
 	}
-	if err := kcpconn.SetWriteBuffer(t.sbuf); err != nil {
+	if err = kcpconn.SetWriteBuffer(t.sbuf); err != nil {
 		log.Errorln("SetWriteBuffer:", err)
+		goto returnErr
 	}
-	return kcpconn, err
+	return nil
+
+returnErr:
+	return err
+}
+
+func (t *Transport) TransType() string {
+	return t.transType
+}
+
+func (t *Transport) SetupConnection(conn net.Conn) {
+	if kcpconn, ok := conn.(*kcp.UDPSession); ok {
+		t.setupKcpConnection(kcpconn)
+	}
+}
+
+func (t *Transport) CreateServerListener(server *Server) (net.Listener, error) {
+	switch t.transType {
+	case "tcp":
+		return net.ListenTCP("tcp", server.ListenAddr)
+	case "kcp":
+		return kcp.ListenWithOptions(server.Listen, nil, KCP_FEC_DATASHARD, KCP_FEC_PARITYSHARD)
+	}
+	return nil, ILLEGAL_STATE
 }
 
 type values url.Values
@@ -220,12 +251,4 @@ func (v values) getInt(k string, defaultValue int) (int, error) {
 	} else {
 		return strconv.Atoi(value)
 	}
-}
-
-func CreateTCPServerListener(server *Server) (*net.TCPListener, error) {
-	return net.ListenTCP("tcp", server.ListenAddr)
-}
-
-func CreateUDPServerListener(server *Server) (net.Listener, error) {
-	return kcp.ListenWithOptions(server.Listen, nil, KCP_FEC_DATASHARD, KCP_FEC_PARITYSHARD)
 }

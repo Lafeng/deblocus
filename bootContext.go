@@ -122,8 +122,10 @@ func (ctx *bootContext) startCommandHandler(c *cli.Context) error {
 
 	case SR_SERVER:
 		log.Infoln(versionString())
-		go ctx.startServer1()
-		go ctx.startServer2()
+		var server = NewServer(ctx.config)
+		for i := 0; i < server.TransportsCapacity(); i++ {
+			go ctx.startServer(server, i)
+		}
 	}
 
 	waitSignal()
@@ -164,55 +166,28 @@ func (ctx *bootContext) startClient() {
 	}
 }
 
-// start TCP Server
-func (ctx *bootContext) startServer1() {
+// start Server base on transport
+func (ctx *bootContext) startServer(server *Server, index int) {
 	defer ctx.onRoleFinished(SR_SERVER)
+	var transport = server.Transports[index]
 
 	var (
-		server *Server = NewServer(ctx.config)
-		conn   *net.TCPConn
-		ln     *net.TCPListener
-		err    error
+		conn net.Conn
+		ln   net.Listener
+		err  error
 	)
 
-	ln, err = CreateTCPServerListener(server)
+	ln, err = transport.CreateServerListener(server)
 	fatalError(err)
 	defer ln.Close()
 
-	log.Infoln("Server is listening on", ln.Addr())
-	ctx.register(server, ln)
-
-	for {
-		conn, err = ln.AcceptTCP()
-		if err == nil {
-			go server.HandleNewConnection(conn)
-		} else {
-			SafeClose(conn)
-		}
-	}
-}
-
-// start UDP Server
-func (ctx *bootContext) startServer2() {
-	defer ctx.onRoleFinished(SR_SERVER)
-
-	var (
-		server *Server = NewServer(ctx.config)
-		conn   net.Conn
-		ln     net.Listener
-		err    error
-	)
-
-	ln, err = CreateUDPServerListener(server)
-	fatalError(err)
-	defer ln.Close()
-
-	log.Infoln("Server is listening on", ln.Addr())
+	log.Infoln("Server is listening on", transport.TransType(), ln.Addr())
 	ctx.register(server, ln)
 
 	for {
 		conn, err = ln.Accept()
 		if err == nil {
+			transport.SetupConnection(conn)
 			go server.HandleNewConnection(conn)
 		} else {
 			SafeClose(conn)

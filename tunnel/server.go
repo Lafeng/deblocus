@@ -327,3 +327,7 @@ func (t *Server) Close() {
 		}
 	}
 }
+
+func (t *Server) TransportsCapacity() int {
+	return len(t.Transports)
+}
