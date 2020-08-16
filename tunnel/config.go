@@ -211,7 +211,7 @@ func (cc *ConfigContext) CreateClientConfig(file string, user string, addonAddr 
 	setFieldsDefaultValue(conf)
 	// client section
 	dc, _ := newIni.NewSection(CF_CLIENT)
-	dc.Comment = _CLT_CONF_HEADER[1:]
+	dc.Comment = strings.TrimSpace(_CLT_CONF_HEADER)
 	dc.ReflectFrom(conf)
 	// prepare server addr
 	if addonAddr == NULL {
@@ -424,7 +424,7 @@ func CreateServerConfigTemplate(file string, keyOpt string) (err error) {
 
 	ii := ini.Empty()
 	ds, _ := ii.NewSection(CF_SERVER)
-	ds.Comment = _SER_CONF_HEADER[1:]
+	ds.Comment = strings.TrimSpace(_SER_CONF_HEADER)
 	err = ds.ReflectFrom(d5sConf)
 	if err != nil {
 		return
@@ -432,7 +432,7 @@ func CreateServerConfigTemplate(file string, keyOpt string) (err error) {
 	ks, _ := ii.NewSection(CF_PRIVKEY)
 	keyBytes := MarshalPrivateKey(d5sConf.privateKey)
 
-	ks.Comment = _SER_CONF_MIDDLE[1:]
+	ks.Comment = strings.TrimSpace(_SER_CONF_MIDDLE)
 	ks.NewKey(CF_KEY, base64.StdEncoding.EncodeToString(keyBytes))
 	_, err = ii.WriteTo(f)
 	return
@@ -451,7 +451,7 @@ func (d *serverConf) generateConnInfoOfUser(ii *ini.File, user string) error {
 	sec, _ := ii.NewSection(CF_CREDENTIAL)
 	sec.NewKey(CF_URL, url)
 	sec.NewKey(CF_KEY, base64.StdEncoding.EncodeToString(keyBytes))
-	sec.Comment = _COMMENTED_PAC_SECTION
+	sec.Comment = strings.TrimSpace(_COMMENTED_PAC_SECTION)
 
 	// todo: key of transport
 	return nil
