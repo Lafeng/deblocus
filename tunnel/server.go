@@ -328,6 +328,6 @@ func (t *Server) Close() {
 	}
 }
 
-func (t *Server) TransportsCapacity() int {
-	return len(t.Transports)
+func (t *Server) Transports() []*Transport {
+	return t.transports
 }

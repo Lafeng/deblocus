@@ -123,8 +123,8 @@ func (ctx *bootContext) startCommandHandler(c *cli.Context) error {
 	case SR_SERVER:
 		log.Infoln(versionString())
 		var server = NewServer(ctx.config)
-		for i := 0; i < server.TransportsCapacity(); i++ {
-			go ctx.startServer(server, i)
+		for _, trans := range server.Transports() {
+			go ctx.startServer(server, trans)
 		}
 	}
 
@@ -167,9 +167,8 @@ func (ctx *bootContext) startClient() {
 }
 
 // start Server base on transport
-func (ctx *bootContext) startServer(server *Server, index int) {
+func (ctx *bootContext) startServer(server *Server, transport *Transport) {
 	defer ctx.onRoleFinished(SR_SERVER)
-	var transport = server.Transports[index]
 
 	var (
 		conn net.Conn

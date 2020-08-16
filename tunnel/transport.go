@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	stdcrypto "crypto"
+	"fmt"
 
 	"net"
 	"net/url"
@@ -16,9 +17,11 @@ type Transport struct {
 	rawURL     string
 	remoteAddr string
 	provider   string
-	cipher     string
+	cipher     string // todo: deprecated
 	user       string
 	pass       string
+	host       string
+	port       int
 	pubKeyType string
 	pubKey     stdcrypto.PublicKey
 	asServer   bool
@@ -38,6 +41,9 @@ func (t *Transport) parseTransport(str string) error {
 		return err
 	}
 
+	// t.host for listen
+	t.port = findServerListenPort(u.Port())
+
 	switch u.Scheme {
 	case "tcp":
 		t.transType = "tcp"
@@ -51,8 +57,8 @@ func (t *Transport) parseTransport(str string) error {
 
 kcp:
 	{
-		// kcp://kcpMode? mtu=1 & rwnd=2 & rbuf=3
-		t.kcpMode = u.Host
+		// kcp://host:port /kcpMode? mtu=1 & rwnd=2 & rbuf=3
+		t.kcpMode = strings.TrimPrefix(u.Path, "/")
 		switch t.kcpMode {
 		case "normal":
 			t.kcpParams = []int{0, 40, 2, 1}
@@ -156,6 +162,16 @@ func (t *Transport) RemoteName() string {
 	}
 }
 
+func (t *Transport) toURL() string {
+	switch t.transType {
+	case "tcp":
+		return fmt.Sprintf("tcp://:%d", t.port)
+	case "kcp":
+		return fmt.Sprintf("kcp://:%d/%s", t.port, "fast")
+	}
+	return ""
+}
+
 func (t *Transport) Dail() (net.Conn, error) {
 	switch t.transType {
 	case "tcp":
@@ -226,9 +242,11 @@ func (t *Transport) SetupConnection(conn net.Conn) {
 func (t *Transport) CreateServerListener(server *Server) (net.Listener, error) {
 	switch t.transType {
 	case "tcp":
-		return net.ListenTCP("tcp", server.ListenAddr)
+		addr := net.TCPAddr{Port: t.port}
+		return net.ListenTCP("tcp", &addr)
 	case "kcp":
-		return kcp.ListenWithOptions(server.Listen, nil, KCP_FEC_DATASHARD, KCP_FEC_PARITYSHARD)
+		addr := fmt.Sprintf(":%d", t.port)
+		return kcp.ListenWithOptions(addr, nil, KCP_FEC_DATASHARD, KCP_FEC_PARITYSHARD)
 	}
 	return nil, ILLEGAL_STATE
 }

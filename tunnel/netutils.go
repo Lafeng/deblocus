@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -143,6 +144,13 @@ func determineDualStack() bool {
 	return v4*v6 != 0
 }
 
+func isGlobalAddr(addr string) bool {
+	if a, _ := net.ResolveIPAddr("ip", addr); a != nil {
+		return isGlobal(a)
+	}
+	return false
+}
+
 func isGlobal(addr net.Addr) bool {
 	switch a := addr.(type) {
 	case *net.TCPAddr:
@@ -155,4 +163,31 @@ func isGlobal(addr net.Addr) bool {
 		return a.IP.IsGlobalUnicast()
 	}
 	return false
+}
+
+func findServerListenPort(addr string) int {
+	n, e := net.ResolveTCPAddr("tcp", addr)
+	if e != nil {
+		return 9008
+	}
+	return n.Port
+}
+
+func findFirstUnicastAddress() string {
+	nic, e := net.InterfaceAddrs()
+	if nic != nil && e == nil {
+		for _, v := range nic {
+			if i, _ := v.(*net.IPNet); i != nil {
+				if i.IP.IsGlobalUnicast() {
+					var ipStr = i.IP.String()
+					if len(i.IP) == net.IPv6len {
+						return fmt.Sprint("[", ipStr, "]")
+					} else {
+						return ipStr
+					}
+				}
+			}
+		}
+	}
+	return NULL
 }

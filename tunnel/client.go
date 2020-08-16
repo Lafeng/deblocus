@@ -64,8 +64,8 @@ func (c *Client) initialConnect() (tun *Conn) {
 			c.transport.RemoteName(), ex.Detail(err), RETRY_INTERVAL)
 		return nil
 	} else {
-		log.Infof("Login to server %s with %s successfully",
-			c.transport.RemoteName(), c.transport.user)
+		log.Infof("Login to server %s@%s/%s successfully",
+			c.transport.user, c.transport.RemoteName(), c.transport.transType)
 		c.params = theParam
 		c.token = theParam.token
 		return

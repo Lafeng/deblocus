@@ -103,7 +103,7 @@ func NewConfigContextFromFile(specifiedFile string) (*ConfigContext, error) {
 		return nil, errors.New(msg)
 	}
 
-	iniInstance, err := ini.Load(*file)
+	iniInstance, err := ini.ShadowLoad(*file)
 	return &ConfigContext{
 		filepath:    *file,
 		iniInstance: iniInstance,
@@ -160,37 +160,6 @@ func (cc *ConfigContext) KeyInfo(expectedRole ServiceRole) string {
 	return buf.String()
 }
 
-// client config definitions
-type clientConf struct {
-	Listen     string `importable:":9009"`
-	Verbose    int    `importable:"1"`
-	pacFile    string
-	ListenAddr *net.TCPAddr `ini:"-"`
-	transport  *Transport
-}
-
-func (c *clientConf) validate() error {
-	if c.transport == nil {
-		return CONF_MISS.Apply("Not found credential")
-	}
-	if c.Listen == NULL {
-		return CONF_MISS.Apply("Listen")
-	}
-	addr, e := net.ResolveTCPAddr("tcp", c.Listen)
-	if e != nil {
-		return LOCAL_BIND_ERROR.Apply(e)
-	}
-	pkType := NameOfKey(c.transport.pubKey)
-	if pkType != c.transport.pubKeyType {
-		return CONF_ERROR.Apply(pkType)
-	}
-	if c.pacFile != NULL && IsNotExist(c.pacFile) {
-		return CONF_ERROR.Apply("File Not Found " + c.pacFile)
-	}
-	c.ListenAddr = addr
-	return nil
-}
-
 // public for external handler
 func (cc *ConfigContext) CreateClientConfig(file string, user string, addonAddr string) (err error) {
 	var f *os.File
@@ -205,35 +174,29 @@ func (cc *ConfigContext) CreateClientConfig(file string, user string, addonAddr 
 	}
 	defer f.Sync()
 
-	var sAddr string
 	var conf = new(clientConf)
-	var newIni = ini.Empty()
+	var newIni = ini.Empty(ini.LoadOptions{AllowShadows: true})
 	setFieldsDefaultValue(conf)
 	// client section
 	dc, _ := newIni.NewSection(CF_CLIENT)
 	dc.Comment = strings.TrimSpace(_CLT_CONF_HEADER)
 	dc.ReflectFrom(conf)
+
 	// prepare server addr
-	if addonAddr == NULL {
-		sAddr = findFirstUnicastAddress()
-		if sAddr == NULL {
-			sAddr = "localhost:9008"
-		} else {
-			sPort := findServerListenPort(cc.server.Listen)
-			sAddr = fmt.Sprint(sAddr, ":", sPort)
+	var sAddr = addonAddr
+	if sAddr == NULL {
+		if sAddr = findFirstUnicastAddress(); sAddr == NULL {
+			sAddr = "localhost"
 		}
-		cc.server.Listen = sAddr
-	} else {
-		err = IsValidHost(addonAddr)
-		cc.server.Listen = addonAddr
-		if err != nil {
-			return
-		}
+	} else if err = IsValidHost(sAddr); err != nil {
+		return
 	}
-	err = cc.server.generateConnInfoOfUser(newIni, user)
+
+	err = cc.server.generateTransportOfUser(newIni, sAddr, user)
 	if err == nil {
 		_, err = newIni.WriteTo(f)
-		if addonAddr == NULL {
+		// print notice to attention on server addr
+		if !isGlobalAddr(sAddr) {
 			var notice = strings.Replace(_NOTICE_MOD_ADDR, "ADDR", sAddr, -1)
 			fmt.Fprint(f, notice)
 		}
@@ -242,9 +205,9 @@ func (cc *ConfigContext) CreateClientConfig(file string, user string, addonAddr 
 }
 
 func (cc *ConfigContext) parseClient() (cli *clientConf, err error) {
-	ii := cc.iniInstance
+	var iniInst = cc.iniInstance
 	// check client
-	secDc, err := ii.GetSection(CF_CLIENT)
+	secDc, err := iniInst.GetSection(CF_CLIENT)
 	if err != nil {
 		return
 	}
@@ -256,7 +219,7 @@ func (cc *ConfigContext) parseClient() (cli *clientConf, err error) {
 	}
 
 	// credential
-	credSec, err := ii.GetSection(CF_CREDENTIAL)
+	credSec, err := iniInst.GetSection(CF_CREDENTIAL)
 	if err != nil {
 		return
 	}
@@ -288,10 +251,9 @@ func (cc *ConfigContext) parseClient() (cli *clientConf, err error) {
 	}
 
 	// check PAC
-	secPac, _ := ii.GetSection(CF_PAC)
+	secPac, _ := iniInst.GetSection(CF_PAC)
 	if secPac != nil && secPac.Haskey(CF_FILE) {
-		pacFile, _ := secPac.GetKey(CF_FILE)
-		cli.pacFile = pacFile.String()
+		cli.pacFile = secPac.Key(CF_FILE).String()
 	}
 	transport.pubKey = pubkey
 	cli.transport = transport
@@ -345,10 +307,10 @@ func (cc *ConfigContext) parseServer() (serv *serverConf, err error) {
 		transportValues := sec.Key(CF_TRANSPORT).ValueWithShadows()
 		for _, transportURL := range transportValues {
 			var transport = &Transport{asServer: true}
-			serv.Transports = append(serv.Transports, transport)
+			serv.transports = append(serv.transports, transport)
 			err = transport.parseTransport(transportURL)
 			if err != nil {
-				return serv, err
+				return nil, err
 			}
 		}
 	}
@@ -357,33 +319,54 @@ func (cc *ConfigContext) parseServer() (serv *serverConf, err error) {
 	return
 }
 
+// client config definitions
+type clientConf struct {
+	Listen     string `importable:":9009"`
+	Verbose    int    `importable:"1"`
+	pacFile    string
+	ListenAddr *net.TCPAddr `ini:"-"`
+	transport  *Transport
+}
+
+func (c *clientConf) validate() error {
+	if c.transport == nil {
+		return CONF_MISS.Apply("Not found Transport")
+	}
+	if c.Listen == NULL {
+		return CONF_MISS.Apply("Listen")
+	}
+	addr, e := net.ResolveTCPAddr("tcp", c.Listen)
+	if e != nil {
+		return LOCAL_BIND_ERROR.Apply(e)
+	}
+	pkType := NameOfKey(c.transport.pubKey)
+	if pkType != c.transport.pubKeyType {
+		return CONF_ERROR.Apply(pkType)
+	}
+	if c.pacFile != NULL && IsNotExist(c.pacFile) {
+		return CONF_ERROR.Apply("File Not Found " + c.pacFile)
+	}
+	c.ListenAddr = addr
+	return nil
+}
+
 // Server config definitions
 type serverConf struct {
-	Listen        string       `importable:":9008"`
-	Auth          string       `importable:"file://_USER_PASS_FILE_PATH_"`
+	Auth          string       `importable:"file://_PATH_TO_USER_PASS_FILE_"`
 	Cipher        string       `importable:"AES128CTR"`
 	ServerName    string       `importable:"_MY_SERVER"`
 	Parallels     int          `importable:"2"`
 	Verbose       int          `importable:"1"`
 	DenyDest      string       `importable:"OFF"`
-	ErrorFeedback string       `importable:"true"`
+	ErrorFeedback string       `importable:"true"` // todo: deprecated
 	AuthSys       auth.AuthSys `ini:"-"`
-	ListenAddr    *net.TCPAddr `ini:"-"`
-	Transports    []*Transport
+	transports    []*Transport
 	errFeedback   bool
 	privateKey    stdcrypto.PrivateKey
 	publicKey     stdcrypto.PublicKey
 }
 
-func (d *serverConf) validate() error {
-	if len(d.Listen) < 1 {
-		return CONF_MISS.Apply("Listen")
-	}
-	a, e := net.ResolveTCPAddr("tcp", d.Listen)
-	if e != nil {
-		return LOCAL_BIND_ERROR.Apply(e)
-	}
-	d.ListenAddr = a
+func (d *serverConf) validate() (e error) {
 	if len(d.Auth) < 1 {
 		return CONF_MISS.Apply("Auth")
 	}
@@ -437,32 +420,39 @@ func CreateServerConfigTemplate(file string, keyOpt string) (err error) {
 	}
 	defer f.Sync()
 
-	d5sConf := new(serverConf)
-	d5sConf.setDefaultValue()
+	srvConf := new(serverConf)
+	srvConf.setDefaultValue()
+
 	// uppercase algo name
-	keyOpt = strings.ToUpper(keyOpt)
-	d5sConf.privateKey, err = GenerateDSAKey(keyOpt)
+	srvConf.privateKey, err = GenerateDSAKey(strings.ToUpper(keyOpt))
 	if err != nil {
 		return
 	}
 
-	ii := ini.Empty()
-	ds, _ := ii.NewSection(CF_SERVER)
-	ds.Comment = strings.TrimSpace(_SER_CONF_HEADER)
-	err = ds.ReflectFrom(d5sConf)
+	iniInst := ini.Empty(ini.LoadOptions{AllowShadows: true})
+	sSrv, _ := iniInst.NewSection(CF_SERVER)
+	sSrv.Comment = strings.TrimSpace(_SER_CONF_HEADER)
+
+	kTrans := sSrv.Key(CF_TRANSPORT)
+	kTrans.Comment = "Allow this port(s) in your firewall"
+	kTrans.SetValue("tcp://:9008")
+	kTrans.AddShadow("kcp://:9008/fast")
+
+	err = sSrv.ReflectFrom(srvConf)
 	if err != nil {
 		return
 	}
-	ks, _ := ii.NewSection(CF_PRIVKEY)
-	keyBytes := MarshalPrivateKey(d5sConf.privateKey)
 
-	ks.Comment = strings.TrimSpace(_SER_CONF_MIDDLE)
-	ks.NewKey(CF_KEY, base64.StdEncoding.EncodeToString(keyBytes))
-	_, err = ii.WriteTo(f)
+	sPriv, _ := iniInst.NewSection(CF_PRIVKEY)
+	keyBytes := MarshalPrivateKey(srvConf.privateKey)
+
+	sPriv.Comment = strings.TrimSpace(_SER_CONF_MIDDLE)
+	sPriv.NewKey(CF_KEY, base64.StdEncoding.EncodeToString(keyBytes))
+	_, err = iniInst.WriteTo(f)
 	return
 }
 
-func (d *serverConf) generateConnInfoOfUser(ii *ini.File, user string) error {
+func (d *serverConf) generateTransportOfUser(iniInst *ini.File, sAddr, user string) error {
 	u, err := d.AuthSys.UserInfo(user)
 	if err != nil {
 		return err
@@ -471,11 +461,26 @@ func (d *serverConf) generateConnInfoOfUser(ii *ini.File, user string) error {
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("d5://%s:%s@%s/%s/%s/%s", u.Name, u.Pass, d.Listen, d.ServerName, NameOfKey(d.publicKey), d.Cipher)
-	sec, _ := ii.NewSection(CF_CREDENTIAL)
-	sec.NewKey(CF_URL, url)
-	sec.NewKey(CF_KEY, base64.StdEncoding.EncodeToString(keyBytes))
+	url := fmt.Sprintf("d5://%s:%s@%s/%s/%s/%s", u.Name, u.Pass, sAddr, d.ServerName, NameOfKey(d.publicKey), d.Cipher)
+	sec, _ := iniInst.NewSection(CF_CREDENTIAL)
 	sec.Comment = strings.TrimSpace(_COMMENTED_PAC_SECTION)
+
+	// create URL
+	sec.NewKey(CF_URL, url)
+
+	// create pub-key
+	sec.NewKey(CF_KEY, base64.StdEncoding.EncodeToString(keyBytes))
+
+	// create transport
+	kTrans := sec.Key(CF_TRANSPORT)
+	for i, trans := range d.transports {
+		switch i {
+		case 0:
+			kTrans.SetValue(trans.toURL())
+		case 1:
+			kTrans.AddShadow(trans.toURL())
+		}
+	}
 
 	// todo: key of transport
 	return nil
@@ -523,54 +528,36 @@ func setFieldsDefaultValue(str interface{}) {
 	}
 }
 
-func findServerListenPort(addr string) int {
-	n, e := net.ResolveTCPAddr("tcp", addr)
-	if e != nil {
-		return 9008
-	}
-	return n.Port
-}
-
-func findFirstUnicastAddress() string {
-	nic, e := net.InterfaceAddrs()
-	if nic != nil && e == nil {
-		for _, v := range nic {
-			if i, _ := v.(*net.IPNet); i != nil {
-				if i.IP.IsGlobalUnicast() {
-					return i.IP.String()
-				}
-			}
-		}
-	}
-	return NULL
-}
-
 const _SER_CONF_HEADER = `
-# ---------------------------------------------
-# deblocus server configuration
-# wiki: https://github.com/Lafeng/deblocus/wiki
-# ---------------------------------------------
+# -------------------------------------------------
+#   deblocus server configuration
+#   wiki: https://github.com/Lafeng/deblocus/wiki
+# -------------------------------------------------
 `
 
 const _SER_CONF_MIDDLE = `
-### Please take good care of this secret file during the server life cycle.
-### DO NOT modify the following lines, unless you known what will happen.
+# Please take good care of this secret file during the server life cycle.
+# DO NOT modify the following lines, unless you known what will happen.
 `
 
 const _CLT_CONF_HEADER = `
-# ---------------------------------------------
-# deblocus client configuration
-# wiki: https://github.com/Lafeng/deblocus/wiki
-# ---------------------------------------------
+# -------------------------------------------------
+#   deblocus client configuration
+#   wiki: https://github.com/Lafeng/deblocus/wiki
+# -------------------------------------------------
 `
 
 const _COMMENTED_PAC_SECTION = `# Optional
 # [PAC.Server]
 # File = mypac.js
+;
+;
+;
+# Keep Secret !!!
 `
 
 const _NOTICE_MOD_ADDR = `
 # +-----------------------------------------------------------------+
-#   May need to modify the "ADDR" to your public address.
+#   Perhaps modify the "ADDR" to your actual public address.
 # +-----------------------------------------------------------------+
 `
