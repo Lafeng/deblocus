@@ -302,6 +302,12 @@ func (s *Server) updateNow() {
 
 // implement Stats()
 func (t *Server) Stats() string {
+	buf := new(bytes.Buffer)
+	// reload AuthSys
+	t.AuthSys.Reload()
+	buf.WriteString(t.AuthSys.Stats())
+
+	// collect active sessions
 	uniqClient := make(map[string]byte)
 	t.sessionMgr.lock.RLock()
 	for _, s := range t.sessionMgr.container {
@@ -310,7 +316,8 @@ func (t *Server) Stats() string {
 		}
 	}
 	t.sessionMgr.lock.RUnlock()
-	buf := new(bytes.Buffer)
+
+	// print all
 	for k, n := range uniqClient {
 		buf.WriteString(fmt.Sprintf("Clt=%s Conn=%d\n", k, n))
 	}

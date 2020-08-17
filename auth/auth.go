@@ -18,6 +18,8 @@ type AuthSys interface {
 	Authenticate(user, passwd string) (bool, error)
 	AddUser(user *User) error
 	UserInfo(user string) (*User, error)
+	Stats() string
+	Reload() error
 }
 
 type User struct {

@@ -207,8 +207,24 @@ func (ctx *bootContext) onRoleFinished(role ServiceRole) {
 }
 
 func (ctx *bootContext) register(cmp Component, cz io.Closer) {
-	ctx.components = append(ctx.components, cmp)
-	ctx.closeable = append(ctx.closeable, cz)
+	var exists1, exists2 int
+	for _, v := range ctx.components {
+		if v == cmp {
+			exists1++
+		}
+	}
+	for _, v := range ctx.closeable {
+		if v == cz {
+			exists2++
+		}
+	}
+
+	if exists1 == 0 {
+		ctx.components = append(ctx.components, cmp)
+	}
+	if exists2 == 0 {
+		ctx.closeable = append(ctx.closeable, cz)
+	}
 }
 
 func (ctx *bootContext) doStats() {
