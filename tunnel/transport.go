@@ -15,7 +15,7 @@ import (
 
 type Transport struct {
 	rawURL     string
-	remoteAddr string
+	remoteHost string
 	provider   string
 	cipher     string // todo: deprecated
 	user       string
@@ -41,16 +41,20 @@ func (t *Transport) parseTransport(str string) error {
 		return err
 	}
 
-	// t.host for listen
-	t.port = findServerListenPort(u.Port())
+	// t.port for listen
+	if t.port, err = strconv.Atoi(u.Port()); err != nil {
+		return err
+	}
 
 	switch u.Scheme {
 	case "tcp":
 		t.transType = "tcp"
-		return nil
+		return nil // TCP OK
+
 	case "kcp":
 		t.transType = "kcp"
 		goto kcp
+
 	default:
 		goto err
 	}
@@ -58,15 +62,21 @@ func (t *Transport) parseTransport(str string) error {
 kcp:
 	{
 		// kcp://host:port /kcpMode? mtu=1 & rwnd=2 & rbuf=3
+		// kcp://host:port /custom/1,2,3,4? mtu=1 & rwnd=2 & rbuf=3
 		t.kcpMode = strings.TrimPrefix(u.Path, "/")
 		switch t.kcpMode {
 		case "normal":
-			t.kcpParams = []int{0, 40, 2, 1}
+			t.kcpParams = []int{0, 40, 7, 1}
 		case "fast":
-			t.kcpParams = []int{0, 20, 2, 1}
+			t.kcpParams = []int{0, 20, 5, 1}
 		case "turbo":
 			t.kcpParams = []int{0, 10, 2, 1}
 		default:
+			if strings.HasPrefix(t.kcpMode, "custom/") {
+				if t.kcpParams, err = toIntArray(t.kcpMode[7:], 4); err == nil {
+					break
+				}
+			}
 			goto err
 		}
 
@@ -109,13 +119,14 @@ func newTransport(uri string) (*Transport, error) {
 	}
 
 	// host
-	if _, err = net.ResolveTCPAddr("tcp", url.Host); err != nil {
-		return nil, HOST_UNREACHABLE.Apply(err)
+	var remoteHost = url.Hostname()
+	if IsValidHost(remoteHost) != nil {
+		return nil, HOST_UNREACHABLE.Apply(url.Host)
 	}
 
 	var trans = Transport{
 		rawURL:     uri,
-		remoteAddr: url.Host,
+		remoteHost: remoteHost,
 		transType:  "tcp",
 	}
 
@@ -158,8 +169,12 @@ func (t *Transport) RemoteName() string {
 	if t.provider != NULL {
 		return t.provider
 	} else {
-		return t.remoteAddr
+		return t.remoteHost
 	}
+}
+
+func (t *Transport) TransType() string {
+	return t.transType
 }
 
 func (t *Transport) toURL() string {
@@ -182,18 +197,24 @@ func (t *Transport) Dail() (net.Conn, error) {
 	return nil, ILLEGAL_STATE
 }
 
+func (t *Transport) remoteAddr() string {
+	return fmt.Sprint(t.remoteHost, ":", t.port)
+}
+
 func (t *Transport) dailTcpConnection() (net.Conn, error) {
-	return net.DialTimeout("tcp", t.remoteAddr, GENERAL_SO_TIMEOUT)
+	return net.DialTimeout("tcp", t.remoteAddr(), GENERAL_SO_TIMEOUT)
 }
 
 func (t *Transport) dailKcpConnection() (net.Conn, error) {
-	var kcpconn, err = kcp.DialWithOptions(t.remoteAddr, nil, KCP_FEC_DATASHARD, KCP_FEC_PARITYSHARD)
+	var kcpconn, err = kcp.DialWithOptions(t.remoteAddr(), nil, KCP_FEC_DATASHARD, KCP_FEC_PARITYSHARD)
 	if err != nil {
 		return kcpconn, err
 	}
 	err = t.setupKcpConnection(kcpconn)
 	return kcpconn, err
 }
+
+const DSCP_EF = 46
 
 func (t *Transport) setupKcpConnection(kcpconn *kcp.UDPSession) (err error) {
 	// nodelay : Whether nodelay mode is enabled, 0 is not enabled; 1 enabled.
@@ -211,17 +232,19 @@ func (t *Transport) setupKcpConnection(kcpconn *kcp.UDPSession) (err error) {
 	kcpconn.SetStreamMode(true)
 	kcpconn.SetWriteDelay(false)
 
-	if err = kcpconn.SetDSCP(46); err != nil {
-		log.Errorln("SetDSCP:", err)
-		goto returnErr
-	}
-	if err = kcpconn.SetReadBuffer(t.rbuf); err != nil {
-		log.Errorln("SetReadBuffer:", err)
-		goto returnErr
-	}
-	if err = kcpconn.SetWriteBuffer(t.sbuf); err != nil {
-		log.Errorln("SetWriteBuffer:", err)
-		goto returnErr
+	if !t.asServer {
+		if err = kcpconn.SetDSCP(DSCP_EF); err != nil {
+			log.Errorln("SetDSCP:", err)
+			goto returnErr
+		}
+		if err = kcpconn.SetReadBuffer(t.rbuf); err != nil {
+			log.Errorln("SetReadBuffer:", err)
+			goto returnErr
+		}
+		if err = kcpconn.SetWriteBuffer(t.sbuf); err != nil {
+			log.Errorln("SetWriteBuffer:", err)
+			goto returnErr
+		}
 	}
 	return nil
 
@@ -229,8 +252,23 @@ returnErr:
 	return err
 }
 
-func (t *Transport) TransType() string {
-	return t.transType
+func (t *Transport) setupKcpListener(listener *kcp.Listener) (err error) {
+	if err = listener.SetDSCP(DSCP_EF); err != nil {
+		log.Errorln("SetDSCP:", err)
+		goto returnErr
+	}
+	if err = listener.SetReadBuffer(t.rbuf); err != nil {
+		log.Errorln("SetReadBuffer:", err)
+		goto returnErr
+	}
+	if err = listener.SetWriteBuffer(t.sbuf); err != nil {
+		log.Errorln("SetWriteBuffer:", err)
+		goto returnErr
+	}
+	return nil
+
+returnErr:
+	return err
 }
 
 func (t *Transport) SetupConnection(conn net.Conn) {
@@ -246,7 +284,12 @@ func (t *Transport) CreateServerListener(server *Server) (net.Listener, error) {
 		return net.ListenTCP("tcp", &addr)
 	case "kcp":
 		addr := fmt.Sprintf(":%d", t.port)
-		return kcp.ListenWithOptions(addr, nil, KCP_FEC_DATASHARD, KCP_FEC_PARITYSHARD)
+		if ln, err := kcp.ListenWithOptions(addr, nil, KCP_FEC_DATASHARD, KCP_FEC_PARITYSHARD); err == nil {
+			err = t.setupKcpListener(ln)
+			return ln, err
+		} else {
+			return nil, err
+		}
 	}
 	return nil, ILLEGAL_STATE
 }

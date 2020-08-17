@@ -250,7 +250,7 @@ func (c *Client) eventHandler(e event, msg ...interface{}) {
 
 func (t *Client) Stats() string {
 	return fmt.Sprintf("Client -> %s Conn=%d TK=%d",
-		t.transport.remoteAddr, atomic.LoadInt32(&t.dtCnt), len(t.token)/TKSZ)
+		t.transport.remoteHost, atomic.LoadInt32(&t.dtCnt), len(t.token)/TKSZ)
 }
 
 func (t *Client) Close() {

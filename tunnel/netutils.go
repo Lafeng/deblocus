@@ -37,12 +37,12 @@ func closeW(conn net.Conn) {
 }
 
 func IsValidHost(addr string) (err error) {
-	var h, p string
-	h, p, err = net.SplitHostPort(addr)
+	var h string
+	h, _, err = net.SplitHostPort(addr + ":1")
 	if err != nil {
 		return
 	}
-	if h == NULL || p == NULL {
+	if h == NULL {
 		err = errors.New("Invalid address " + addr)
 	}
 	return

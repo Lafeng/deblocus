@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -87,6 +88,22 @@ func nvl(v interface{}, def interface{}) interface{} {
 		return def
 	}
 	return v
+}
+
+func toIntArray(str string, num int) ([]int, error) {
+	var parts = strings.Split(str, ",")
+	var array []int
+	for _, v := range parts {
+		if i, err := strconv.Atoi(v); err == nil {
+			array = append(array, i)
+		} else {
+			return nil, err
+		}
+	}
+	if len(array) == num {
+		return array, nil
+	}
+	return nil, errors.New("invalid input " + str)
 }
 
 // return arg0 the substring before sep

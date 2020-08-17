@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-
 	"os"
 	"os/user"
 	"path/filepath"
