@@ -54,9 +54,9 @@ const (
 )
 
 const (
-	WAITING_OPEN_TIMEOUT = time.Second * 30
-	WRITE_TUN_TIMEOUT    = time.Second * 15
-	READ_TMO_IN_FASTOPEN = time.Millisecond * 1500
+	WAITING_OPEN_TIMEOUT = time.Second * 5
+	WRITE_TUN_TIMEOUT    = time.Second * 10
+	READ_TMO_IN_FASTOPEN = time.Millisecond * 100
 )
 
 const (
@@ -288,7 +288,7 @@ func (p *multiplexer) destroy() {
 }
 
 // serve client request
-func (p *multiplexer) HandleRequest(protocol string, req net.Conn, target string) {
+func (p *multiplexer) HandleRequest(protocol string, req net.Conn, target string) int {
 	// select a tunnel to serve client request
 	if tun := p.pool.Select(); tun != nil {
 		sid := next_sid()
@@ -300,14 +300,19 @@ func (p *multiplexer) HandleRequest(protocol string, req net.Conn, target string
 			log.Infof("%s->[%s] from=%s sid=%d\n",
 				protocol, target, ipAddr(req.RemoteAddr()), sid)
 		}
+
 		// egress: transmit data from the edge connection to the tunnel
-		p.relay(edge, tun, sid)
+		if ret := p.relay(edge, tun, sid); ret == FRAME_ACTION_OPEN_DENIED {
+			return -1
+		}
 	} else {
 		// offline
 		log.Warningln(ERR_TUN_NA)
 		time.Sleep(time.Second)
 		SafeClose(req)
 	}
+
+	return 1
 }
 
 // destory resources associated with the tun
@@ -400,7 +405,7 @@ func (p *multiplexer) Listen(tun *Conn, handler event_handler, interval int) err
 				// normally
 				edge.deliver(frm)
 			} else if pre {
-				// in fastOpen
+				// in remoteOpen
 				router.preDeliver(key, frm)
 			} else {
 				if log.V(log.LV_WARN) {
@@ -533,12 +538,13 @@ func (p *multiplexer) connectToDest(frm *frame, key string, tun *Conn) {
 	}
 }
 
-func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
+func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) (ret byte) {
 	var (
-		buf      = bytePool.Get(FRAME_MAX_LEN)
-		destHost = edge.dest[2:] // dest with a leading mark
-		src      = edge.conn
-		code     byte
+		buf         = bytePool.Get(FRAME_MAX_LEN)
+		destHost    = edge.dest[2:] // dest with a leading mark
+		src         = edge.conn
+		pushbackBuf []byte
+		code        byte
 	)
 	defer func() {
 		// actively close then notify peer
@@ -552,9 +558,18 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		} else {
 			bytePool.Put(buf)
 		}
-		if code == FRAME_ACTION_OPEN_Y {
+
+		// close operation by code
+		switch code {
+		case FRAME_ACTION_OPEN_Y:
 			closeR(src)
-		} else { // remote open failed
+		case FRAME_ACTION_OPEN_DENIED:
+			ret = code
+			if pushbackBuf != nil {
+				pbConn := src.(*pushbackInputStream)
+				pbConn.Unread(pushbackBuf)
+			}
+		default: // remote open failed
 			SafeClose(src)
 		}
 	}()
@@ -569,7 +584,7 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 			}
 			return
 		}
-		// send destination to server
+		// send destination to perform remoteOpen
 		_len := pack(buf, FRAME_ACTION_OPEN, sid, []byte(destHost))
 		if frameWriteBuffer(tun, buf[:_len]) != nil {
 			SafeClose(tun)
@@ -578,11 +593,13 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 	}
 
 	// return true if the request must be aborted
-	var checkOpenSignal = func(p_fastOpen *bool, code byte) bool {
+	var checkOpenSignal = func(ptrRemoteOpen *bool, code byte) bool {
 		switch code {
 		case FRAME_ACTION_OPEN_Y:
-			// fastopen finished
-			*p_fastOpen = false
+			// remoteOpen finished
+			*ptrRemoteOpen = false
+			// recycle buffer
+			pushbackBuf = nil
 			return false
 
 		case FRAME_ACTION_OPEN_DENIED:
@@ -604,39 +621,46 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 		tn         int // total
 		nr         int
 		er         error
-		_fast_open = p.isClient
+		remoteOpen = p.isClient
 		dataBuf    = buf[FRAME_HEADER_LEN:]
 	)
-	for {
-		if _fast_open {
-			select {
-			case code = <-edge.ready: // received
-				if checkOpenSignal(&_fast_open, code) {
-					return
-				}
 
-			default: // ready-chan was not ready
-				// buffer too large then must wait for signal
-				if tn >= FAST_OPEN_BUF_MAX_SIZE {
-					select {
-					case code = <-edge.ready:
-					case <-time.After(WAITING_OPEN_TIMEOUT):
-						log.Errorf("Waiting open-signal sid=%d timeout for %s\n", sid, edge.dest)
-					}
-					// timeout or open-signal received
-					if checkOpenSignal(&_fast_open, code) {
+	for {
+		if remoteOpen {
+			if nr > 0 {
+				// keep read data into pushbackBuf
+				pushbackBuf = append(pushbackBuf, dataBuf[:nr]...)
+			}
+
+			if tn < FAST_OPEN_BUF_MAX_SIZE {
+				// can send small data to tunnel while not sure the result of remote open
+				select {
+				case code = <-edge.ready: // received
+					if checkOpenSignal(&remoteOpen, code) {
 						return
 					}
+				default:
+				}
+
+			} else {
+				// too many data was sent to tunnel then must wait for signal
+				select {
+				case code = <-edge.ready:
+				case <-time.After(WAITING_OPEN_TIMEOUT):
+					log.Errorf("Waiting open-signal sid=%d timeout for %s\n", sid, edge.dest)
+				}
+				// timeout or open-signal received
+				if checkOpenSignal(&remoteOpen, code) {
+					return
 				}
 			}
 
-			// fastopen has been finished
-			if !_fast_open {
+			if remoteOpen {
+				// remoteOpening: use timeout to recheck remoteOpen state ASAP
+				src.SetReadDeadline(time.Now().Add(READ_TMO_IN_FASTOPEN))
+			} else { // remoteOpen has been finished
 				// read forever
 				src.SetReadDeadline(ZERO_TIME)
-			} else {
-				// In fastOpening, use timeout to recheck fastopen state
-				src.SetReadDeadline(time.Now().Add(READ_TMO_IN_FASTOPEN))
 			}
 		}
 
@@ -649,8 +673,9 @@ func (p *multiplexer) relay(edge *edgeConn, tun *Conn, sid uint16) {
 				return
 			}
 		}
-		// timeout cause of rechecking then open-signal in fastOpen
-		if er != nil && !(_fast_open && IsTimeout(er)) {
+
+		// timeout cause of rechecking then open-signal in remoteOpen
+		if er != nil && !(remoteOpen && IsTimeout(er)) {
 			if er != io.EOF && DEBUG {
 				log.Infof("Read to the end of edge total=%d err=(%v)", tn, er)
 			}

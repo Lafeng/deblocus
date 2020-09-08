@@ -46,7 +46,7 @@ func init() {
 	printArgLine("cltAddr", cltAddr)
 	printArgLine("svrAddr", svrAddr)
 	printArgLine("dstAddr", dstAddr)
-	fmt.Println("\n")
+	fmt.Println()
 }
 
 func printArgLine(name string, val interface{}) {
