@@ -11,5 +11,5 @@ require (
 	github.com/smartystreets/goconvey v1.6.4 // indirect
 	github.com/urfave/cli/v2 v2.2.0
 	gopkg.in/ini.v1 v1.57.0 // indirect
-	github.com/xtaci/kcp-go/v5 v5.5.15
+	github.com/xtaci/kcp-go/v5 v5.6.1
 )
